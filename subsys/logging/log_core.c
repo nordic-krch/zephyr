@@ -39,11 +39,14 @@ static u32_t dummy_timestamp(void)
 }
 
 static inline void msg_finalize(struct log_msg *msg,
-				struct log_msg_ids src_level)
+				u32_t src_level)
 {
 	unsigned int key;
 
-	msg->hdr.ids = src_level;
+	union log_msg_ids_u ids;
+	RAW_MSG_IDS_TO_STRUCT(ids, src_level)
+	;
+	msg->hdr.ids = ids.ids;
 	msg->hdr.timestamp = timestamp_func();
 
 	atomic_inc(&buffered_cnt);
@@ -67,7 +70,7 @@ static inline void msg_finalize(struct log_msg *msg,
 	}
 }
 
-void log_0(const char *str, struct log_msg_ids src_level)
+void log_0(const char *str, u32_t src_level)
 {
 	struct log_msg *msg = log_msg_create_0(str);
 
@@ -79,7 +82,7 @@ void log_0(const char *str, struct log_msg_ids src_level)
 
 void log_1(const char *str,
 	   u32_t arg0,
-	   struct log_msg_ids src_level)
+	   u32_t src_level)
 {
 	struct log_msg *msg = log_msg_create_1(str, arg0);
 
@@ -92,7 +95,7 @@ void log_1(const char *str,
 void log_2(const char *str,
 	   u32_t arg0,
 	   u32_t arg1,
-	   struct log_msg_ids src_level)
+	   u32_t src_level)
 {
 	struct log_msg *msg = log_msg_create_2(str, arg0, arg1);
 
@@ -107,7 +110,7 @@ void log_3(const char *str,
 	   u32_t arg0,
 	   u32_t arg1,
 	   u32_t arg2,
-	   struct log_msg_ids src_level)
+	   u32_t src_level)
 {
 	struct log_msg *msg = log_msg_create_3(str, arg0, arg1, arg2);
 
@@ -121,7 +124,7 @@ void log_3(const char *str,
 void log_n(const char *str,
 	   u32_t *args,
 	   u32_t narg,
-	   struct log_msg_ids src_level)
+	   u32_t src_level)
 {
 	struct log_msg *msg = log_msg_create_n(str, args, narg);
 
@@ -134,7 +137,7 @@ void log_n(const char *str,
 
 void log_hexdump(const u8_t *data,
 		 u32_t length,
-		 struct log_msg_ids src_level)
+		 u32_t src_level)
 {
 	struct log_msg *msg = log_msg_hexdump_create(data, length);
 
@@ -149,7 +152,6 @@ int log_printk(const char *fmt, va_list ap)
 {
 	if (IS_ENABLED(CONFIG_LOG_PRINTK)) {
 		u8_t formatted_str[CONFIG_LOG_PRINTK_MAX_STRING_LENGTH];
-		struct log_msg_ids empty_id = { 0 };
 		struct log_msg *msg;
 		int length;
 
@@ -165,7 +167,7 @@ int log_printk(const char *fmt, va_list ap)
 		}
 
 		msg->hdr.params.hexdump.raw_string = 1;
-		msg_finalize(msg, empty_id);
+		msg_finalize(msg, 0);
 
 		return length;
 	} else {
@@ -173,7 +175,7 @@ int log_printk(const char *fmt, va_list ap)
 	}
 }
 
-void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap)
+void log_generic(u32_t src_level, const char *fmt, va_list ap)
 {
 	u32_t args[LOG_MAX_NARGS];
 

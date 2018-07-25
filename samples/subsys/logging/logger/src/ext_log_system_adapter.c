@@ -23,16 +23,11 @@ static const u8_t log_level_lut[] = {
 
 static void log_handler(enum ext_log_level level, const char *fmt, ...)
 {
-	struct log_msg_ids src_level = {
-		.level = log_level_lut[level],
-		.domain_id = CONFIG_LOG_DOMAIN_ID,
-		.source_id = LOG_CURRENT_MODULE_ID()
-	};
-
 	va_list ap;
 
 	va_start(ap, fmt);
-	log_generic(src_level, fmt, ap);
+	log_generic(_LOG_SRC_LVL(log_level_lut[level], LOG_CURRENT_MODULE_ID()),
+		    fmt, ap);
 	va_end(ap);
 }
 

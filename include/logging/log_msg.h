@@ -69,10 +69,25 @@ extern "C" {
 
 /** @brief Part of log message header identifying source and level. */
 struct log_msg_ids {
-	u16_t level     : 3;    /*!< Severity. */
-	u16_t domain_id : 3;    /*!< Originating domain. */
 	u16_t source_id : 10;   /*!< Source ID. */
+	u16_t domain_id : 3;    /*!< Originating domain. */
+	u16_t level     : 3;    /*!< Severity. */
 };
+
+union log_msg_ids_u {
+	struct log_msg_ids ids;
+	u16_t raw;
+};
+
+/** @brief Macro for converting raw data to structure log_msg_ids structure.
+ *
+ * Raw data contains:
+ * - source_id 10 LSB
+ * - domain_id 3 bits
+ * - level 3 MSB
+ */
+#define RAW_MSG_IDS_TO_STRUCT(_log_msg_ids_u, _raw) \
+	(_log_msg_ids_u.raw) = (u16_t)(_raw)
 
 _Static_assert(sizeof(struct log_msg_ids) == sizeof(u16_t),
 	      "Structure must fit in 2 bytes");

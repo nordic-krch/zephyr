@@ -187,25 +187,23 @@ extern "C" {
 	)								    \
 	))
 
+#define _LOG_SRC_LVL(_level, _id)					\
+	(((_level) << 13) | (CONFIG_LOG_DOMAIN_ID << 10) | (_id))
+
 /******************************************************************************/
 /****************** Macros for standard logging *******************************/
 /******************************************************************************/
-#define __LOG(_level, _id, _filter, ...)				    \
-	do {								    \
-		if (_LOG_CONST_LEVEL_CHECK(_level) &&			    \
-		    (_level <= LOG_RUNTIME_FILTER(_filter))) {		    \
-			struct log_msg_ids src_level = {		    \
-				.level = _level,			    \
-				.source_id = _id,			    \
-				.domain_id = CONFIG_LOG_DOMAIN_ID	    \
-			};						    \
-			__LOG_INTERNAL(src_level, __VA_ARGS__);		    \
-		} else if (0) {						    \
-			/* Arguments checker present but never evaluated.*/ \
-			/* Placed here to ensure that __VA_ARGS__ are*/     \
-			/* evaluated once when log is enabled.*/	    \
-			log_printf_arg_checker(__VA_ARGS__);		    \
-		}							    \
+#define __LOG(_level, _id, _filter, ...)				       \
+	do {								       \
+		if (_LOG_CONST_LEVEL_CHECK(_level) &&			       \
+		    (_level <= LOG_RUNTIME_FILTER(_filter))) {		       \
+			__LOG_INTERNAL(_LOG_SRC_LVL(_level, _id), __VA_ARGS__);\
+		} else if (0) {						       \
+			/* Arguments checker present but never evaluated.*/    \
+			/* Placed here to ensure that __VA_ARGS__ are*/        \
+			/* evaluated once when log is enabled.*/	       \
+			log_printf_arg_checker(__VA_ARGS__);		       \
+		}							       \
 	} while (0)
 
 #define _LOG(_level, ...)			       \
@@ -226,17 +224,12 @@ extern "C" {
 /******************************************************************************/
 /****************** Macros for hexdump logging ********************************/
 /******************************************************************************/
-#define __LOG_HEXDUMP(_level, _id, _filter, _data, _length)	   \
-	do {							   \
-		if (_LOG_CONST_LEVEL_CHECK(_level) &&		   \
-		    (_level <= LOG_RUNTIME_FILTER(_filter))) {	   \
-			struct log_msg_ids src_level = {	   \
-				.level = _level,		   \
-				.source_id = _id,		   \
-				.domain_id = CONFIG_LOG_DOMAIN_ID  \
-			};					   \
-			log_hexdump(_data, _length, src_level);	   \
-		}						   \
+#define __LOG_HEXDUMP(_level, _id, _filter, _data, _length)		       \
+	do {								       \
+		if (_LOG_CONST_LEVEL_CHECK(_level) &&			       \
+		    (_level <= LOG_RUNTIME_FILTER(_filter))) {		       \
+			log_hexdump(_data, _length, _LOG_SRC_LVL(_level, _id));\
+		}							       \
 	} while (0)
 
 #define _LOG_HEXDUMP(_level, _data, _length)		       \
@@ -392,7 +385,7 @@ void log_printf_arg_checker(const char *fmt, ...)
  * @param str           String.
  * @param src_level	Log identification.
  */
-void log_0(const char *str, struct log_msg_ids src_level);
+void log_0(const char *str, u32_t src_level);
 
 /** @brief Standard log with one argument.
  *
@@ -402,7 +395,7 @@ void log_0(const char *str, struct log_msg_ids src_level);
  */
 void log_1(const char *str,
 	   u32_t arg1,
-	   struct log_msg_ids src_level);
+	   u32_t src_level);
 
 /** @brief Standard log with two arguments.
  *
@@ -414,7 +407,7 @@ void log_1(const char *str,
 void log_2(const char *str,
 	   u32_t arg1,
 	   u32_t arg2,
-	   struct log_msg_ids src_level);
+	   u32_t src_level);
 
 /** @brief Standard log with three arguments.
  *
@@ -428,7 +421,7 @@ void log_3(const char *str,
 	   u32_t arg1,
 	   u32_t arg2,
 	   u32_t arg3,
-	   struct log_msg_ids src_level);
+	   u32_t src_level);
 
 /** @brief Standard log with arguments list.
  *
@@ -440,7 +433,7 @@ void log_3(const char *str,
 void log_n(const char *str,
 	   u32_t *args,
 	   u32_t narg,
-	   struct log_msg_ids src_level);
+	   u32_t src_level);
 
 /** @brief Hexdump log.
  *
@@ -450,7 +443,7 @@ void log_n(const char *str,
  */
 void log_hexdump(const u8_t *data,
 		 u32_t length,
-		 struct log_msg_ids src_level);
+		 u32_t src_level);
 
 /** @brief Format and put string into log message.
  *
@@ -466,7 +459,7 @@ int log_printk(const char *fmt, va_list ap);
  *
  * @note This function is intended to be used when porting other log systems.
  */
-void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap);
+void log_generic(u32_t src_level, const char *fmt, va_list ap);
 
 #ifdef __cplusplus
 }

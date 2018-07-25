@@ -292,6 +292,29 @@ static void test_log_panic(void)
 		      "Unexpected amount of messages received by the backend.");
 }
 
+/* Test verifies if bit field mapping in struct log_msg_ids is maintained
+ * by RAW_MSG_IDS_TO_STRUCT
+ */
+static void test_log_msg_ids_mapping(void)
+{
+	union log_msg_ids_u msg_ids;
+
+	RAW_MSG_IDS_TO_STRUCT(msg_ids, _LOG_SRC_LVL(2,555));
+
+	zassert_equal(2, msg_ids.ids.level, "Unexpected level.");
+	zassert_equal(555, msg_ids.ids.source_id, "Unexpected level.");
+	zassert_equal(CONFIG_LOG_DOMAIN_ID, msg_ids.ids.domain_id,
+		      "Unexpected level.");
+
+	RAW_MSG_IDS_TO_STRUCT(msg_ids, _LOG_SRC_LVL(4,777));
+
+	zassert_equal(4, msg_ids.ids.level, "Unexpected level.");
+	zassert_equal(777, msg_ids.ids.source_id, "Unexpected level.");
+	zassert_equal(CONFIG_LOG_DOMAIN_ID, msg_ids.ids.domain_id,
+		      "Unexpected level.");
+
+}
+
 /*test case main entry*/
 void test_main(void)
 {
@@ -299,6 +322,8 @@ void test_main(void)
 			 ztest_unit_test(test_log_backend_runtime_filtering),
 			 ztest_unit_test(test_log_overflow),
 			 ztest_unit_test(test_log_arguments),
-			 ztest_unit_test(test_log_panic));
+			 ztest_unit_test(test_log_panic),
+			 ztest_unit_test(test_log_msg_ids_mapping)
+			 );
 	ztest_run_test_suite(test_log_list);
 }
