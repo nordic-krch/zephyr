@@ -346,22 +346,32 @@ static void cmd_cli_stats(const struct shell *shell, size_t argc, char **argv)
 static void cmd_cli_stats_show(const struct shell *shell, size_t argc,
 			       char **argv)
 {
+	if (!IS_ENABLED(CONFIG_SHELL_STATS)) {
+		shell_fprintf(shell, SHELL_ERROR, "Command not supported.\r\n");
+		return;
+	}
+
 	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
 		return;
 	}
 
 	shell_fprintf(shell, SHELL_NORMAL, "Lost logs: %u\r\n",
-		      shell->ctx->statistics.log_lost_cnt);
+		      shell->stats->log_lost_cnt);
 }
 
 static void cmd_cli_stats_reset(const struct shell *shell,
 				size_t argc, char **argv)
 {
+	if (!IS_ENABLED(CONFIG_SHELL_STATS)) {
+		shell_fprintf(shell, SHELL_ERROR, "Command not supported.\r\n");
+		return;
+	}
+
 	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
 		return;
 	}
 
-	shell->ctx->statistics.log_lost_cnt = 0;
+	shell->stats->log_lost_cnt = 0;
 }
 
 static void cmd_resize_default(const struct shell *shell,

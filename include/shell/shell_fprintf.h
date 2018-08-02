@@ -38,26 +38,26 @@ struct shell_fprintf {
 /**
  * @brief Macro for defining shell_fprintf instance.
  *
- * @param name            Instance name.
+ * @param _name           Instance name.
  * @param _user_ctx       Pointer to user data.
- * @param _buffer         Pointer to IO buffer
- * @param _buffer_size    Size of IO buffer.
- * @param _autoflush      Indicator if IO buffer shall be automatically flush.
+ * @param _buf            Pointer to output buffer
+ * @param _size           Size of output buffer.
+ * @param _autoflush      Indicator if buffer shall be automatically flush.
  * @param _fwrite         Pointer to function sending data stream.
  * */
-#define SHELL_FPRINTF_DEFINE(_name, _user_ctx, _size, _autoflush, _fwrite) \
-	static struct shell_fprintf_control_block			   \
-				_name##_shell_fprintf_ctx = {		   \
-		.autoflush = _autoflush,				   \
-		.buffer_cnt = 0						   \
-	};								   \
-	static u8_t _name##_shell_fprintf_buf[_size];			   \
-	static const struct shell_fprintf _name = {			   \
-		.buffer = _name##_shell_fprintf_buf,			   \
-		.buffer_size = _size,					   \
-		.fwrite = _fwrite,					   \
-		.user_ctx = _user_ctx,					   \
-		.ctrl_blk = &_name##_shell_fprintf_ctx			   \
+#define SHELL_FPRINTF_DEFINE(_name, _user_ctx, _buf, _size,	\
+			    _autoflush, _fwrite)		\
+	static struct shell_fprintf_control_block		\
+				_name##_shell_fprintf_ctx = {	\
+		.autoflush = _autoflush,			\
+		.buffer_cnt = 0					\
+	};							\
+	static const struct shell_fprintf _name = {		\
+		.buffer = _buf,					\
+		.buffer_size = _size,				\
+		.fwrite = _fwrite,				\
+		.user_ctx = _user_ctx,				\
+		.ctrl_blk = &_name##_shell_fprintf_ctx		\
 	}
 
 /**
