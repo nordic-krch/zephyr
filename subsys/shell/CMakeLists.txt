@@ -16,6 +16,7 @@ zephyr_sources_ifdef(
   shell_fprintf.c
   shell_utils.c
   shell_ops.c
+  shell_log_backend.c
   shell_uart.c
   )
   
