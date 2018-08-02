@@ -11,7 +11,10 @@
 #include <shell/cli_types.h>
 #include <shell/shell_history.h>
 #include <shell/shell_fprintf.h>
+#include <shell/shell_log_backend.h>
 #include <logging/log_backend.h>
+#include <logging/log_instance.h>
+#include <logging/log.h>
 #include <misc/util.h>
 
 #ifdef __cplusplus
@@ -278,6 +281,13 @@ struct shell_stats
     u32_t log_lost_cnt;  /*!< Lost log counter.*/
 };
 
+#if CONFIG_SHELL_STATS
+#define SHELL_STATS_DEFINE(_name) static struct shell_stats _name##_stats;
+#define SHELL_STATS_PTR(_name) &_name##_stats
+#else
+#define SHELL_STATS_DEFINE(_name)
+#define SHELL_STATS_PTR(_name) NULL
+#endif /* CONFIG_SHELL_STATS */
 
 /**
  * @internal @brief Flags for internal CLI usage.
@@ -306,6 +316,7 @@ union shell_internal
 enum shell_signal {
 	SHELL_SIGNAL_RXRDY,
 	SHELL_SIGNAL_TXDONE,
+	SHELL_SIGNAL_LOG_MSG,
 	SHELL_SIGNAL_KILL,
 	SHELL_SIGNALS
 };
@@ -337,8 +348,6 @@ struct shell_ctx
 	/*!< Printf buffer size.*/
 	char printf_buff[CONFIG_SHELL_PRINTF_BUFF_SIZE];
 
-	struct shell_stats statistics;
-
 	volatile union shell_internal internal;   /*!< Internal CLI data.*/
 
 	struct k_poll_signal signals[SHELL_SIGNALS];
@@ -355,12 +364,15 @@ struct shell {
 	const struct shell_transport *iface; /*!< Transport interface.*/
 	struct shell_ctx *ctx; /*!< Internal context.*/
 
-	const struct k_msgq *log_queue; /*!< Log message queue.*/
-	const struct log_backend *log_backend;  /*!< Logger backend.*/
-
 	struct shell_history *history;
 
 	const struct shell_fprintf *fprintf_ctx;
+
+	struct shell_stats *stats;
+
+	const struct shell_log_backend *log_backend;
+
+	LOG_INSTANCE_PTR_DECLARE(log);
 
 	/*!< New line character, only allowed values: \\n and \\r.*/
 	char const newline_char;
@@ -382,22 +394,27 @@ struct shell {
 		  newline_ch, log_queue_size)				     \
 	static const struct shell _name;				     \
 	static struct shell_ctx UTIL_CAT(_name, _ctx);			     \
-	K_MSGQ_DEFINE(_name##_log_queue, sizeof(void *),		     \
-		      log_queue_size, sizeof(u32_t));			     \
-	LOG_BACKEND_DEFINE(_name##_log_backend, log_backend_shell_api);	     \
+	static u8_t _name##_out_buffer[CONFIG_SHELL_PRINTF_BUFF_SIZE];	     \
+	SHELL_LOG_BACKEND_DEFINE(_name, _name##_out_buffer,		     \
+				 CONFIG_SHELL_PRINTF_BUFF_SIZE);	     \
 	SHELL_HISTORY_DEFINE(_name, 128, 8);/*todo*/			     \
-	SHELL_FPRINTF_DEFINE(_name## _fprintf, &_name, 16/*todo*/,	     \
+	SHELL_FPRINTF_DEFINE(_name## _fprintf, &_name, _name##_out_buffer,   \
+			     CONFIG_SHELL_PRINTF_BUFF_SIZE,		     \
 			     true, shell_print_stream);			     \
+	SHELL_STATS_DEFINE(_name);					     \
+	LOG_INSTANCE_REGISTER(shell, _name, LOG_LEVEL_NONE);		     \
 	static u32_t _name##_stack[CONFIG_SHELL_STACK_SIZE/sizeof(u32_t)];   \
 	static struct k_thread _name##_thread;				     \
 	static const struct shell _name = {				     \
 		.name = cli_prefix,					     \
 		.iface = transport_iface,				     \
 		.ctx = &UTIL_CAT(_name, _ctx),				     \
-		.log_queue = &_name##_log_queue,			     \
 		.log_backend = &_name##_log_backend,			     \
 		.history = SHELL_HISTORY_PTR(_name),			     \
 		.fprintf_ctx = &_name##_fprintf,			     \
+		.stats = SHELL_STATS_PTR(_name),			     \
+		.log_backend = SHELL_LOG_BACKEND_PTR(_name),		     \
+		LOG_INSTANCE_PTR_INIT(log, shell, _name)		     \
 		.newline_char = newline_ch,				     \
 		.stack = _name##_stack,					     \
 		.thread = &_name##_thread				     \
@@ -523,8 +540,8 @@ void shell_help_print(const struct shell *shell,
 		      const struct shell_getopt_option *opt, size_t opt_len);
 
 /**
- * @internal @brief This function shall not be used directly, it is required by the
- *                  nrf_fprintf module.
+ * @internal @brief This function shall not be used directly, it is required by
+ * 		    the fprintf module.
  *
  * @param[in] p_user_ctx    Pointer to the context for the CLI instance.
  * @param[in] p_data        Pointer to the data buffer.
