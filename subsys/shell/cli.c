@@ -959,6 +959,7 @@ static wildcard_cmd_status_t commands_expand(const struct shell *shell,
 }
 
 static void wildcard_prepare(const struct shell *shell)
+ */
 {
 	/* Wildcard can be correctly handled under following conditions:
 	 - wildcard command does not have a handler
