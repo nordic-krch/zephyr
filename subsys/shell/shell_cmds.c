@@ -187,26 +187,6 @@ static int terminal_size_get(const struct shell * shell, u16_t * p_length,
 	return -ENOTSUP;
 }
 
-static bool shell_build_in_cmd_common(const struct shell * shell,
-				      bool arg_cnt_nok,
-				      struct shell_getopt_option const *opt,
-				      size_t opt_len)
-{
-	if (shell_help_requested(shell)) {
-		shell_help_print(shell, opt, opt_len);
-		return true;
-	}
-
-	if (arg_cnt_nok) {
-		shell_fprintf(shell, SHELL_ERROR,
-			      "%s: wrong parameter count\r\n",
-			      shell->ctx->current_stcmd->syntax);
-		return true;
-	}
-
-	return false;
-}
-
 static void cmd_clear(const struct shell *shell, size_t argc, char **argv)
 {
 	(void)argv;
@@ -233,7 +213,7 @@ static void cmd_cli(const struct shell *shell, size_t argc, char **argv)
 
 static void cmd_colors_off(const struct shell *shell, size_t argc, char **argv)
 {
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 
@@ -242,7 +222,7 @@ static void cmd_colors_off(const struct shell *shell, size_t argc, char **argv)
 
 static void cmd_colors_on(const struct shell *shell, size_t argc, char **argv)
 {
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 	shell->ctx->internal.flags.use_colors = 1;
@@ -255,7 +235,7 @@ static void cmd_colors(const struct shell *shell, size_t argc, char **argv)
 		return;
 	}
 
-	if (shell_build_in_cmd_common(shell, (argc != 2), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 2), NULL, 0)) {
 		return;
 	}
 
@@ -265,7 +245,7 @@ static void cmd_colors(const struct shell *shell, size_t argc, char **argv)
 
 static void cmd_echo(const struct shell *shell, size_t argc, char **argv)
 {
-	if (shell_build_in_cmd_common(shell, (argc > 2), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc <= 2), NULL, 0)) {
 		return;
 	}
 
@@ -281,7 +261,7 @@ static void cmd_echo(const struct shell *shell, size_t argc, char **argv)
 
 static void cmd_echo_off(const struct shell *shell, size_t argc, char **argv)
 {
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 
@@ -290,7 +270,7 @@ static void cmd_echo_off(const struct shell *shell, size_t argc, char **argv)
 
 static void cmd_echo_on(const struct shell *shell, size_t argc, char **argv)
 {
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 
@@ -307,7 +287,7 @@ static void cmd_history(const struct shell *shell, size_t argc, char **argv)
 		return;
 	}
 
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 
@@ -340,7 +320,7 @@ static void cmd_cli_stats(const struct shell *shell, size_t argc, char **argv)
 		return;
 	}
 
-	(void)shell_build_in_cmd_common(shell, (argc > 2), NULL, 0);
+	(void)shell_cmd_precheck(shell, (argc <= 2), NULL, 0);
 }
 
 static void cmd_cli_stats_show(const struct shell *shell, size_t argc,
@@ -351,7 +331,7 @@ static void cmd_cli_stats_show(const struct shell *shell, size_t argc,
 		return;
 	}
 
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 
@@ -367,7 +347,7 @@ static void cmd_cli_stats_reset(const struct shell *shell,
 		return;
 	}
 
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 
@@ -377,7 +357,7 @@ static void cmd_cli_stats_reset(const struct shell *shell,
 static void cmd_resize_default(const struct shell *shell,
 				     size_t argc, char **argv)
 {
-	if (shell_build_in_cmd_common(shell, (argc != 1), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc == 1), NULL, 0)) {
 		return;
 	}
 
@@ -395,7 +375,7 @@ static void cmd_resize(const struct shell *shell, size_t argc, char **argv)
 		return;
 	}
 
-	if (shell_build_in_cmd_common(shell, (argc > 2), NULL, 0)) {
+	if (!shell_cmd_precheck(shell, (argc <= 2), NULL, 0)) {
 		return;
 	}
 
