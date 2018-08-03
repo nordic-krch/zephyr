@@ -531,12 +531,30 @@ static inline bool shell_help_requested(const struct shell *shell)
  * Function will print a help string with: the currently entered command, its
  * options,and subcommands (if they exist).
  *
- * @param[in] shell   Pointer to the shell instance.
- * @param[in] opt     Pointer to the optional option array.
- * @param[in] opt_len Option array size.
+ * @param[in] shell      Pointer to the shell instance.
+ * @param[in] opt        Pointer to the optional option array.
+ * @param[in] opt_len    Option array size.
  */
 void shell_help_print(const struct shell *shell,
 		      const struct shell_getopt_option *opt, size_t opt_len);
+
+/**
+ * @brief Prints help if request and prints error message on wrong argument
+ * 	  count.
+ *
+ * 	  Optionally, printing help on wrong argument count can be enabled.
+ *
+ * @param[in] shell   Pointer to the shell instance.
+ * @param[in] arg_cnt_ok Flag indicating valid number of arguments.
+ * @param[in] opt     Pointer to the optional option array.
+ * @param[in] opt_len Option array size.
+ *
+ * @return True if check passed, false otherwise.
+ */
+bool shell_cmd_precheck(const struct shell * shell,
+			bool arg_cnt_nok,
+		 	struct shell_getopt_option const *opt,
+		 	size_t opt_len);
 
 /**
  * @internal @brief This function shall not be used directly, it is required by

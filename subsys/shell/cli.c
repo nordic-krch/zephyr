@@ -366,6 +366,8 @@ static void history_handle(const struct shell *shell, bool up)
 	}
 }
 
+struct shell_static_entry d_entry;
+
 static const struct shell_static_entry *find_cmd(
 					     const struct shell_cmd_entry *cmd,
 					     size_t lvl,
@@ -437,8 +439,7 @@ static bool shell_tab_prepare(const struct shell *shell,
 	}
 
 	/* If the Tab key is pressed, "history mode" must be terminated because
-	 * tab and history handlers
-	 * are sharing the same array: temp_buff.
+	 * tab and history handlers are sharing the same array: temp_buff.
 	 */
 	history_mode_exit(shell);
 
@@ -490,7 +491,6 @@ static void find_completion_candidates(const struct shell_static_entry *cmd,
 				       size_t *first_idx, size_t *cnt,
 				       u16_t *longest)
 {
-	struct shell_static_entry dynamic_entry;
 	const struct shell_static_entry *candidate;
 	size_t idx = 0;
 	bool found = false;
@@ -501,7 +501,7 @@ static void find_completion_candidates(const struct shell_static_entry *cmd,
 
 	while (true) {
 		cmd_get(cmd ? cmd->subcmd : NULL, cmd ? 1 : 0,
-			idx, &candidate, &dynamic_entry);
+			idx, &candidate, &d_entry);
 
 		if (!candidate) {
 			break;
@@ -533,13 +533,12 @@ static void autocomplete(const struct shell *shell,
 			 const char *arg,
 			 size_t subcmd_idx)
 {
-	struct shell_static_entry dynamic_entry;
 	const struct shell_static_entry *match;
 	size_t arg_len = shell_strlen(arg);
 	size_t cmd_len;
 
 	cmd_get(cmd ? cmd->subcmd : NULL, cmd ? 1 : 0,
-			subcmd_idx, &match, &dynamic_entry);
+			subcmd_idx, &match, &d_entry);
 	cmd_len = shell_strlen(match->syntax);
 
 	/* no exact match found */
@@ -1782,6 +1781,32 @@ void shell_help_print(const struct shell * shell,
 		}
 	}
 }
+
+bool shell_cmd_precheck(const struct shell * shell,
+			bool arg_cnt_ok,
+		 	struct shell_getopt_option const *opt,
+		 	size_t opt_len)
+{
+	if (shell_help_requested(shell)) {
+		shell_help_print(shell, opt, opt_len);
+		return true;
+	}
+
+	if (!arg_cnt_ok) {
+		shell_fprintf(shell, SHELL_ERROR,
+			      "%s: wrong parameter count\r\n",
+			      shell->ctx->current_stcmd->syntax);
+
+		if (IS_ENABLED(SHELL_HELP_ON_WRONG_ARGUMENT_COUNT)) {
+			shell_help_print(shell, opt, opt_len);
+		}
+
+		return false;
+	}
+
+	return true;
+}
+
 #if 0
 #if SHELL_LOG_BACKEND && NRF_MODULE_ENABLED(NRF_LOG)
 
