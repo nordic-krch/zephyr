@@ -110,7 +110,11 @@ config SHELL_HELP
 	default y
 	help
 	  Enables formatting help message when requested with '-h' or '--help'.
-	  
+
+config SHELL_HELP_ON_WRONG_ARGUMENT_COUNT
+	bool "Enable printing help on wrong argument count"
+	default y
+
 config SHELL_HISTORY
 	bool "Enable history in shell"
 	default y
