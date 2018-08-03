@@ -39,18 +39,6 @@ config SHELL
 
 if SHELL
 
-config SHELL_CMD_BUFF_SIZE
-	int "Shell command buffer size"
-	default 256
-	help
-	  Maximum command size.
-
-config SHELL_PRINTF_BUFF_SIZE
-	int "Shell print buffer size"
-	default 256
-	help
-	  Maximum command size.
-
 config SHELL_STACK_SIZE
 	int "Shell thread stack size"
 	default 1024 if MULTITHREADING
@@ -65,11 +53,27 @@ config SHELL_THREAD_PRIO
 	help
 	  Shell thread priority.
 
-config SHELL_ARGC_MAX
-	int "Maximum words in shell command"
-	default 8
+config SHELL_CMD_BUFF_SIZE
+	int "Shell command buffer size"
+	default 256
 	help
-	  Maximum number of words that can build a command.
+	  Maximum command size.
+
+config SHELL_PRINTF_BUFF_SIZE
+	int "Shell print buffer size"
+	default 30
+	help
+	  Maximum text buffer size for fprintf function. 
+	  It is working like stdio buffering in Linux systems
+	  to limit number of peripheral access calls.
+
+config SHELL_ARGC_MAX
+	int "Maximum arguments in shell command"
+	default 12
+	help
+	  Maximum number of arguments that can build a command. 
+	  If command is composed of more than defined, argument SHELL_ARGC_MAX
+	  and follwing are passed as one argument in the string.
 
 config SHELL_WILDCARD
 	bool "Enable wildcard support in shell"
