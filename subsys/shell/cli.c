@@ -10,6 +10,7 @@
 #include <shell/cli.h>
 #include "shell_utils.h"
 #include "shell_ops.h"
+#include "shell_wildcard.h"
 #include "cli_vt100.h"
 #include <assert.h>
 #include <atomic.h>
@@ -51,13 +52,6 @@ LOG_MODULE_REGISTER();
 /* Initial cursor position is: (1, 1). */
 #define SHELL_INITIAL_CURS_POS		(1u)
 
-#define SHELL_CMD_ROOT_LVL		(0u)
-
-typedef enum {
-	WILDCARD_CMD_ADDED,
-	WILDCARD_CMD_ADDED_MISSING_SPACE,
-	WILDCARD_CMD_NO_MATCH_FOUND
-} wildcard_cmd_status_t;
 
 /*static bool shell_log_entry_process(const struct shell *shell, bool skip);*/
 static void shell_execute(const struct shell *shell);
@@ -366,8 +360,6 @@ static void history_handle(const struct shell *shell, bool up)
 	}
 }
 
-struct shell_static_entry d_entry;
-
 static const struct shell_static_entry *find_cmd(
 					     const struct shell_cmd_entry *cmd,
 					     size_t lvl,
@@ -402,6 +394,15 @@ static const struct shell_static_entry *get_last_command(
 	*match_arg = SHELL_CMD_ROOT_LVL;
 
 	while (*match_arg < argc) {
+
+		if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
+			/* ignore wildcard argument */
+			if (shell_wildcard_character_exist(argv[*match_arg])) {
+				(*match_arg)++;
+				continue;
+			}
+		}
+
 		entry = find_cmd(prev_cmd, *match_arg, argv[*match_arg],
 				 d_entry);
 		if (entry) {
@@ -491,6 +492,7 @@ static void find_completion_candidates(const struct shell_static_entry *cmd,
 				       size_t *first_idx, size_t *cnt,
 				       u16_t *longest)
 {
+	struct shell_static_entry dynamic_entry;
 	const struct shell_static_entry *candidate;
 	size_t idx = 0;
 	bool found = false;
@@ -501,7 +503,7 @@ static void find_completion_candidates(const struct shell_static_entry *cmd,
 
 	while (true) {
 		cmd_get(cmd ? cmd->subcmd : NULL, cmd ? 1 : 0,
-			idx, &candidate, &d_entry);
+			idx, &candidate, &dynamic_entry);
 
 		if (!candidate) {
 			break;
@@ -533,12 +535,13 @@ static void autocomplete(const struct shell *shell,
 			 const char *arg,
 			 size_t subcmd_idx)
 {
+	struct shell_static_entry dynamic_entry;
 	const struct shell_static_entry *match;
 	size_t arg_len = shell_strlen(arg);
 	size_t cmd_len;
 
 	cmd_get(cmd ? cmd->subcmd : NULL, cmd ? 1 : 0,
-			subcmd_idx, &match, &d_entry);
+			subcmd_idx, &match, &dynamic_entry);
 	cmd_len = shell_strlen(match->syntax);
 
 	/* no exact match found */
@@ -888,114 +891,6 @@ static void cmd_trim(const struct shell *shell)
 	shell->ctx->cmd_buff_pos = shell->ctx->cmd_buff_len;
 }
 
-/**
- * @internal @brief Function for searching and adding commands matching to
- * wildcard pattern.
- *
- * This function is internal to shell module and shall be not called directly.
- *
- * @param[in/out] shell		 Pointer to the CLI instance.
- * @param[in]	  cmd		 Pointer to command which will be processed
- * @param[in]	  cmd_lvl	 Command level in the command tree.
- * @param[in]	  pattern	 Pointer to wildcard pattern.
- * @param[out]	  counter	 Number of found and added commands.
- *
- * @retval WILDCARD_CMD_ADDED	All matching commands added to the buffer.
- * @retval WILDCARD_CMD_ADDED_MISSING_SPACE  Not all matching commands added
- *					     because CONFIG_SHELL_CMD_BUFF_SIZE
- *					     is too small.
- * @retval WILDCARD_CMD_NO_MATCH_FOUND No matching command found.
- */
-static wildcard_cmd_status_t commands_expand(const struct shell *shell,
-					     const struct shell_cmd_entry *cmd,
-					     size_t cmd_lvl, char *pattern,
-					     size_t *counter)
-{
-	size_t cmd_idx = 0;
-	size_t cnt = 0;
-	bool success = false;
-	struct shell_static_entry static_entry;
-	struct shell_static_entry const * p_static_entry = NULL;
-	wildcard_cmd_status_t ret_val = WILDCARD_CMD_NO_MATCH_FOUND;
-
-	do {
-		cmd_get(cmd, cmd_lvl, cmd_idx++, &p_static_entry,
-				&static_entry);
-
-		if (!p_static_entry) {
-			break;
-		}
-
-		if (0 == fnmatch(pattern, p_static_entry->syntax, 0)) {
-			int err;
-
-			err = shell_command_add(shell->ctx->temp_buff,
-						&shell->ctx->cmd_tmp_buff_len,
-						p_static_entry->syntax,
-						pattern);
-			if (err) {
-				shell_fprintf(shell, SHELL_WARNING,
-					      "Command buffer is not expanded "
-					      "with matching wildcard pattern"
-					       " (err %d).\r\n", err);
-				break;
-			}
-
-			cnt++;
-		}
-
-	} while(cmd_idx);
-
-	if (cnt > 0)
-	{
-		*counter = cnt;
-		shell_pattern_remove(shell->ctx->temp_buff,
-				     &shell->ctx->cmd_tmp_buff_len, pattern);
-		ret_val = success ?
-			WILDCARD_CMD_ADDED :WILDCARD_CMD_ADDED_MISSING_SPACE;
-	}
-
-	return ret_val;
-}
-
-static void wildcard_prepare(const struct shell *shell)
-{
-	/* Wildcard can be correctly handled under following conditions:
-	 - wildcard command does not have a handler
-	 - wildcard command is on the deepest commands level
-	 - other commands on the same level as wildcard command shall also not
-	   have a handler
-
-	 Algorithm:
-	 1. Command buffer is copied to Temp buffer.
-	 2. Algorithm goes through Command buffer to find handlers and
-	    subcommands.
-	 3. If algorithm will find a wildcard character it switches to Temp
-	    buffer.
-	 4. In the Temp buffer command with found wildcard character is changed
-	    into matching command(s).
-	 5. Algorithm switch back to Command buffer and analyzes next command.
-	 6. When all arguments are analyzed from Command buffer, Temp buffer is
-	    copied to Command buffer.
-	 7. Last found handler is executed with all arguments in the Command
-	    buffer.
-	 */
-
-	memset(shell->ctx->temp_buff, 0, sizeof(shell->ctx->temp_buff));
-	memcpy(shell->ctx->temp_buff,
-			shell->ctx->cmd_buff,
-			shell->ctx->cmd_buff_len);
-
-	/* Function shell_spaces_trim must be used instead of shell_make_argv.
-	 * At this point it is important to keep temp_buff as a one string.
-	 * It will allow to find wildcard commands easily with strstr function.
-	 */
-	shell_spaces_trim(shell->ctx->temp_buff);
-
-	/* +1 for EOS*/
-	shell->ctx->cmd_tmp_buff_len = shell_strlen(shell->ctx->temp_buff) + 1;
-}
-
 /* Function returning pointer to root command matching requested syntax. */
 struct shell_cmd_entry const * root_cmd_find(const char *syntax)
 {
@@ -1026,12 +921,20 @@ static void shell_execute(const struct shell *shell)
 	size_t cmd_idx; /* currently analyzed command in cmd_level */
 	/* currently analyzed command level */
 	size_t cmd_lvl = SHELL_CMD_ROOT_LVL;
-	/* last command level for which a handler has been found */
-	size_t cmd_handler_lvl = 0;
-	/* last command index for which a handler has been found */
-	size_t cmd_handler_idx = 0;
-	size_t commands_expanded = 0;
+
+	bool wildcard_found = false;
+
 	struct shell_cmd_entry const * p_cmd = NULL;
+
+	struct shell_static_entry const * p_static_entry = NULL;
+
+	struct shell_static_entry d_entry; /* Memory for dynamic commands. */
+	struct shell_cmd_entry cmd_with_handler;
+	size_t cmd_with_handler_lvl = 0;
+
+
+	memset(&cmd_with_handler, 0, sizeof(cmd_with_handler));
+
 
 	cmd_trim(shell);
 
@@ -1039,7 +942,7 @@ static void shell_execute(const struct shell *shell)
 		    shell->ctx->cmd_buff_len);
 
 	if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
-		wildcard_prepare(shell);
+		shell_wildcard_prepare(shell);
 	}
 
 	shell_op_cursor_end_move(shell);
@@ -1071,15 +974,9 @@ static void shell_execute(const struct shell *shell)
 	/* Root command shall be always static. */
 	assert(p_cmd->is_dynamic == false);
 
-	/* Pointer to the deepest command level with a handler. */
-	struct shell_cmd_entry const * p_cmd_low_level_entry = NULL;
-
-	/* Memory reserved for dynamic commands. */
-	struct shell_static_entry static_entry;
-	struct shell_static_entry const * p_static_entry = NULL;
-
-	shell_cmd_handler handler_cmd_lvl_0 = p_cmd->u.entry->handler;
-	if (handler_cmd_lvl_0 != NULL) {
+	/* checking if root command has a handler */
+	if (p_cmd->u.entry->handler != NULL) {
+		memcpy(&cmd_with_handler, p_cmd, sizeof(cmd_with_handler));
 		shell->ctx->current_stcmd = p_cmd->u.entry;
 	}
 
@@ -1087,7 +984,7 @@ static void shell_execute(const struct shell *shell)
 	cmd_lvl++;
 	cmd_idx = 0;
 
-	while (1) {
+	while (true) {
 		if (cmd_lvl >= argc) {
 			break;
 		}
@@ -1102,37 +999,27 @@ static void shell_execute(const struct shell *shell)
 		}
 
 		if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
-			/* Wildcard character is found */
-			if (wildcard_character_exist(argv[cmd_lvl]))
-			{
-				size_t counter = 0;
-				wildcard_cmd_status_t status;
+			shell_wildcard_status_t status;
+			status = shell_wildcard_process(shell, p_cmd,
+							 argv[cmd_lvl]);
+			/* Wildcard character found but there is no matching
+			 * command.
+			 */
+			if (status == SHELL_WILDCARD_CMD_NO_MATCH_FOUND) {
+				break;
+			}
 
-				/* Function will search commands tree for
-				 * commands matching wildcard pattern stored in
-				 * argv[cmd_lvl]. If match is found wildcard
-				 * pattern will be replaced by matching commands
-				 * in temp_buffer. If there is no space to add
-				 * all matching commands function will add as
-				 * many as possible. Next it will continue to
-				 * search for next wildcard pattern and it will
-				 * try to add matching commands.
-				 */
-				status = commands_expand(shell, p_cmd, cmd_lvl,
-							 argv[cmd_lvl],
-							 &counter);
-				if (status == WILDCARD_CMD_NO_MATCH_FOUND) {
-					break;
-				}
-
-				commands_expanded += counter;
-				cmd_lvl++;
+			/* Wildcard character was not found function can process
+			 * argument.
+			 */
+			if (status != SHELL_WILDCARD_NOT_FOUND) {
+				++cmd_lvl;
+				wildcard_found = true;
 				continue;
 			}
 		}
 
-		cmd_get(p_cmd, cmd_lvl, cmd_idx++, &p_static_entry,
-			&static_entry);
+		cmd_get(p_cmd, cmd_lvl, cmd_idx++, &p_static_entry, &d_entry);
 
 		if ((cmd_idx == 0) || (p_static_entry == NULL)) {
 			break;
@@ -1142,7 +1029,7 @@ static void shell_execute(const struct shell *shell)
 			/* checking if command has a handler */
 			if (p_static_entry->handler != NULL) {
 				if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
-					if (commands_expanded > 0) {
+					if (wildcard_found) {
 						shell_op_cursor_end_move(shell);
 						shell_op_cond_next_line(shell);
 
@@ -1161,16 +1048,11 @@ static void shell_execute(const struct shell *shell)
 						return;
 					}
 				}
-
-				/* Storing p_st_cmd->handler is not feasible for
-				 * dynamic commands. Data will be invalid with
-				 * the next loop iteration.
-				 */
-				cmd_handler_lvl = cmd_lvl;
-				cmd_handler_idx = cmd_idx - 1;
-				p_cmd_low_level_entry = p_cmd;
+				memcpy(&cmd_with_handler, p_cmd,
+						sizeof(cmd_with_handler));
+				shell->ctx->current_stcmd = p_cmd->u.entry;
+				cmd_with_handler_lvl = cmd_lvl;
 			}
-
 			cmd_lvl++;
 			cmd_idx = 0;
 			p_cmd = p_static_entry->subcmd;
@@ -1178,36 +1060,23 @@ static void shell_execute(const struct shell *shell)
 	}
 
 	if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
-		if (commands_expanded > 0)
-		{
-			/* Copy temp_buff to cmd_buff */
-			memcpy(shell->ctx->cmd_buff,
-					shell->ctx->temp_buff,
-					shell->ctx->cmd_tmp_buff_len);
-			shell->ctx->cmd_buff_len = shell->ctx->cmd_tmp_buff_len;
-
-			/* calling make_arg function again because cmd_buffer
-			 * has additional commands.
-			 */
-			(void)shell_make_argv(&argc, &argv[0],
-					      shell->ctx->cmd_buff,
-					      CONFIG_SHELL_ARGC_MAX);
-		}
+		shell_wildcard_finalize(shell);
+		/* calling make_arg function again because cmd_buffer was
+		 * overwritten by temporary buffer.
+		 */
+		(void)shell_make_argv(&argc, &argv[0],
+				      shell->ctx->cmd_buff,
+				      CONFIG_SHELL_ARGC_MAX);
 	}
 
 	/* Executing the deepest found handler. */
-	if (p_cmd_low_level_entry) {
-		cmd_get(p_cmd_low_level_entry, cmd_handler_lvl, cmd_handler_idx,
-			&p_static_entry, &static_entry);
-
-		shell->ctx->current_stcmd = p_static_entry;
-
-		shell->ctx->current_stcmd->handler(shell,
-				argc - cmd_handler_lvl, &argv[cmd_handler_lvl]);
-	} else if (handler_cmd_lvl_0) {
-		handler_cmd_lvl_0(shell, argc, &argv[0]);
-	} else {
+	if (cmd_with_handler.u.entry->handler == NULL) {
 		shell_fprintf(shell, SHELL_ERROR, SHELL_MSG_SPECIFY_SUBCOMMAND);
+	}
+	else {
+		cmd_with_handler.u.entry->handler(shell,
+				argc - cmd_with_handler_lvl,
+				&argv[cmd_with_handler_lvl]);
 	}
 
 	flag_help_clear(shell);

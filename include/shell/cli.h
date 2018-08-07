@@ -31,6 +31,8 @@ extern "C" {
 #define CONFIG_SHELL_PRINTF_BUFF_SIZE 0
 #endif
 
+#define SHELL_CMD_ROOT_LVL		(0u)
+
 /**
  * @defgroup shell Shell
  * @ingroup subsys
