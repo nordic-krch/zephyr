@@ -35,6 +35,10 @@ zephyr_sources_ifdef(
 )
 
 zephyr_sources_ifdef(
+  CONFIG_SHELL_WILDCARD
+  shell_wildcard.c
+)
+zephyr_sources_ifdef(
   CONFIG_LOG
   shell_log_backend.c
 )

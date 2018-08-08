@@ -61,7 +61,9 @@ void shell_op_cursor_position_synchronize(const struct shell *shell)
 	/* In case cursor reaches the bottom line of a terminal, it will
 	 * be moved to the next line.
 	 */
-	shell_op_cond_next_line(shell);
+	if (full_line_cmd(shell)) {
+		cursor_next_line_move(shell);
+	}
 
 	if (last_line) {
 		shell_op_cursor_horiz_move(shell, cons->cur_x - cons->cur_x_end);
@@ -93,9 +95,6 @@ void shell_op_cursor_move(const struct shell *shell, s16_t val)
 	shell_op_cursor_vert_move(shell, -row_span);
 	shell_op_cursor_horiz_move(shell, col_span);
 	shell->ctx->cmd_buff_pos = new_pos;
-
-	LOG_INF("curr pos:%d offset:%d", shell->ctx->cmd_buff_pos, val);
-	LOG_INF("cur y:%d, x:%d \t new y:%d x:%d", cons->cur_y, cons->cur_x, cons->cur_y+row_span, cons->cur_x+col_span);
 }
 
 void shell_op_word_remove(const struct shell *shell)
@@ -136,8 +135,6 @@ void shell_op_word_remove(const struct shell *shell)
 	shell_fprintf(shell, SHELL_NORMAL, "%s", str + 1);
 	clear_eos(shell);
 	cursor_restore(shell);
-
-	LOG_INF("word removed: pos:%d len:%d", shell->ctx->cmd_buff_pos, shell->ctx->cmd_buff_len);
 }
 
 void shell_op_cursor_home_move(const struct shell *shell)
@@ -147,7 +144,8 @@ void shell_op_cursor_home_move(const struct shell *shell)
 
 void shell_op_cursor_end_move(const struct shell *shell)
 {
-	shell_op_cursor_move(shell, shell->ctx->cmd_buff_len - shell->ctx->cmd_buff_pos);
+	shell_op_cursor_move(shell, shell->ctx->cmd_buff_len -
+						shell->ctx->cmd_buff_pos);
 }
 
 
@@ -167,27 +165,23 @@ void shell_op_right_arrow(const struct shell *shell)
 
 static void reprint_from_cursor(const struct shell *shell, u16_t diff)
 {
-	bool last_line;
 	struct shell_multiline_cons *cons = &shell->ctx->vt100_ctx.cons;
 	char * str = &shell->ctx->cmd_buff[shell->ctx->cmd_buff_pos];
+	size_t len = shell_strlen(str) - diff;
 
 	shell_multiline_data_calc(cons, shell->ctx->cmd_buff_pos,
 				  shell->ctx->cmd_buff_len);
-	last_line = (cons->cur_y == cons->cur_y_end);
 
-	if (last_line) {
+	/* last line */
+	if (cons->cur_y == cons->cur_y_end) {
 		shell_fprintf(shell, SHELL_NORMAL, "%s", str);
 		clear_eos(shell);
-		shell_op_cursor_horiz_move(shell, -diff);
 	} else {
-		/* If cursor is not in last cmd line, its position needs
-		 * to be saved by VT100 command.
-		 */
-		cursor_save(shell);
 		clear_eos(shell);
 		shell_fprintf(shell, SHELL_NORMAL, "%s", str);
-		cursor_restore(shell);
 	}
+	shell->ctx->cmd_buff_pos += len;
+	shell_op_cursor_position_synchronize(shell);
 }
 
 static void data_insert(const struct shell *shell, const char *data, u16_t len)
@@ -210,9 +204,6 @@ static void data_insert(const struct shell *shell, const char *data, u16_t len)
 	}
 
 	reprint_from_cursor(shell, after);
-	shell->ctx->cmd_buff_pos += len;
-
-	shell_op_cond_next_line(shell);
 }
 
 void char_replace(const struct shell *shell, char data)
@@ -234,6 +225,22 @@ void shell_op_char_insert(const struct shell *shell, char data)
 		char_replace(shell, data);
 	} else {
 		data_insert(shell, &data, 1);
+	}
+
+	if (full_line_cmd(shell)) {
+		struct shell_multiline_cons *cons = &shell->ctx->vt100_ctx.cons;
+		shell_multiline_data_calc(cons, shell->ctx->cmd_buff_pos,
+					  shell->ctx->cmd_buff_len);
+		/* cursor down move */
+		shell_op_cursor_vert_move(shell, - (cons->cur_y_end -
+						    cons->cur_y - 1));
+		cursor_next_line_move(shell);
+		shell_op_cursor_vert_move(shell, (cons->cur_y_end -
+						  cons->cur_y));
+
+		shell_op_cursor_horiz_move(shell, cons->cur_x - 1);
+
+		return;
 	}
 }
 
