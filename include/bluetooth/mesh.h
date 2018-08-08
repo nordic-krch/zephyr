@@ -18,8 +18,8 @@
 #include <bluetooth/mesh/main.h>
 #include <bluetooth/mesh/cfg_srv.h>
 #include <bluetooth/mesh/health_srv.h>
-#include <bluetooth/mesh/cfg_cli.h>
-#include <bluetooth/mesh/health_cli.h>
+#include <bluetooth/mesh/cfg_shell.h>
+#include <bluetooth/mesh/health_shell.h>
 #include <bluetooth/mesh/proxy.h>
 
 #endif /* __BT_MESH_H */

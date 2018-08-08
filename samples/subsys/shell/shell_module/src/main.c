@@ -6,7 +6,7 @@
 
 #include <zephyr.h>
 #include <misc/printk.h>
-#include <shell/cli.h>
+#include <shell/shell.h>
 #include <shell/shell_uart.h>
 #include <version.h>
 #include <logging/log.h>

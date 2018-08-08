@@ -7,8 +7,8 @@
 #define SHELL_OPS_H__
 
 #include <zephyr.h>
-#include <shell/cli.h>
-#include "cli_vt100.h"
+#include <shell/shell.h>
+#include "shell_vt100.h"
 #include "shell_utils.h"
 
 #ifdef __cplusplus

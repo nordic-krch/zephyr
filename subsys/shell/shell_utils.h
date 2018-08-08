@@ -7,7 +7,7 @@
 #define SHELL_UTILS_H__
 
 #include <zephyr.h>
-#include <shell/cli.h>
+#include <shell/shell.h>
 #ifdef __cplusplus
 extern "C" {
 #endif

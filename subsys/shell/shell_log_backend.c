@@ -5,7 +5,7 @@
  */
 
 #include <shell/shell_log_backend.h>
-#include <shell/cli.h>
+#include <shell/shell.h>
 #include "shell_ops.h"
 #include <logging/log_ctrl.h>
 
