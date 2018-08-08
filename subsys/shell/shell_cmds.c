@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-#include <shell/cli.h>
+#include <shell/shell.h>
 #include "shell_utils.h"
 #include "shell_ops.h"
-#include "cli_vt100.h"
+#include "shell_vt100.h"
 
 #define SHELL_HELP_CLEAR		"Clear screen."
 #define SHELL_HELP_COLORS		"Toggle colored syntax."

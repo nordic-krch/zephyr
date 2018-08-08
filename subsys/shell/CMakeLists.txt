@@ -3,16 +3,16 @@ zephyr_include_directories_ifdef(CONFIG_CONSOLE_SHELL
   )
 
 zephyr_sources_ifdef(
-  ONFIG_CONSOLE_SHELL
+  CONFIG_CONSOLE_SHELL
   shell_service.c
-  shell.c
+  legacy_shell.c
   )
 
 add_subdirectory(modules)
 
 zephyr_sources_ifdef(
   CONFIG_SHELL
-  cli.c
+  shell.c
   shell_fprintf.c
   shell_utils.c
   shell_ops.c
