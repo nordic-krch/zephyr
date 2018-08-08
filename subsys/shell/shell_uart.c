@@ -11,6 +11,7 @@ static void timer_handler(struct k_timer *timer)
 {
 	struct shell_uart *sh_uart =
 			CONTAINER_OF(timer, struct shell_uart, timer);
+
 	if (uart_poll_in(sh_uart->dev, sh_uart->rx) == 0) {
 		sh_uart->rx_cnt = 1;
 		sh_uart->handler(SHELL_TRANSPORT_EVT_RX_RDY, sh_uart->context);
@@ -51,9 +52,8 @@ static int write(const struct shell_transport *transport,
 {
 	struct shell_uart *sh_uart = (struct shell_uart *)transport->ctx;
 	const u8_t *data8 = (const u8_t *)data;
-	size_t i;
 
-	for (i = 0; i < length; i++) {
+	for (size_t i = 0; i < length; i++) {
 		uart_poll_out(sh_uart->dev, data8[i]);
 	}
 

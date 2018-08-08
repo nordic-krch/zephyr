@@ -17,7 +17,7 @@ enum shell_wildcard_status {
 };
 
 
-bool shell_wildcard_character_exist(const char * str);
+bool shell_wildcard_character_exist(const char *str);
 
 void shell_wildcard_prepare(const struct shell *shell);
 

@@ -37,7 +37,7 @@ static struct log_msg *msg_from_fifo(const struct shell_log_backend *backend)
 
 static void fifo_flush(const struct shell_log_backend *backend)
 {
-	struct log_msg * msg = msg_from_fifo(backend);
+	struct log_msg *msg = msg_from_fifo(backend);
 
 	/* Flush log messages. */
 	while (msg) {
@@ -126,7 +126,9 @@ static void put(const struct log_backend *const backend, struct log_msg *msg)
 		msg_process(shell->log_backend->log_output, msg);
 		break;
 
-	case SHELL_LOG_BACKEND_DISABLED: /* Fallthrough. */
+	case SHELL_LOG_BACKEND_DISABLED:
+		/* fall through */
+		/* no break */
 	default:
 		/* Discard message. */
 		log_msg_put(msg);
@@ -135,8 +137,8 @@ static void put(const struct log_backend *const backend, struct log_msg *msg)
 
 static void panic(const struct log_backend *const backend)
 {
-	int err;
 	const struct shell *shell = (const struct shell *)backend->cb->ctx;
+	int err;
 
 	err = shell->iface->api->enable(shell->iface, true);
 
@@ -150,7 +152,7 @@ static void panic(const struct log_backend *const backend)
 						  shell->ctx->cmd_buff_len);
 		shell_op_cursor_vert_move(shell, -1);
 		shell_op_cursor_horiz_move(shell,
-					-shell->ctx->vt100_ctx.cons.cur_x);
+					   -shell->ctx->vt100_ctx.cons.cur_x);
 
 		while (shell_log_backend_process(shell->log_backend)) {
 			/* empty */

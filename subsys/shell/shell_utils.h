@@ -30,7 +30,7 @@ s32_t column_span_with_buffer_offsets_get(struct shell_multiline_cons *cons,
 void shell_multiline_data_calc(struct shell_multiline_cons *cons,
 				   u16_t buff_pos, u16_t buff_len);
 
-static inline size_t shell_strlen(char const * str)
+static inline size_t shell_strlen(char const *str)
 {
 	return str == NULL ? 0 : strlen(str);
 }
@@ -45,7 +45,7 @@ void shell_pattern_remove(char *buff, u16_t *buff_len, const char *pattern);
 int shell_command_add(char *buff, u16_t *buff_len,
 		      char const *new_cmd, char const *pattern);
 
-void shell_spaces_trim(char * str);
+void shell_spaces_trim(char *str);
 
 /** @brief Remove white chars from beginning and end of command buffer.
  *
@@ -53,8 +53,9 @@ void shell_spaces_trim(char * str);
 void shell_buffer_trim(char *buff, u16_t *buff_len);
 
 /* Function checks how many identical characters have two strings starting
- * from the first character. */
-u16_t shell_str_similarity_check(char const * str_a, char const * str_b);
+ * from the first character.
+ */
+u16_t shell_str_similarity_check(char const *str_a, char const *str_b);
 
 #ifdef __cplusplus
 }
