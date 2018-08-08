@@ -157,7 +157,8 @@ static void shell_write(const struct shell *shell, const void *data,
  */
 static void cmd_get(const struct shell_cmd_entry *command, size_t lvl,
 		    size_t idx, const struct shell_static_entry **entry,
-		    struct shell_static_entry *d_entry) {
+		    struct shell_static_entry *d_entry)
+{
 	assert(entry != NULL);
 	assert(st_entry != NULL);
 
@@ -251,7 +252,8 @@ static void shell_state_set(const struct shell *shell, enum shell_state state)
 }
 
 static void option_print(const struct shell *shell, char const *option,
-			 u16_t longest_option) {
+			 u16_t longest_option)
+{
 	static char const *tab = "  ";
 	u16_t columns;
 	u16_t diff;
@@ -315,8 +317,8 @@ static void history_put(const struct shell *shell, u8_t *line, size_t length)
 
 static void history_handle(const struct shell *shell, bool up)
 {
-	size_t len;
 	bool history_mode;
+	size_t len;
 
 	/*optional feature */
 	if (!IS_ENABLED(CONFIG_SHELL_HISTORY)) {
@@ -372,7 +374,6 @@ static const struct shell_static_entry *find_cmd(
 	do {
 		cmd_get(cmd, lvl, idx++, &entry, d_entry);
 		if (entry && (strcmp(cmd_str, entry->syntax) == 0)) {
-			LOG_INF("match %s %s", cmd_str, entry->syntax);
 			return entry;
 		}
 	} while (entry);
@@ -388,9 +389,9 @@ static const struct shell_static_entry *get_last_command(
 					     size_t *match_arg,
 					     struct shell_static_entry *d_entry)
 {
+	const struct shell_static_entry *prev_entry = NULL;
 	const struct shell_cmd_entry *prev_cmd = NULL;
 	const struct shell_static_entry *entry = NULL;
-	const struct shell_static_entry *prev_entry = NULL;
 	*match_arg = SHELL_CMD_ROOT_LVL;
 
 	while (*match_arg < argc) {
@@ -466,7 +467,7 @@ static bool shell_tab_prepare(const struct shell *shell,
 		return true;
 	}
 
-	search_argc = space ? *argc : *argc - 1;;
+	search_argc = space ? *argc : *argc - 1;
 
 	*cmd = get_last_command(shell, search_argc, argv, complete_arg_idx,
 				d_entry);
@@ -481,8 +482,8 @@ static bool shell_tab_prepare(const struct shell *shell,
 	return true;
 }
 
-static bool is_completion_candidate(const char *candidate,
-				    const char *str, size_t len)
+static inline bool is_completion_candidate(const char *candidate,
+					   const char *str, size_t len)
 {
 	return (strncmp(candidate, str, len) == 0) ? true : false;
 }
@@ -492,11 +493,11 @@ static void find_completion_candidates(const struct shell_static_entry *cmd,
 				       size_t *first_idx, size_t *cnt,
 				       u16_t *longest)
 {
-	struct shell_static_entry dynamic_entry;
-	const struct shell_static_entry *candidate;
-	size_t idx = 0;
-	bool found = false;
 	size_t incompl_cmd_len = shell_strlen(incompl_cmd);
+	const struct shell_static_entry *candidate;
+	struct shell_static_entry dynamic_entry;
+	bool found = false;
+	size_t idx = 0;
 
 	*longest = 0;
 	*cnt = 0;
@@ -547,8 +548,8 @@ static void autocomplete(const struct shell *shell,
 	/* no exact match found */
 	if (cmd_len != arg_len) {
 		shell_op_completion_insert(shell,
-				match->syntax + arg_len,
-				cmd_len - arg_len);
+					   match->syntax + arg_len,
+					   cmd_len - arg_len);
 	}
 
 	/* Next character in the buffer is not 'space'. */
@@ -576,6 +577,7 @@ static void autocomplete(const struct shell *shell,
 static size_t shell_str_common(const char *s1, const char *s2, size_t n)
 {
 	size_t common = 0;
+
 	while ((n > 0) && (*s1 == *s2) && (*s1 != '\0')) {
 		s1++;
 		s2++;
@@ -710,7 +712,9 @@ static void metakeys_handle(const struct shell *shell, char data)
 
 	case SHELL_VT100_ASCII_CTRL_C: /* CTRL + C */
 		shell_op_cursor_end_move(shell);
-		shell_op_cond_next_line(shell);
+		if (!shell_cursor_in_empty_line(shell)) {
+			cursor_next_line_move(shell);
+		}
 		shell_state_set(shell, SHELL_STATE_ACTIVE);
 		break;
 
@@ -748,7 +752,7 @@ static void cli_state_collect(const struct shell *shell) {
 	size_t count = 0;
 	char data;
 
-	while (1) {
+	while (true) {
 		(void)shell->iface->api->read(shell->iface, &data,
 					      sizeof(data), &count);
 		if (count == 0) {
@@ -913,27 +917,18 @@ struct shell_cmd_entry const * root_cmd_find(const char *syntax)
  */
 static void shell_execute(const struct shell *shell)
 {
-	char quote;
-	size_t argc;
-	/* +1 reserved for NULL added by function shell_make_argv */
-	char *argv[CONFIG_SHELL_ARGC_MAX + 1];
-
-	size_t cmd_idx; /* currently analyzed command in cmd_level */
-	/* currently analyzed command level */
-	size_t cmd_lvl = SHELL_CMD_ROOT_LVL;
-
-	bool wildcard_found = false;
-
-	struct shell_cmd_entry const *p_cmd = NULL;
-
-	struct shell_static_entry const *p_static_entry = NULL;
-
 	struct shell_static_entry d_entry; /* Memory for dynamic commands. */
+	char *argv[CONFIG_SHELL_ARGC_MAX + 1]; /* +1 reserved for NULL */
+	struct shell_static_entry const *p_static_entry = NULL;
+	struct shell_cmd_entry const *p_cmd = NULL;
+	size_t cmd_lvl = SHELL_CMD_ROOT_LVL;
 	size_t cmd_with_handler_lvl = 0;
-
+	bool wildcard_found = false;
+	size_t cmd_idx;
+	size_t argc;
+	char quote;
 
 	memset(&shell->ctx->active_cmd, 0, sizeof(shell->ctx->active_cmd));
-
 
 	cmd_trim(shell);
 
@@ -982,6 +977,7 @@ static void shell_execute(const struct shell *shell)
 	cmd_lvl++;
 	cmd_idx = 0;
 
+	/* Below loop is analyzing subcommands of found root command. */
 	while (true) {
 		if (cmd_lvl >= argc) {
 			break;
@@ -1057,8 +1053,9 @@ static void shell_execute(const struct shell *shell)
 
 	if (IS_ENABLED(CONFIG_SHELL_WILDCARD)) {
 		shell_wildcard_finalize(shell);
-		/* calling make_arg function again because cmd_buffer was
-		 * overwritten by temporary buffer.
+		/* cmd_buffer has been overwritten by function finalize function
+		 * with all expanded commands. Hence shell_make_argv needs to
+		 * be called again.
 		 */
 		(void)shell_make_argv(&argc, &argv[0],
 				      shell->ctx->cmd_buff,
@@ -1095,8 +1092,9 @@ static void shell_current_command_erase(const struct shell *shell)
 	shell_multiline_data_calc(&shell->ctx->vt100_ctx.cons,
 				  shell->ctx->cmd_buff_pos,
 				  shell->ctx->cmd_buff_len);
-	//shell_op_cursor_horiz_move(shell, -shell->ctx->vt100_ctx.cons.cur_y);
 	shell_op_cursor_horiz_move(shell, -shell->ctx->vt100_ctx.cons.cur_x);
+	shell_op_cursor_vert_move(shell, shell->ctx->vt100_ctx.cons.cur_y - 1);
+	
 	clear_eos(shell);
 }
 
@@ -1184,7 +1182,7 @@ void shell_thread(void *shell_handle, void *dummy1, void *dummy2)
 		return;
 	}
 
-	while (1)
+	while (true)
 	{
 		int signaled;
 		int result;
@@ -1333,6 +1331,7 @@ void shell_process(const struct shell *shell) {
 	assert(shell);
 
 	union shell_internal internal;
+
 	internal.value = 0;
 	internal.flags.processing = 1;
 
@@ -1406,8 +1405,8 @@ static void format_offset_string_print(const struct shell *shell,
 				       size_t terminal_offset,
 				       bool offset_first_line)
 {
-	size_t length;
 	size_t offset = 0;
+	size_t length;
 
 	if (str == NULL) {
 		return;
@@ -1423,7 +1422,7 @@ static void format_offset_string_print(const struct shell *shell,
 		++offset;
 	}
 
-	while (1) {
+	while (true) {
 		size_t idx = 0;
 		length = shell_strlen(str) - offset;
 
@@ -1452,7 +1451,7 @@ static void format_offset_string_print(const struct shell *shell,
 			length = shell->ctx->vt100_ctx.cons.terminal_wid
 					- terminal_offset;
 
-			while (1) {
+			while (true) {
 				/* Determining line break. */
 				if (isspace((int) (*(str + offset + idx)))) {
 					length = idx;
@@ -1532,8 +1531,7 @@ void shell_help_print(const struct shell *shell,
 
 	longest_string += shell_strlen(opt_sep) + tab_len;
 
-	shell_fprintf(shell,
-	SHELL_NORMAL, "  %-*s:", longest_string, help);
+	shell_fprintf(shell, SHELL_NORMAL, "  %-*s:", longest_string, help);
 
 	/* Print help string for options (only -h and --help).
 	 * tab_len + 1 == "  " and ':' from: "  %-*s:"
@@ -1600,7 +1598,7 @@ void shell_help_print(const struct shell *shell,
 	longest_string = 0;
 
 	/* Searching for the longest subcommand to print. */
-	while (1) {
+	while (true) {
 		cmd_get(cmd, !SHELL_CMD_ROOT_LVL, cmd_idx++, &st_cmd,
 				&static_entry);
 
@@ -1624,9 +1622,9 @@ void shell_help_print(const struct shell *shell,
 	/* Printing subcommands and help string (if exists). */
 	cmd_idx = 0;
 
-	while (1) {
+	while (true) {
 		cmd_get(cmd, !SHELL_CMD_ROOT_LVL, cmd_idx++, &st_cmd,
-				&static_entry);
+			&static_entry);
 
 		if (st_cmd == NULL) {
 			break;
@@ -1649,8 +1647,8 @@ void shell_help_print(const struct shell *shell,
 
 bool shell_cmd_precheck(const struct shell *shell,
 			bool arg_cnt_ok,
-		 	struct shell_getopt_option const *opt,
-		 	size_t opt_len)
+			struct shell_getopt_option const *opt,
+			size_t opt_len)
 {
 	if (shell_help_requested(shell)) {
 		shell_help_print(shell, opt, opt_len);

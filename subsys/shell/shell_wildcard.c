@@ -30,7 +30,8 @@ static void subcmd_get(const struct shell_cmd_entry *cmd,
 }
 
 static enum shell_wildcard_status command_add(char *buff, u16_t *buff_len,
-					   char const *cmd, char const *pattern)
+					      char const *cmd,
+					      char const *pattern)
 {
 	u16_t cmd_len = shell_strlen(cmd);
 	char *completion_addr;
@@ -138,24 +139,24 @@ bool shell_wildcard_character_exist(const char *str)
 void shell_wildcard_prepare(const struct shell *shell)
 {
 	/* Wildcard can be correctly handled under following conditions:
-	 - wildcard command does not have a handler
-	 - wildcard command is on the deepest commands level
-	 - other commands on the same level as wildcard command shall also not
-	   have a handler
-
-	 Algorithm:
-	 1. Command buffer is copied to Temp buffer.
-	 2. Algorithm goes through Command buffer to find handlers and
-	    subcommands.
-	 3. If algorithm will find a wildcard character it switches to Temp
-	    buffer.
-	 4. In the Temp buffer command with found wildcard character is changed
-	    into matching command(s).
-	 5. Algorithm switch back to Command buffer and analyzes next command.
-	 6. When all arguments are analyzed from Command buffer, Temp buffer is
-	    copied to Command buffer.
-	 7. Last found handler is executed with all arguments in the Command
-	    buffer.
+	 * - wildcard command does not have a handler
+	 * - wildcard command is on the deepest commands level
+	 * - other commands on the same level as wildcard command shall also not
+	 *   have a handler
+	 *
+	 * Algorithm:
+	 * 1. Command buffer is copied to Temp buffer.
+	 * 2. Algorithm goes through Command buffer to find handlers and
+	 *    subcommands.
+	 * 3. If algorithm will find a wildcard character it switches to Temp
+	 *    buffer.
+	 * 4. In the Temp buffer command with found wildcard character is
+	 *    changed into matching command(s).
+	 * 5. Algorithm switch back to Command buffer and analyzes next command.
+	 * 6. When all arguments are analyzed from Command buffer, Temp buffer
+	 *    is copied to Command buffer.
+	 * 7. Last found handler is executed with all arguments in the Command
+	 *    buffer.
 	 */
 
 	memset(shell->ctx->temp_buff, 0, sizeof(shell->ctx->temp_buff));
@@ -188,15 +189,12 @@ enum shell_wildcard_status shell_wildcard_process(const struct shell *shell,
 		return ret_val;
 	}
 
-	/* Function will search commands tree for
-	 * commands matching wildcard pattern stored in
-	 * argv[cmd_lvl]. If match is found wildcard
-	 * pattern will be replaced by matching commands
-	 * in temp_buffer. If there is no space to add
-	 * all matching commands function will add as
-	 * many as possible. Next it will continue to
-	 * search for next wildcard pattern and it will
-	 * try to add matching commands.
+	/* Function will search commands tree for commands matching wildcard
+	 * pattern stored in argv[cmd_lvl]. If match is found wildcard pattern
+	 * will be replaced by matching commands in temp_buffer. If there is no
+	 * space to add all matching commands function will add as many as
+	 * possible. Next it will continue to search for next wildcard pattern
+	 * and it will try to add matching commands.
 	 */
 	ret_val = commands_expand(shell, cmd, pattern);
 
@@ -205,7 +203,6 @@ enum shell_wildcard_status shell_wildcard_process(const struct shell *shell,
 
 void shell_wildcard_finalize(const struct shell *shell)
 {
-	/* Copy temp_buff to cmd_buff */
 	memcpy(shell->ctx->cmd_buff,
 	       shell->ctx->temp_buff,
 	       shell->ctx->cmd_tmp_buff_len);

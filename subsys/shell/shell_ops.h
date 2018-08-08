@@ -18,7 +18,7 @@ extern "C" {
 #define SHELL_DEFAULT_TERMINAL_WIDTH	(80u) /* Default PuTTY width. */
 #define SHELL_DEFAULT_TERMINAL_HEIGHT	(24u) /* Default PuTTY height. */
 
-static inline void shell_raw_fprintf(const struct shell_fprintf * const ctx,
+static inline void shell_raw_fprintf(const struct shell_fprintf *const ctx,
 				     char const * fmt, ...)
 {
 	va_list args;
@@ -37,7 +37,7 @@ static inline void shell_raw_fprintf(const struct shell_fprintf * const ctx,
 
 /* Function sends VT100 command to clear the screen from cursor position to
  * end of the screen.
- * */
+ */
 static inline void clear_eos(const struct shell *shell)
 {
 	SHELL_VT100_CMD(shell, SHELL_VT100_CLEAREOS);
@@ -55,7 +55,9 @@ static inline void cursor_restore(const struct shell *shell)
 	SHELL_VT100_CMD(shell, SHELL_VT100_RESTORECURSOR);
 }
 
-/* Function forcing new line - cannot be replaced with function cursor_down_move. */
+/* Function forcing new line - cannot be replaced with function
+ * cursor_down_move.
+ */
 static inline void cursor_next_line_move(const struct shell *shell)
 {
 	SHELL_VT100_CMD(shell, SHELL_VT100_NEXTLINE);
@@ -90,7 +92,7 @@ void shell_op_left_arrow(const struct shell *shell);
 
 void shell_op_right_arrow(const struct shell *shell);
 
-/**
+/*
  *  Removes the "word" to the left of the cursor:
  *  - if there are spaces at the cursor position, remove all spaces to the left
  *  - remove the non-spaces (word) until a space is found or a beginning of
@@ -98,7 +100,9 @@ void shell_op_right_arrow(const struct shell *shell);
  */
 void shell_op_word_remove(const struct shell *shell);
 
-/* Function moves cursor to begin of command position, just after console name. */
+/* Function moves cursor to begin of command position, just after console
+ * name.
+ */
 void shell_op_cursor_home_move(const struct shell *shell);
 
 /* Function moves cursor to end of command. */
@@ -113,8 +117,10 @@ void shell_op_char_backspace(const struct shell *shell);
 void shell_op_char_delete(const struct shell *shell);
 
 void shell_op_completion_insert(const struct shell *shell,
-				char const * compl,
+				char const *compl,
 				u16_t compl_len);
+
+bool shell_cursor_in_empty_line(const struct shell *shell);
 #ifdef __cplusplus
 }
 #endif

@@ -52,8 +52,8 @@ void shell_multiline_data_calc(struct shell_multiline_cons *cons,
 
 char shell_make_argv(size_t *argc, char **argv, char *cmd, u8_t max_argc)
 {
-	char c;
 	char quote = 0;
+	char c;
 
 	*argc = 0;
 	do {
@@ -183,9 +183,9 @@ char shell_make_argv(size_t *argc, char **argv, char *cmd, u8_t max_argc)
 
 void shell_pattern_remove(char *buff, u16_t *buff_len, const char *pattern)
 {
-	size_t shift;
 	char *pattern_addr = strstr(buff, pattern);
 	u16_t pattern_len = shell_strlen(pattern);
+	size_t shift;
 
 	if (!pattern_addr) {
 		return;
@@ -208,8 +208,8 @@ int shell_command_add(char *buff, u16_t *buff_len,
 		      char const *new_cmd, char const *pattern)
 {
 	u16_t cmd_len = shell_strlen(new_cmd);
+	char *cmd_source_addr;
 	u16_t shift;
-	char * cmd_source_addr;
 
 	/* +1 for space */
 	if ((*buff_len + cmd_len + 1) > CONFIG_SHELL_CMD_BUFF_SIZE) {
@@ -234,10 +234,10 @@ int shell_command_add(char *buff, u16_t *buff_len,
 	return 0;
 }
 
-void shell_spaces_trim(char * str)
+void shell_spaces_trim(char *str)
 {
-	u16_t shift = 0;
 	u16_t len = shell_strlen(str);
+	u16_t shift = 0;
 
 	if (!str) {
 		return;
@@ -268,7 +268,7 @@ void shell_spaces_trim(char * str)
 void shell_buffer_trim(char *buff, u16_t *buff_len)
 {
 	u16_t i = 0;
-	char * end;
+	char *end;
 
 	if (buff[0] == '\0') /* no command in the buffer */
 	{
@@ -304,7 +304,7 @@ void shell_buffer_trim(char *buff, u16_t *buff_len)
 	}
 }
 
-u16_t shell_str_similarity_check(char const * str_a, char const * str_b)
+u16_t shell_str_similarity_check(char const *str_a, char const *str_b)
 {
 	u16_t cnt = 0;
 

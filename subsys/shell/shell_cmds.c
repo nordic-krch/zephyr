@@ -42,13 +42,12 @@
 /* Function reads cursor position from terminal. */
 static int cursor_position_get(const struct shell *shell)
 {
-	size_t cnt;
+	u16_t buff_idx = 0;
 	u16_t x = 0; /* horizontal position */
 	u16_t y = 0; /* vertical position */
+	size_t cnt;
 	char c = 0;
-	u16_t buff_idx = 0;
 
-	/* clear temp buffer */
 	memset(shell->ctx->temp_buff, 0, sizeof(shell->ctx->temp_buff));
 
 	/* escape code asking terminal about its size */
@@ -141,7 +140,8 @@ static int cursor_position_get(const struct shell *shell)
 			if (++buff_idx > SHELL_CURSOR_POSITION_BUFFER - 1) {
 				shell->ctx->temp_buff[0] = 0;
 				/* data_buf[SHELL_CURSOR_POSITION_BUFFER - 1]
-				 * is reserved for '\0' */
+				 * is reserved for '\0'
+				 */
 				return -ENOMEM;
 			}
 
@@ -152,8 +152,8 @@ static int cursor_position_get(const struct shell *shell)
 }
 
 /* Function gets terminal width and height. */
-static int terminal_size_get(const struct shell * shell, u16_t * p_length,
-			     u16_t * p_height)
+static int terminal_size_get(const struct shell *shell, u16_t *p_length,
+			     u16_t *p_height)
 {
 	assert(p_length);
 	assert(p_height);
@@ -277,6 +277,19 @@ static void cmd_echo_on(const struct shell *shell, size_t argc, char **argv)
 	shell->ctx->internal.flags.echo = 1;
 }
 
+static void cmd_help(const struct shell *shell, size_t argc, char **argv)
+{
+	shell_fprintf(shell, SHELL_NORMAL, "Please press the <Tab> button to "
+					   "see all available commands.\r\n"
+					   "You can also use the <Tab> button "
+					   "to prompt or auto-complete all "
+					   "commands or its subcommands.\r\n"
+					   "You can try to call commands "
+					   "with <-h> or <--help> parameter "
+					   "to get know what they are doing.");
+
+}
+
 static void cmd_history(const struct shell *shell, size_t argc, char **argv)
 {
 	size_t i= 0;
@@ -394,10 +407,15 @@ static void cmd_resize(const struct shell *shell, size_t argc, char **argv)
 		shell->ctx->vt100_ctx.cons.terminal_hei =
 				SHELL_DEFAULT_TERMINAL_HEIGHT;
 		shell_fprintf(shell, SHELL_WARNING,
-			      "No response from the terminal, assumed 80x24 screen size\r\n");
+			      "No response from the terminal, assumed 80x24 "
+			      "screen size\r\n");
 	}
 }
 
+/* Warning!
+ * Subcommands must be placed in alphabetical order to ensure correct
+ * autocompletion.
+ */
 SHELL_CREATE_STATIC_SUBCMD_SET(m_sub_colors)
 {
 	SHELL_CMD(off, NULL, SHELL_HELP_COLORS_OFF, cmd_colors_off),
@@ -414,7 +432,8 @@ SHELL_CREATE_STATIC_SUBCMD_SET(m_sub_echo)
 
 SHELL_CREATE_STATIC_SUBCMD_SET(m_sub_cli_stats)
 {
-	SHELL_CMD(reset, NULL, SHELL_HELP_STATISTICS_RESET, cmd_cli_stats_reset),
+	SHELL_CMD(reset, NULL, SHELL_HELP_STATISTICS_RESET,
+							 cmd_cli_stats_reset),
 	SHELL_CMD(show, NULL, SHELL_HELP_STATISTICS_SHOW, cmd_cli_stats_show),
 	SHELL_SUBCMD_SET_END
 };
@@ -435,5 +454,6 @@ SHELL_CREATE_STATIC_SUBCMD_SET(m_sub_resize)
 
 SHELL_CMD_REGISTER(clear, NULL, SHELL_HELP_CLEAR, cmd_clear);
 SHELL_CMD_REGISTER(cli, &m_sub_cli, SHELL_HELP_CLI, cmd_cli);
+SHELL_CMD_REGISTER(help, NULL, NULL, cmd_help);
 SHELL_CMD_REGISTER(history, NULL, SHELL_HELP_HISTORY, cmd_history);
 SHELL_CMD_REGISTER(resize, &m_sub_resize, SHELL_HELP_RESIZE, cmd_resize);

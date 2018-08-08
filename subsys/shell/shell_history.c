@@ -25,12 +25,11 @@ void shell_history_mode_exit(struct shell_history *history)
 bool shell_history_get(struct shell_history *history, bool up,
 		       u8_t *dst, size_t *len)
 {
-	sys_dnode_t *l_item; /* list item */
 	struct shell_history_item *h_item; /* history item */
+	sys_dnode_t *l_item; /* list item */
 
 	if (sys_dlist_is_empty(&history->list)) {
 		*len = 0;
-		LOG_INF("get (empty)");
 		return false;
 	}
 
@@ -62,19 +61,17 @@ bool shell_history_get(struct shell_history *history, bool up,
 		memcpy(dst, h_item->data, h_item->len);
 		*len = h_item->len;
 		dst[*len] = '\0';
-		LOG_INF("get %d", *len);
 		return true;
 	} else {
 		*len = 0;
-		LOG_INF("get");
 		return up;
 	}
 
 }
 
 static void add_to_head(struct shell_history *history,
-		struct shell_history_item *item,
-		u8_t *src, size_t len)
+			struct shell_history_item *item,
+			u8_t *src, size_t len)
 {
 	item->len = len;
 	memcpy(item->data, src, len);
@@ -96,8 +93,7 @@ static void remove_from_tail(struct shell_history *history)
 
 void shell_history_purge(struct shell_history *history)
 {
-	while (!sys_dlist_is_empty(&history->list))
-	{
+	while (!sys_dlist_is_empty(&history->list)) {
 		remove_from_tail(history);
 	}
 }
@@ -106,8 +102,6 @@ void shell_history_put(struct shell_history *history, u8_t *line, size_t len)
 {
 	sys_dnode_t *l_item; /* list item */
 	struct shell_history_item *h_item;
-
-	LOG_INF("history put %d", len);
 
 	shell_history_mode_exit(history);
 
