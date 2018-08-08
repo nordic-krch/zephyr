@@ -7,7 +7,7 @@
 #ifndef SHELL_RTT_H__
 #define SHELL_RTT_H__
 
-#include <shell/cli.h>
+#include <shell/shell.h>
 
 #ifdef __cplusplus
 extern "C" {

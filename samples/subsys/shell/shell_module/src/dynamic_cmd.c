@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <shell/cli.h>
+#include <shell/shell.h>
 #include <ctype.h>
 #include <stdio.h>
 
