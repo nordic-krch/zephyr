@@ -17,14 +17,7 @@ extern "C" {
 #define SHELL_DEFAULT_TERMINAL_WIDTH	(80u) /* Default PuTTY width. */
 #define SHELL_DEFAULT_TERMINAL_HEIGHT	(24u) /* Default PuTTY height. */
 
-/* @brief Function returns true if string contains wildcard character.
- *
- * Available wildcards:  '?' or '*'.
- *
- * @param str String.
- * @return True if wildcard exists, false otherwise.
- */
-bool wildcard_character_exist(char * str);
+
 
 s32_t row_span_with_buffer_offsets_get(struct shell_multiline_cons *cons,
 				       u16_t offset1,

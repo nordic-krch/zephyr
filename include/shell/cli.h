@@ -31,6 +31,8 @@ extern "C" {
 #define CONFIG_SHELL_PRINTF_BUFF_SIZE 0
 #endif
 
+#define SHELL_CMD_ROOT_LVL		(0u)
+
 /**
  * @defgroup shell Shell
  * @ingroup subsys
@@ -54,7 +56,7 @@ struct shell_static_entry;
  * 	    module that there are no more dynamic commands to read.
  */
 typedef void (*shell_dynamic_get)(size_t idx,
-				  struct shell_static_entry * entry);
+				  struct shell_static_entry *entry);
 
 /**
  * @brief CLI command descriptor.
@@ -75,7 +77,7 @@ struct shell;
 /**
  * @brief CLI command handler prototype.
  */
-typedef void (*shell_cmd_handler)(struct shell const * shell,
+typedef void (*shell_cmd_handler)(struct shell const *shell,
 				  size_t argc, char **argv);
 
 /**
@@ -329,7 +331,7 @@ struct shell_ctx
 	enum shell_receive_state receive_state;/*!< Escape sequence indicator.*/
 
 	/*!< Currently executed command.*/
-	const struct shell_static_entry *current_stcmd;
+	struct shell_static_entry active_cmd;
 
 	/*!< VT100 color and cursor position, terminal width.*/
 	struct shell_vt100_ctx vt100_ctx;
@@ -551,7 +553,7 @@ void shell_help_print(const struct shell *shell,
  *
  * @return True if check passed, false otherwise.
  */
-bool shell_cmd_precheck(const struct shell * shell,
+bool shell_cmd_precheck(const struct shell *shell,
 			bool arg_cnt_nok,
 		 	struct shell_getopt_option const *opt,
 		 	size_t opt_len);

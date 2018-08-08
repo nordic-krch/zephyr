@@ -6,20 +6,6 @@
 #include "shell_utils.h"
 #include <ctype.h>
 
-bool wildcard_character_exist(char * str)
-{
-	size_t i;
-	size_t str_len = shell_strlen(str);
-
-	for (i = 0; i < str_len; i++) {
-		if ((str[i] == '?') || (str[i] == '*')) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
 /* Calculates relative line number of given position in buffer */
 static u32_t line_num_with_buffer_offset_get(struct shell_multiline_cons *cons,
 					     u16_t buffer_pos)
@@ -52,7 +38,7 @@ s32_t row_span_with_buffer_offsets_get(struct shell_multiline_cons *cons,
 }
 
 void shell_multiline_data_calc(struct shell_multiline_cons *cons,
-				   u16_t buff_pos, u16_t buff_len)
+			       u16_t buff_pos, u16_t buff_len)
 {
 	/* Current cursor position in command.
 	 * +1 -> because home position is (1, 1) */
