@@ -47,7 +47,7 @@ config SHELL_LOG_LEVEL
 
 config SHELL_STACK_SIZE
 	int "Shell thread stack size"
-	default 1024 if MULTITHREADING
+	default 2048 if MULTITHREADING
 	default 0 if !MULTITHREADING
 	help
 	  Stack size for thread created for each instance.
@@ -88,6 +88,12 @@ config SHELL_ARGC_MAX
 	  Maximum number of arguments that can build a command.
 	  If command is composed of more than defined, argument SHELL_ARGC_MAX
 	  and following are passed as one argument in the string.
+
+config SHELL_WILDCARD
+	bool "Enable wildcard support in shell"
+	select FNMATCH
+	help
+	  Enables using * in shell.
 
 config SHELL_ECHO_STATUS
 	bool "Enable echo on shell"
