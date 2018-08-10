@@ -151,6 +151,29 @@ static void severity_levels_showcase(void)
 	LOG_DBG("Debug message example.");
 }
 
+static void log_strdup_showcase(void)
+{
+	static const char const_str[] = "const string";
+	char transient_str[] = "transient_string";
+
+	printk("String logging showcase.\n");
+
+	LOG_INF("String logging example. %s %s %s.",
+		const_str,
+		/* Implicit string variable must be wrapped around with
+		 * LOG_STR() macro.
+		 */
+		LOG_STR("implicit string variable"),
+		/* Transiend string must be wrapped around LOG_STRDUP() macro
+		 * which allocate a buffer and copies string into it. Allocated
+		 * buffer is freed together with associated log message.
+		 */
+		LOG_STRDUP(transient_str));
+
+	/* Overwrite transient string to showcase that log has a copy. */
+	transient_str[0] = '\0';
+
+}
 /**
  * @brief Function demonstrates how fast data can be logged.
  *
@@ -229,6 +252,10 @@ void log_demo_thread(void *dummy1, void *dummy2, void *dummy3)
 	wait_on_log_flushed();
 
 	severity_levels_showcase();
+
+	wait_on_log_flushed();
+
+	log_strdup_showcase();
 
 	wait_on_log_flushed();
 

@@ -198,7 +198,39 @@ static inline s64_t arithmetic_shift_right(s64_t value, u8_t shift)
  * http://stackoverflow.com/a/12540675
  */
 #define UTIL_EMPTY(...)
-#define UTIL_DEFER(...) __VA_ARGS__ UTIL_EMPTY()
+
+#define UTIL_DEFER(...)		\
+	__VA_ARGS__ UTIL_EMPTY()
+
+#define UTIL_DEFER2(...)	\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY()()
+
+#define UTIL_DEFER3(...)	\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY()()()
+
+#define UTIL_DEFER4(...)	\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY()()()()
+
+#define UTIL_DEFER5(...)					\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY	\
+	UTIL_EMPTY()()()()()
+
+#define UTIL_DEFER6(...)					\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY	\
+	UTIL_EMPTY UTIL_EMPTY()()()()()()
+
+#define UTIL_DEFER7(...)					\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY	\
+	UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY()()()()()()()
+
+#define UTIL_DEFER8(...)					\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY	\
+	UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY()()()()()()()()
+
+#define UTIL_DEFER9(...)					\
+	__VA_ARGS__ UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY	\
+	UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY UTIL_EMPTY()()()()()()()()()
+
 #define UTIL_OBSTRUCT(...) __VA_ARGS__ UTIL_DEFER(UTIL_EMPTY)()
 #define UTIL_EXPAND(...) __VA_ARGS__
 
@@ -339,6 +371,32 @@ static inline s64_t arithmetic_shift_right(s64_t value, u8_t shift)
  */
 #define UTIL_LISTIFY(LEN, F, F_ARG) UTIL_EVAL(UTIL_REPEAT(LEN, F, F_ARG))
 
+/**
+ * @brief Extracting data from the brackets
+ *
+ * This macro get rid of brackets around the argument. It can be used to pass
+ * multiple arguments in logical one argument to a macro. Call it with arguments
+ * inside brackets:
+ * @code
+ * #define ARGUMENTS (a, b, c)
+ * BRACKET_EXTRACT(ARGUMENTS)
+ * @endcode
+ * It would produce:
+ * @code
+ * a, b, c
+ * @endcode
+ *
+ * @param a Argument with anything inside brackets.
+ * @return Anything that appears inside the brackets of the argument.
+ *
+ * @note
+ * The argument of the macro have to be inside brackets.
+ * In other case the compilation would fail.
+ */
+#define BRACKET_EXTRACT(...)  BRACKET_EXTRACT_(__VA_ARGS__)
+#define BRACKET_EXTRACT_(...) BRACKET_EXTRACT__ __VA_ARGS__
+#define BRACKET_EXTRACT__(...) __VA_ARGS__
+
 /**@brief Implementation details for NUM_VAR_ARGS */
 #define NUM_VA_ARGS_LESS_1_IMPL(				\
 	_ignored,						\
@@ -365,6 +423,31 @@ static inline s64_t arithmetic_shift_right(s64_t value, u8_t shift)
 	30, 29, 28, 27, 26, 25, 24, 23, 22, 21,		 \
 	20, 19, 18, 17, 16, 15, 14, 13, 12, 11,		 \
 	10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, ~)
+
+/**
+ * @brief Get the first argument
+ *
+ * 1 argument case is covered.
+ *
+ * @param ... Arguments to select
+ *
+ * @return First argument or empty if no arguments are provided
+ */
+#define GET_VA_ARG_1(...) GET_VA_ARG_1_(__VA_ARGS__, )
+#define GET_VA_ARG_1_(a1, ...) a1
+
+/**
+ * @brief Get all the arguments but the first one
+ *
+ * 1 argument case is covered.
+ *
+ * @param ... Arguments to select
+ *
+ * @return All arguments after the first one or empty if less than 2 arguments
+ * 	   are provided
+ */
+#define GET_ARGS_AFTER_1(...) GET_ARGS_AFTER_1_(__VA_ARGS__, )
+#define GET_ARGS_AFTER_1_(a1, ...) __VA_ARGS__
 
 /**
  * @brief Mapping macro
@@ -414,6 +497,173 @@ static inline s64_t arithmetic_shift_right(s64_t value, u8_t shift)
 #define MACRO_MAP_13(macro, a, ...) macro(a)MACRO_MAP_12(macro, __VA_ARGS__,)
 #define MACRO_MAP_14(macro, a, ...) macro(a)MACRO_MAP_13(macro, __VA_ARGS__,)
 #define MACRO_MAP_15(macro, a, ...) macro(a)MACRO_MAP_14(macro, __VA_ARGS__,)
+
+/**
+ * @brief Mapping macro with current index
+ *
+ * Basically macro similar to @ref MACRO_MAP, but the processing function would
+ * get an argument and current argument index (beginning from 0).
+ *
+ * @param ... Macro name to be used for argument processing followed by
+ * 	      arguments to process. Macro should have following form:
+ * 	      MACRO(argument, index)
+ * @return All arguments processed by given macro
+ */
+#define MACRO_MAP_FOR(...) MACRO_MAP_FOR_(__VA_ARGS__)
+
+#define MACRO_MAP_FOR_N_LIST \
+	0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+
+#define MACRO_MAP_FOR_(...) \
+	MACRO_MAP_FOR_N(NUM_VA_ARGS_LESS_1(__VA_ARGS__), __VA_ARGS__)
+
+/**
+ * @brief Mapping N arguments macro with current index
+ *
+ * Macro is similar to @ref MACRO_MAP_FOR but maps exact number of arguments.
+ * If there is more arguments given, the rest would be ignored.
+ *
+ * @param N   Number of arguments to map
+ * @param ... Macro name to be used for argument processing followed by
+ * 	      arguments to process. Macro should have following form: MACRO(argument, index)
+ *
+ * @return Selected number of arguments processed by given macro
+ */
+#define MACRO_MAP_FOR_N(N, ...) MACRO_MAP_FOR_N_(N, __VA_ARGS__)
+
+#define MACRO_MAP_FOR_N_(N, ...) \
+	UTIL_CAT(MACRO_MAP_FOR_, N)((MACRO_MAP_FOR_N_LIST), __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_0( n_list,           ...)
+#define MACRO_MAP_FOR_1( n_list, macro, a, ...)				\
+		macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list)))
+
+#define MACRO_MAP_FOR_2( n_list, macro, a, ...)				\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_1 \
+	      ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))),macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_3( n_list, macro, a, ...)				\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_2 \
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_4( n_list, macro, a, ...)				\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_3	\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_5( n_list, macro, a, ...)				\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_4	\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_6( n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_5	\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_7( n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_6	\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_8( n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_7	\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_9( n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_8	\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_10(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_9	\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_11(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_10\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_12(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_11\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_13(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_12\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_14(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_13\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_15(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_14\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_16(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_15\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_17(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_16\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_18(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_17\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_19(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_18\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_20(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_19\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_21(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_20\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_22(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_21\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_23(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_22\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_24(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_23\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_25(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_24\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_26(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_25\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_27(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_26\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_28(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_27\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_29(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_28\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_30(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_29\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_31(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_30\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+#define MACRO_MAP_FOR_32(n_list, macro, a, ...)	\
+	macro(a, GET_VA_ARG_1(BRACKET_EXTRACT(n_list))) MACRO_MAP_FOR_31\
+	     ((GET_ARGS_AFTER_1(BRACKET_EXTRACT(n_list))), macro, __VA_ARGS__, )
+
+
+
 /*
  * The following provides variadic preprocessor macro support to
  * help eliminate multiple, repetitive function/macro calls.  This

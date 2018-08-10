@@ -124,54 +124,160 @@ extern "C" {
 	  (0)								     \
 	)
 
+#define LOG_INTERNAL_STRDUP(arg) arg
+#define LOG_INTERNAL_STR(arg) arg
+
+#define IS_LOG_STRDUP(arg) _IS_LOG_STRDUP1(arg)
+#define _IS_LOG_STRDUP1(arg) _IS_LOG_STRDUP2(_XXXX##arg)
+#define _XXXXLOG_INTERNAL_STRDUP(x) _YYYY,
+#define _IS_LOG_STRDUP2(one_or_two_args) __LOG_ARG_2(one_or_two_args 1, 0)
+
+
 /******************************************************************************/
 /****************** Internal macros for log frontend **************************/
 /******************************************************************************/
 #define _LOG_INTERNAL_X(N, ...)  UTIL_CAT(_LOG_INTERNAL_, N)(__VA_ARGS__)
 
-#define __LOG_INTERNAL(_src_level, ...)			 \
+#define __LOG_INTERNAL(_metadata, ...)			 \
 	_LOG_INTERNAL_X(NUM_VA_ARGS_LESS_1(__VA_ARGS__), \
-			_src_level, __VA_ARGS__)
+			_metadata, __VA_ARGS__)
 
-#define _LOG_INTERNAL_0(_src_level, _str) \
-	log_0(_str, _src_level)
+#define _LOG_INTERNAL_0(_metadata, _str) \
+	log_0(_str, _metadata)
 
-#define _LOG_INTERNAL_1(_src_level, _str, _arg0) \
-	log_1(_str, (u32_t)(_arg0), _src_level)
+#define _LOG_1(...) log_1(__VA_ARGS__)
+#define _LOG_2(...) log_2(__VA_ARGS__)
+#define _LOG_3(...) log_3(__VA_ARGS__)
+#define _LOG_4(...) log_4(__VA_ARGS__)
+#define _LOG_5(...) log_5(__VA_ARGS__)
+#define _LOG_6(...) log_6(__VA_ARGS__)
+#define _LOG_7(...) log_7(__VA_ARGS__)
+#define _LOG_8(...) log_8(__VA_ARGS__)
+#define _LOG_9(...) log_9(__VA_ARGS__)
 
-#define _LOG_INTERNAL_2(_src_level, _str, _arg0, _arg1)	\
-	log_2(_str, (u32_t)(_arg0), (u32_t)(_arg1), _src_level)
+#define _LOG_INTERNAL_1(_metadata, _str, _arg0) 			     \
+	do {								     \
+		u32_t mask = IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0;	     \
+									     \
+		_LOG_1(_str, (u32_t)(_arg0), _metadata | mask);		     \
+	} while(0)
 
-#define _LOG_INTERNAL_3(_src_level, _str, _arg0, _arg1, _arg2) \
-	log_3(_str, (u32_t)(_arg0), (u32_t)(_arg1), (u32_t)(_arg2), _src_level)
+#define _LOG_INTERNAL_2(_metadata, _str, _arg0, _arg1)	\
+	do {								     \
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	     \
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0);	     \
+									     \
+		_LOG_2(_str, (u32_t)(_arg0), (u32_t)(_arg1),		     \
+		       _metadata | mask);				     \
+	} while(0)
+
+#define _LOG_INTERNAL_3(_metadata, _str, _arg0, _arg1, _arg2) \
+	do {								     \
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	     \
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0) |	     \
+			     (IS_LOG_STRDUP(_arg2) ? (1 << 18) : 0);	     \
+									     \
+		_LOG_3(_str, (u32_t)(_arg0), (u32_t)(_arg1), (u32_t)(_arg2), \
+		       _metadata | mask);				     \
+	} while(0)
 
 #define __LOG_ARG_CAST(_x) (u32_t)(_x),
 
 #define __LOG_ARGUMENTS(...) MACRO_MAP(__LOG_ARG_CAST, __VA_ARGS__)
 
-#define _LOG_INTERNAL_LONG(_src_level, _str, ...)		 \
+#define _LOG_INTERNAL_LONG(_metadata, _str, ...)		 \
 	do {							 \
 		u32_t args[] = {__LOG_ARGUMENTS(__VA_ARGS__)};	 \
-		log_n(_str, args, ARRAY_SIZE(args), _src_level); \
+		log_n(_str, args, ARRAY_SIZE(args), _metadata); \
 	} while (0)
 
-#define _LOG_INTERNAL_4(_src_level, _str, ...) \
-		_LOG_INTERNAL_LONG(_src_level, _str, __VA_ARGS__)
+#define _LOG_INTERNAL_4(_metadata, _str, _arg0, _arg1, _arg2, _arg3)	\
+	do {								\
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	\
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0) |	\
+			     (IS_LOG_STRDUP(_arg2) ? (1 << 18) : 0) |	\
+			     (IS_LOG_STRDUP(_arg3) ? (1 << 19) : 0);	\
+									\
+		_LOG_INTERNAL_LONG(_metadata | mask, _str, _arg0, _arg1,\
+				   _arg2, _arg3);			\
+	} while (0)
 
-#define _LOG_INTERNAL_5(_src_level, _str, ...) \
-		_LOG_INTERNAL_LONG(_src_level, _str, __VA_ARGS__)
+#define _LOG_INTERNAL_5(_metadata, _str, _arg0, _arg1, _arg2, _arg3,	\
+			_arg4)						\
+	do {								\
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	\
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0) |	\
+			     (IS_LOG_STRDUP(_arg2) ? (1 << 18) : 0) |	\
+			     (IS_LOG_STRDUP(_arg3) ? (1 << 19) : 0) |	\
+			     (IS_LOG_STRDUP(_arg4) ? (1 << 20) : 0);	\
+									\
+		_LOG_INTERNAL_LONG(_metadata | mask, _str, _arg0, _arg1,\
+				   _arg2, _arg3, _arg4);		\
+	} while (0)
 
-#define _LOG_INTERNAL_6(_src_level, _str, ...) \
-		_LOG_INTERNAL_LONG(_src_level, _str, __VA_ARGS__)
+#define _LOG_INTERNAL_6(_metadata, _str, _arg0, _arg1, _arg2, _arg3,	\
+			_arg4, _arg5)					\
+	do {								\
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	\
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0) |	\
+			     (IS_LOG_STRDUP(_arg2) ? (1 << 18) : 0) |	\
+			     (IS_LOG_STRDUP(_arg3) ? (1 << 19) : 0) |	\
+			     (IS_LOG_STRDUP(_arg4) ? (1 << 20) : 0) |	\
+			     (IS_LOG_STRDUP(_arg5) ? (1 << 21) : 0);	\
+									\
+		_LOG_INTERNAL_LONG(_metadata | mask, _str, _arg0, _arg1,\
+				   _arg2, _arg3, _arg4, _arg5);		\
+	} while (0)
 
-#define _LOG_INTERNAL_7(_src_level, _str, ...) \
-		_LOG_INTERNAL_LONG(_src_level, _str, __VA_ARGS__)
+#define _LOG_INTERNAL_7(_metadata, _str, _arg0, _arg1, _arg2, _arg3,	\
+			_arg4, _arg5, _arg6)				\
+	do {								\
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	\
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0) |	\
+			     (IS_LOG_STRDUP(_arg2) ? (1 << 18) : 0) |	\
+			     (IS_LOG_STRDUP(_arg3) ? (1 << 19) : 0) |	\
+			     (IS_LOG_STRDUP(_arg4) ? (1 << 20) : 0) |	\
+			     (IS_LOG_STRDUP(_arg5) ? (1 << 21) : 0) |	\
+			     (IS_LOG_STRDUP(_arg6) ? (1 << 22) : 0);	\
+									\
+		_LOG_INTERNAL_LONG(_metadata | mask, _str, _arg0, _arg1,\
+				   _arg2, _arg3, _arg4, _arg5, _arg6);	\
+	} while (0)
 
-#define _LOG_INTERNAL_8(_src_level, _str, ...) \
-		_LOG_INTERNAL_LONG(_src_level, _str, __VA_ARGS__)
+#define _LOG_INTERNAL_8(_metadata, _str, _arg0, _arg1, _arg2, _arg3,	\
+			_arg4, _arg5, _arg6, _arg7)			\
+	do {								\
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	\
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0) |	\
+			     (IS_LOG_STRDUP(_arg2) ? (1 << 18) : 0) |	\
+			     (IS_LOG_STRDUP(_arg3) ? (1 << 19) : 0) |	\
+			     (IS_LOG_STRDUP(_arg4) ? (1 << 20) : 0) |	\
+			     (IS_LOG_STRDUP(_arg5) ? (1 << 21) : 0) |	\
+			     (IS_LOG_STRDUP(_arg6) ? (1 << 22) : 0) |	\
+			     (IS_LOG_STRDUP(_arg7) ? (1 << 23) : 0);	\
+									\
+		_LOG_INTERNAL_LONG(_metadata | mask, _str, _arg0, _arg1,\
+				   _arg2, _arg3, _arg4, _arg5, _arg6,	\
+				   _arg7);				\
+	} while (0)
 
-#define _LOG_INTERNAL_9(_src_level, _str, ...) \
-		_LOG_INTERNAL_LONG(_src_level, _str, __VA_ARGS__)
+#define _LOG_INTERNAL_9(_metadata, _str, _arg0, _arg1, _arg2, _arg3,	\
+			_arg4, _arg5, _arg6, _arg7, _arg8)		\
+	do {								\
+		u32_t mask = (IS_LOG_STRDUP(_arg0) ? (1 << 16) : 0) |	\
+			     (IS_LOG_STRDUP(_arg1) ? (1 << 17) : 0) |	\
+			     (IS_LOG_STRDUP(_arg2) ? (1 << 18) : 0) |	\
+			     (IS_LOG_STRDUP(_arg3) ? (1 << 19) : 0) |	\
+			     (IS_LOG_STRDUP(_arg4) ? (1 << 20) : 0) |	\
+			     (IS_LOG_STRDUP(_arg5) ? (1 << 21) : 0) |	\
+			     (IS_LOG_STRDUP(_arg6) ? (1 << 22) : 0) |	\
+			     (IS_LOG_STRDUP(_arg7) ? (1 << 23) : 0) |	\
+			     (IS_LOG_STRDUP(_arg8) ? (1 << 24) : 0);	\
+									\
+		_LOG_INTERNAL_LONG(_metadata | mask, _str, _arg0, _arg1,\
+				   _arg2, _arg3, _arg4, _arg5, _arg6,	\
+				   _arg7, _arg8);			\
+	} while (0)
 
 #define _LOG_LEVEL_CHECK(_level, _check_level, _default_level) \
 	(_level <= _LOG_RESOLVED_LEVEL(_check_level, _default_level))
@@ -187,25 +293,64 @@ extern "C" {
 	)								    \
 	))
 
+#define _LOG_SRC_LEVEL(_id, _level) \
+	((_level << 13) | (CONFIG_LOG_DOMAIN_ID << 10) | (_id))
+
+/* Set of macros to detect if log_strdup() function was used in parameters.
+ * Macro is preparing a bit mask with bit set for any argument which used
+ * log_strdup(). Trick requires that parameters which are explicit strings
+ * (e.g. "message") are wrapped into LOG_STR() macro.
+ *
+ * As the result macro call like:
+ * MACRO_MAP_FOR(_LOG_STRDUP_MASK, 1, log_strdup(mystr), LOG_STR("hello"))
+ *
+ * will result in: | (0 << 0) | (1 << 1) | (0 << 2)
+ *
+ */
+#define _LOG_STRDUP_PREFIX_log_strdup(x) x,1
+#define _LOG_STRDUP_PREFIX_LOG_STR(x) x
+#define _LOG_IS_STRDUP(arg) _LOG_IS_STRDUP2(_LOG_STRDUP_PREFIX_##arg)
+
+#define _LOG_STRDUP_PREFIX_ (u32_t)
+
+#define _LOG_IS_STRDUP2(one_or_two_args) \
+	GET_VA_ARG_1(GET_ARGS_AFTER_1(one_or_two_args, 0))
+
+#define _LOG_STRDUP_MASK(arg, i) | (_LOG_IS_STRDUP(arg) << (i + 16))
+
+#define _LOG_STD_METADATA_STRDUP_MASK_GET(_metadata) (_metadata >> 16)
+#define _LOG_STD_METADATA_SOURCE_ID_GET(_metadata) (_metadata)
+#define _LOG_STD_METADATA_DOMAIN_ID_GET(_metadata) (_metadata >> 10)
+#define _LOG_STD_METADATA_LEVEL_GET(_metadata) (_metadata >> 13)
+
+#define _LOG_STD_METADATA(_id, _level)	\
+	_LOG_SRC_LEVEL(_id, _level)
+
+#define _LOG_HEXDUMP_METADATA(_id, _level) _LOG_SRC_LEVEL(_id, _level)
+
+/* Set of macros to resolve defered macros (LOG_STRDUP and LOG_STR). */
+#define _LOG_PRINTF_ARG_CHECKER(...) __LOG_PRINTF_ARG_CHECKER(__VA_ARGS__)
+#define __LOG_PRINTF_ARG_CHECKER(...) ___LOG_PRINTF_ARG_CHECKER(__VA_ARGS__)
+#define ___LOG_PRINTF_ARG_CHECKER(...) ____LOG_PRINTF_ARG_CHECKER(__VA_ARGS__)
+#define ____LOG_PRINTF_ARG_CHECKER(...) log_printf_arg_checker(__VA_ARGS__)
+
 /******************************************************************************/
 /****************** Macros for standard logging *******************************/
 /******************************************************************************/
-#define __LOG(_level, _id, _filter, ...)				    \
-	do {								    \
-		if (_LOG_CONST_LEVEL_CHECK(_level) &&			    \
-		    (_level <= LOG_RUNTIME_FILTER(_filter))) {		    \
-			struct log_msg_ids src_level = {		    \
-				.level = _level,			    \
-				.source_id = _id,			    \
-				.domain_id = CONFIG_LOG_DOMAIN_ID	    \
-			};						    \
-			__LOG_INTERNAL(src_level, __VA_ARGS__);		    \
-		} else if (0) {						    \
-			/* Arguments checker present but never evaluated.*/ \
-			/* Placed here to ensure that __VA_ARGS__ are*/     \
-			/* evaluated once when log is enabled.*/	    \
-			log_printf_arg_checker(__VA_ARGS__);		    \
-		}							    \
+#define __LOG(_level, _id, _filter, ...)				       \
+	do {								       \
+		if (_LOG_CONST_LEVEL_CHECK(_level) &&			       \
+		    (_level <= LOG_RUNTIME_FILTER(_filter))) {		       \
+			u32_t metadata;					       \
+			metadata = _LOG_SRC_LEVEL(_id, _level);		       \
+									       \
+			__LOG_INTERNAL(metadata, __VA_ARGS__);		       \
+		} else if (0) {						       \
+			/* Arguments checker present but never evaluated.*/    \
+			/* Placed here to ensure that __VA_ARGS__ are*/        \
+			/* evaluated once when log is enabled.*/	       \
+			_LOG_PRINTF_ARG_CHECKER(__VA_ARGS__);		       \
+		}							       \
 	} while (0)
 
 #define _LOG(_level, ...)			       \
@@ -226,17 +371,15 @@ extern "C" {
 /******************************************************************************/
 /****************** Macros for hexdump logging ********************************/
 /******************************************************************************/
-#define __LOG_HEXDUMP(_level, _id, _filter, _data, _length, _str)     \
-	do {							      \
-		if (_LOG_CONST_LEVEL_CHECK(_level) &&		      \
-		    (_level <= LOG_RUNTIME_FILTER(_filter))) {	      \
-			struct log_msg_ids src_level = {	      \
-				.level = _level,		      \
-				.source_id = _id,		      \
-				.domain_id = CONFIG_LOG_DOMAIN_ID     \
-			};					      \
-			log_hexdump(_str, _data, _length, src_level); \
-		}						      \
+#define __LOG_HEXDUMP(_level, _id, _filter, _data, _length, _str)      \
+	do {							       \
+		if (_LOG_CONST_LEVEL_CHECK(_level) &&		       \
+		    (_level <= LOG_RUNTIME_FILTER(_filter))) {	       \
+			u32_t metadata;				       \
+								       \
+			metadata = _LOG_HEXDUMP_METADATA(_id, _level); \
+			log_hexdump(_str, _data, _length, metadata);   \
+		}						       \
 	} while (0)
 
 #define _LOG_HEXDUMP(_level, _data, _length, _str)	       \
@@ -301,6 +444,8 @@ extern "C" {
 #else
 #define LOG_RUNTIME_FILTER(_filter) LOG_LEVEL_DBG
 #endif
+
+extern const char * log_strdup_fail_msg;
 
 extern struct log_source_const_data __log_const_start[0];
 extern struct log_source_const_data __log_const_end[0];
@@ -391,69 +536,69 @@ void log_printf_arg_checker(const char *fmt, ...)
 /** @brief Standard log with no arguments.
  *
  * @param str           String.
- * @param src_level	Log identification.
+ * @param metadata	Log identification.
  */
-void log_0(const char *str, struct log_msg_ids src_level);
+void log_0(const char *str, u32_t metadata);
 
 /** @brief Standard log with one argument.
  *
- * @param str           String.
- * @param arg1	        First argument.
- * @param src_level	Log identification.
+ * @param str		String.
+ * @param arg1		First argument.
+ * @param metadata	Log identification.
  */
 void log_1(const char *str,
 	   u32_t arg1,
-	   struct log_msg_ids src_level);
+	   u32_t metadata);
 
 /** @brief Standard log with two arguments.
  *
- * @param str           String.
- * @param arg1	        First argument.
- * @param arg2	        Second argument.
- * @param src_level	Log identification.
+ * @param str		String.
+ * @param arg1		First argument.
+ * @param arg2		Second argument.
+ * @param metadata	Log identification.
  */
 void log_2(const char *str,
 	   u32_t arg1,
 	   u32_t arg2,
-	   struct log_msg_ids src_level);
+	   u32_t metadata);
 
 /** @brief Standard log with three arguments.
  *
- * @param str           String.
- * @param arg1	        First argument.
- * @param arg2	        Second argument.
- * @param arg3	        Third argument.
- * @param src_level	Log identification.
+ * @param str		String.
+ * @param arg1		First argument.
+ * @param arg2		Second argument.
+ * @param arg3		Third argument.
+ * @param metadata	Log identification.
  */
 void log_3(const char *str,
 	   u32_t arg1,
 	   u32_t arg2,
 	   u32_t arg3,
-	   struct log_msg_ids src_level);
+	   u32_t metadata);
 
 /** @brief Standard log with arguments list.
  *
  * @param str		String.
  * @param args		Array with arguments.
  * @param narg		Number of arguments in the array.
- * @param src_level	Log identification.
+ * @param metadata	Log identification.
  */
 void log_n(const char *str,
 	   u32_t *args,
 	   u32_t narg,
-	   struct log_msg_ids src_level);
+	   u32_t metadata);
 
 /** @brief Hexdump log.
  *
  * @param str		String.
  * @param data		Data.
  * @param length	Data length.
- * @param src_level	Log identification.
+ * @param metadata	Log identification.
  */
 void log_hexdump(const char *str,
 		 const u8_t *data,
 		 u32_t length,
-		 struct log_msg_ids src_level);
+		 u32_t metadata);
 
 /** @brief Format and put string into log message.
  *
@@ -469,7 +614,13 @@ int log_printk(const char *fmt, va_list ap);
  *
  * @note This function is intended to be used when porting other log systems.
  */
-void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap);
+void log_generic(u32_t metadata, const char *fmt, va_list ap);
+
+/** @brief Frees buffer allocated for string duplication.
+ *
+ * @param strdup Duplicated string.
+ */
+void log_strdup_free(void *strdup);
 
 #ifdef __cplusplus
 }

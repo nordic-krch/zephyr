@@ -256,6 +256,14 @@ config LOG_BUFFER_SIZE
 	help
 	  Number of bytes dedicated for the logger internal buffer.
 
+config LOG_STRDUP_MAX_STRING
+	int "Maximal string length that can be duplicated using log_strdup()"
+	default 32
+	
+config LOG_STRDUP_BUF_COUNT
+	int "Number of buffers in the pool used by log_strdup()"
+	default 4
+	
 config LOG_DOMAIN_ID
 	int "Domain ID"
 	default 0

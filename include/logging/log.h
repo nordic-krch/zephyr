@@ -255,6 +255,27 @@ extern "C" {
  */
 int log_printk(const char *fmt, va_list ap);
 
+/** @brief Copies transient string to a buffer from internal, logger pool.
+ *
+ * Function should be used when transient string is intended to be logged.
+ * Logger allocates a buffer and copies input string returning a pointer to the
+ * copy. Logger ensures that buffer is freed when logger message is freed.
+ *
+ * @param str Transient string.
+ *
+ * @return Pointer to the copy.
+ */
+char *log_strdup(char *str);
+
+/** @brief Macro which must be used for any explicit string (e.g. "string")
+ * passed as an argument to the log API (e.g. LOG_INF("%s",LOG_STR("message"))).
+ *
+ *  When macro is missed compilation fails.
+ *
+ *  @param _str Explicit string
+ */
+#define LOG_STRDUP(_str) UTIL_DEFER7(LOG_INTERNAL_STRDUP)(log_strdup(_str))
+#define LOG_STR(_str) UTIL_DEFER7(LOG_INTERNAL_STR)(_str)
 
 #define __DYNAMIC_MODULE_REGISTER(_name)\
 	struct log_source_dynamic_data LOG_ITEM_DYNAMIC_DATA(_name)	\
