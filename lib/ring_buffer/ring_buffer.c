@@ -7,6 +7,7 @@
  */
 
 #include <ring_buffer.h>
+#include <string.h>
 
 /**
  * Internal data structure for a buffer header.
@@ -28,7 +29,7 @@ int sys_ring_buf_put(struct ring_buf *buf, u16_t type, u8_t value,
 	space = sys_ring_buf_space_get(buf);
 	if (space >= (size32 + 1)) {
 		struct ring_element *header =
-				(struct ring_element *)&buf->buf[buf->tail];
+			(struct ring_element *)&buf->buf.buf32[buf->tail];
 		header->type = type;
 		header->length = size32;
 		header->value = value;
@@ -36,19 +37,19 @@ int sys_ring_buf_put(struct ring_buf *buf, u16_t type, u8_t value,
 		if (likely(buf->mask)) {
 			for (i = 0; i < size32; ++i) {
 				index = (i + buf->tail + 1) & buf->mask;
-				buf->buf[index] = data[i];
+				buf->buf.buf32[index] = data[i];
 			}
 			buf->tail = (buf->tail + size32 + 1) & buf->mask;
 		} else {
 			for (i = 0; i < size32; ++i) {
 				index = (i + buf->tail + 1) % buf->size;
-				buf->buf[index] = data[i];
+				buf->buf.buf32[index] = data[i];
 			}
 			buf->tail = (buf->tail + size32 + 1) % buf->size;
 		}
 		rc = 0;
 	} else {
-		buf->dropped_put_count++;
+		buf->misc.item_mode.dropped_put_count++;
 		rc = -EMSGSIZE;
 	}
 
@@ -65,7 +66,7 @@ int sys_ring_buf_get(struct ring_buf *buf, u16_t *type, u8_t *value,
 		return -EAGAIN;
 	}
 
-	header = (struct ring_element *) &buf->buf[buf->head];
+	header = (struct ring_element *) &buf->buf.buf32[buf->head];
 
 	if (header->length > *size32) {
 		*size32 = header->length;
@@ -79,16 +80,137 @@ int sys_ring_buf_get(struct ring_buf *buf, u16_t *type, u8_t *value,
 	if (likely(buf->mask)) {
 		for (i = 0; i < header->length; ++i) {
 			index = (i + buf->head + 1) & buf->mask;
-			data[i] = buf->buf[index];
+			data[i] = buf->buf.buf32[index];
 		}
 		buf->head = (buf->head + header->length + 1) & buf->mask;
 	} else {
 		for (i = 0; i < header->length; ++i) {
 			index = (i + buf->head + 1) % buf->size;
-			data[i] = buf->buf[index];
+			data[i] = buf->buf.buf32[index];
 		}
 		buf->head = (buf->head + header->length + 1) % buf->size;
 	}
 
 	return 0;
+}
+
+/** @brief Wraps if exceeds the limit.
+ *
+ * @param val  Value
+ * @param max  Max.
+ *
+ * @return value % max.
+ */
+static inline u32_t wrap(u32_t val,u32_t max)
+{
+	return val >= max ? (val - max) : val;
+}
+
+u32_t sys_ring_buf_bytes_alloc(struct ring_buf *buf, u8_t **data, u32_t size)
+{
+	u32_t space, trail_size, allocated;
+
+	space = sys_ring_buf_custom_space_get(buf->size, buf->head,
+					      buf->misc.byte_mode.tmp_tail);
+
+	/* Limit requested size to available size. */
+	size = size > space ? space : size;
+	trail_size = buf->size - buf->misc.byte_mode.tmp_tail;
+
+	/* Limit allocated size to trail size. */
+	allocated = (trail_size > size) ? size : trail_size;
+
+	*data = &buf->buf.buf8[buf->misc.byte_mode.tmp_tail];
+	buf->misc.byte_mode.tmp_tail =
+		wrap(buf->misc.byte_mode.tmp_tail + allocated, buf->size);
+
+	return allocated;
+}
+
+int sys_ring_buf_bytes_put(struct ring_buf *buf, u32_t size)
+{
+	if (size > sys_ring_buf_space_get(buf)) {
+		return -EINVAL;
+	}
+
+	buf->tail = wrap(buf->tail + size, buf->size);
+	buf->misc.byte_mode.tmp_tail = buf->tail;
+
+	return 0;
+}
+
+u32_t sys_ring_buf_bytes_cpy_put(struct ring_buf *buf, const u8_t *data,
+				u32_t size)
+{
+	u8_t *dst;
+	u32_t partial_size;
+	u32_t total_size = 0;
+
+	do {
+		partial_size = sys_ring_buf_bytes_alloc(buf, &dst, size);
+		memcpy(dst, data, partial_size);
+		total_size += partial_size;
+		size -= partial_size;
+		data += partial_size;
+	} while (size && partial_size);
+
+	sys_ring_buf_bytes_put(buf, total_size);
+
+	return total_size;
+}
+
+u32_t sys_ring_buf_bytes_get(struct ring_buf *buf, u8_t **data, u32_t size)
+{
+	u32_t space, granted_size, trail_size;
+
+	space = (buf->size - 1) -
+		sys_ring_buf_custom_space_get(buf->size,
+					      buf->misc.byte_mode.tmp_head,
+					      buf->tail);
+	trail_size = buf->size - buf->misc.byte_mode.tmp_head;
+
+	/* Limit requested size to available size. */
+	granted_size = size > space ? space : size;
+
+	/* Limit allocated size to trail size. */
+	granted_size = (trail_size > granted_size) ? granted_size : trail_size;
+
+	*data = &buf->buf.buf8[buf->misc.byte_mode.tmp_head];
+	buf->misc.byte_mode.tmp_head =
+		wrap(buf->misc.byte_mode.tmp_head + granted_size, buf->size);
+
+	return granted_size;
+}
+
+int sys_ring_buf_bytes_free(struct ring_buf *buf, u32_t size)
+{
+	u32_t allocated = (buf->size - 1) - sys_ring_buf_space_get(buf);
+
+	if (size > allocated) {
+		return -EINVAL;
+	}
+
+	buf->head = wrap(buf->head + size, buf->size);
+	buf->misc.byte_mode.tmp_head = buf->head;
+
+	return 0;
+}
+
+u32_t sys_ring_buf_bytes_cpy_get(struct ring_buf *buf, u8_t *data, u32_t size)
+{
+	u8_t *src;
+	u32_t partial_size;
+	u32_t total_size = 0;
+
+	do {
+		partial_size = sys_ring_buf_bytes_get(buf, &src, size);
+		memcpy(data, src, partial_size);
+		total_size += partial_size;
+		size -= partial_size;
+		data += partial_size;
+	} while (size && partial_size);
+
+	sys_ring_buf_bytes_free(buf, total_size);
+
+	return total_size;
 }
