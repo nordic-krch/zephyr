@@ -13,6 +13,7 @@
 #include <kernel.h>
 #include <misc/util.h>
 #include <errno.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,11 +27,24 @@ extern "C" {
 struct ring_buf {
 	u32_t head;	 /**< Index in buf for the head element */
 	u32_t tail;	 /**< Index in buf for the tail element */
-	u32_t dropped_put_count; /**< Running tally of the number of failed
-				     * put attempts
-				     */
+	union ring_buf_misc {
+		struct ring_buf_misc_item_mode {
+			u32_t dropped_put_count; /**< Running tally of the
+						   * number of failed put
+						   * attempts.
+						   */
+		} item_mode;
+		struct ring_buf_misc_byte_mode {
+			u32_t tmp_tail;
+			u32_t tmp_head;
+		} byte_mode;
+	} misc;
 	u32_t size;   /**< Size of buf in 32-bit chunks */
-	u32_t *buf;	 /**< Memory region for stored entries */
+
+	union ring_buf_buffer {
+		u32_t *buf32;	 /**< Memory region for stored entries */
+		u8_t *buf8;
+	} buf;
 	u32_t mask;   /**< Modulo mask if size is a power of 2 */
 };
 
@@ -61,8 +75,8 @@ struct ring_buf {
 	struct ring_buf name = { \
 		.size = (1 << (pow)), \
 		.mask = (1 << (pow)) - 1, \
-		.buf = _ring_buffer_data_##name \
-	};
+		.buf = { .buf32 = _ring_buffer_data_##name } \
+	}
 
 /**
  * @brief Statically define and initialize a standard ring buffer.
@@ -82,38 +96,78 @@ struct ring_buf {
 	static u32_t _ring_buffer_data_##name[size32]; \
 	struct ring_buf name = { \
 		.size = size32, \
-		.buf = _ring_buffer_data_##name \
-	};
+		.buf = { .buf32 = _ring_buffer_data_##name} \
+	}
+
+/**
+ * @brief Statically define and initialize a ring buffer for byte data.
+ *
+ * This macro establishes a ring buffer of an arbitrary size.
+ *
+ * The ring buffer can be accessed outside the module where it is defined
+ * using:
+ *
+ * @code extern struct ring_buf <name>; @endcode
+ *
+ * @param name  Name of the ring buffer.
+ * @param size8 Size of ring buffer (in bytes).
+ */
+#define SYS_RING_BUF_BYTES_DECLARE_SIZE(name, size8) \
+	static u8_t _ring_buffer_data_##name[size8]; \
+	struct ring_buf name = { \
+		.size = size8, \
+		.buf = { .buf8 = _ring_buffer_data_##name} \
+	}
 
 /**
  * @brief Initialize a ring buffer.
  *
  * This routine initializes a ring buffer, prior to its first use. It is only
- * used for ring buffers not defined using SYS_RING_BUF_DECLARE_POW2 or
- * SYS_RING_BUF_DECLARE_SIZE.
+ * used for ring buffers not defined using SYS_RING_BUF_DECLARE_POW2,
+ * SYS_RING_BUF_DECLARE_SIZE or SYS_RING_BUF_RAW_DECLARE_SIZE.
  *
  * Setting @a size to a power of 2 establishes a high performance ring buffer
  * that doesn't require the use of modulo arithmetic operations to maintain
  * itself.
  *
  * @param buf Address of ring buffer.
- * @param size Ring buffer size (in 32-bit words).
- * @param data Ring buffer data area (typically u32_t data[size]).
+ * @param size Ring buffer size (in 32-bit words or bytes).
+ * @param data Ring buffer data area (u32_t data[size] or u8_t data[size] for
+ *	       bytes mode).
  */
 static inline void sys_ring_buf_init(struct ring_buf *buf, u32_t size,
-				     u32_t *data)
+				     void *data)
 {
-	buf->head = 0;
-	buf->tail = 0;
-	buf->dropped_put_count = 0;
+	memset(buf, 0, sizeof(struct ring_buf));
 	buf->size = size;
-	buf->buf = data;
+	buf->buf.buf32 = data;
 	if (is_power_of_two(size)) {
 		buf->mask = size - 1;
 	} else {
 		buf->mask = 0;
 	}
 
+}
+
+/** @brief Determine free space based on ring buffer parameters.
+ *
+ * @note Function for internal use.
+ *
+ * @param size Ring buffer size.
+ * @param head Ring buffer head.
+ * @param tail Ring buffer tail.
+ *
+ *  @return Ring buffer free space (in 32-bit words or bytes).
+ */
+static inline int sys_ring_buf_custom_space_get(u32_t size, u32_t head,
+						u32_t tail)
+{
+	if (tail < head) {
+		return head - tail - 1;
+	}
+
+	/* buf->tail > buf->head */
+	return (size - tail) + head - 1;
 }
 
 /**
@@ -127,26 +181,16 @@ static inline int sys_ring_buf_is_empty(struct ring_buf *buf)
 {
 	return (buf->head == buf->tail);
 }
-
 /**
  * @brief Determine free space in a ring buffer.
  *
  * @param buf Address of ring buffer.
  *
- * @return Ring buffer free space (in 32-bit words).
+ * @return Ring buffer free space (in 32-bit words or bytes).
  */
 static inline int sys_ring_buf_space_get(struct ring_buf *buf)
 {
-	if (sys_ring_buf_is_empty(buf)) {
-		return buf->size - 1;
-	}
-
-	if (buf->tail < buf->head) {
-		return buf->head - buf->tail - 1;
-	}
-
-	/* buf->tail > buf->head */
-	return (buf->size - buf->tail) + buf->head - 1;
+	return sys_ring_buf_custom_space_get(buf->size, buf->head, buf->tail);
 }
 
 /**
@@ -160,6 +204,11 @@ static inline int sys_ring_buf_space_get(struct ring_buf *buf)
  * Use cases involving multiple writers to the ring buffer must prevent
  * concurrent write operations, either by preventing all writers from
  * being preempted or by using a mutex to govern writes to the ring buffer.
+ *
+ * @warning
+ * Ring buffer instance should not mix byte data (calls prefixed with
+ * sys_ring_buf_bytes_) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
  *
  * @param buf Address of ring buffer.
  * @param type Data item's type identifier (application specific).
@@ -185,6 +234,11 @@ int sys_ring_buf_put(struct ring_buf *buf, u16_t type, u8_t value,
  * concurrent read operations, either by preventing all readers from
  * being preempted or by using a mutex to govern reads to the ring buffer.
  *
+ * @warning
+ * Ring buffer instance should not mix byte data (calls prefixed with
+ * sys_ring_buf_bytes_) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
+ *
  * @param buf Address of ring buffer.
  * @param type Area to store the data item's type identifier.
  * @param value Area to store the data item's integer value.
@@ -199,6 +253,114 @@ int sys_ring_buf_put(struct ring_buf *buf, u16_t type, u8_t value,
  */
 int sys_ring_buf_get(struct ring_buf *buf, u16_t *type, u8_t *value,
 		     u32_t *data, u8_t *size32);
+
+/**
+ * @brief Allocate buffer for writing data to a ring buffer.
+ *
+ * With this routine, memory copying can be reduced since internal ring buffer
+ * can be used directly by the user. Once data is written to allocated area
+ * number of bytes written can be claim (see @ref sys_ring_buf_bytes_put).
+ *
+ * @note
+ * Allocated buffer can be smaller than requested if there is not enough free
+ * space or buffer wraps.
+ *
+ * @param[in]  buf  Address of ring buffer.
+ * @param[out] data Pointer to the address. It is set to a location within
+ *		    ring buffer.
+ * @param[in]  size Requested allocation size (in bytes).
+ *
+ * @return Size of allocated buffer.
+ */
+u32_t sys_ring_buf_bytes_alloc(struct ring_buf *buf, u8_t **data, u32_t size);
+
+/**
+ * @brief Indicate number of bytes written to allocated buffers.
+ *
+ * @param  buf  Address of ring buffer.
+ * @param  size Number of valid bytes in the allocated buffers.
+ *
+ * @retval 0 Successful operation.
+ * @retval -EINVAL Provided @a size exceeds free space in the ring buffer.
+ */
+int sys_ring_buf_bytes_put(struct ring_buf *buf, u32_t size);
+
+/**
+ * @brief Write (copy) data to a ring buffer.
+ *
+ * This routine writes data to a ring buffer @a buf.
+ *
+ * @warning
+ * Use cases involving multiple writers to the ring buffer must prevent
+ * concurrent write operations, either by preventing all writers from
+ * being preempted or by using a mutex to govern writes to the ring buffer.
+ *
+ * @warning
+ * Ring buffer instance should not mix byte data (calls prefixed with
+ * sys_ring_buf_bytes_) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
+ *
+ * @param buf Address of ring buffer.
+ * @param data Address of data.
+ * @param size Data size (in bytes).
+ *
+ * @retval Number of bytes written.
+ */
+u32_t sys_ring_buf_bytes_cpy_put(struct ring_buf *buf, const u8_t *data,
+				 u32_t size);
+
+/**
+ * @brief Get buffer from a ring buffer.
+ *
+ * With this routine, memory copying can be reduced since internal ring buffer
+ * can be used directly by the user. Once data is processed it can be freed
+ * using @ref sys_ring_buf_bytes_free.
+ *
+ * @param[in]  buf  Address of ring buffer.
+ * @param[out] data Pointer to the address. It is set to a location within
+ *		    ring buffer.
+ * @param[in]  size Requested size (in bytes).
+ *
+ * @return Number of valid bytes in the provided buffer.
+ */
+u32_t sys_ring_buf_bytes_get(struct ring_buf *buf, u8_t **data, u32_t size);
+
+/**
+ * @brief Indicate number of bytes that can be freed.
+ *
+ * @param  buf  Address of ring buffer.
+ * @param  size Number of bytes that can be freed..
+ *
+ * @retval 0 Successful operation.
+ * @retval -EINVAL Provided @a size exceeds valid bytes in the ring buffer.
+ */
+int sys_ring_buf_bytes_free(struct ring_buf *buf, u32_t size);
+
+/**
+ * @brief Read data from a ring buffer.
+ *
+ * This routine reads data from a ring buffer @a buf.
+ *
+ * @warning
+ * Use cases involving multiple reads of the ring buffer must prevent
+ * concurrent read operations, either by preventing all readers from
+ * being preempted or by using a mutex to govern reads to the ring buffer.
+ *
+ * @warning
+ * Ring buffer instance should not mix byte data (calls prefixed with
+ * sys_ring_buf_bytes_) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
+ *
+ * be used on the
+ * same instance.
+ *
+ * @param buf Address of ring buffer.
+ * @param data Address of output buffer.
+ * @param size Data size (in bytes).
+ *
+ * @retval Number of bytes written to the output buffer.
+ */
+u32_t sys_ring_buf_bytes_cpy_get(struct ring_buf *buf, u8_t *data, u32_t size);
 
 /**
  * @}
