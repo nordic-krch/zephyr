@@ -104,6 +104,8 @@ SYS_RING_BUF_DECLARE_POW2(ringbuf_pow2, POW);
 /**TESTPOINT: init via SYS_RING_BUF_DECLARE_SIZE*/
 SYS_RING_BUF_DECLARE_SIZE(ringbuf_size, RINGBUFFER_SIZE);
 
+SYS_RING_BUF_RAW_DECLARE_SIZE(ringbuf_raw, RINGBUFFER_SIZE);
+
 static struct ring_buf ringbuf, *pbuf;
 
 static u32_t buffer[RINGBUFFER_SIZE];
@@ -227,6 +229,52 @@ void test_ringbuffer_size_put_get_thread_isr(void)
 	irq_offload(tringbuf_get, (void *)2);
 }
 
+void test_ringbuffer_raw(void)
+{
+	int i;
+	u8_t inbuf[RINGBUFFER_SIZE];
+	u8_t outbuf[RINGBUFFER_SIZE];
+	size_t in_size;
+	size_t out_size;
+
+	/* Initialize test buffer. */
+	for (i = 0; i < RINGBUFFER_SIZE; i++) {
+		inbuf[i] = i;
+	}
+
+	for (i = 0; i < 10; i++) {
+		memset(outbuf, 0, sizeof(outbuf));
+		in_size = sys_ring_buf_raw_put(&ringbuf_raw, inbuf,
+					       RINGBUFFER_SIZE - 2);
+		out_size = sys_ring_buf_raw_get(&ringbuf_raw, outbuf,
+						RINGBUFFER_SIZE - 2);
+
+		zassert_true(in_size == RINGBUFFER_SIZE - 2, NULL);
+		zassert_true(in_size == out_size, NULL);
+		zassert_true(memcmp(inbuf, outbuf, RINGBUFFER_SIZE - 2) == 0,
+			     NULL);
+	}
+
+	in_size = sys_ring_buf_raw_put(&ringbuf_raw, inbuf,
+				       RINGBUFFER_SIZE);
+	zassert_equal(in_size, RINGBUFFER_SIZE - 1, NULL);
+
+	in_size = sys_ring_buf_raw_put(&ringbuf_raw, inbuf,
+				       1);
+	zassert_equal(in_size, 0, NULL);
+
+	out_size = sys_ring_buf_raw_get(&ringbuf_raw, outbuf,
+					RINGBUFFER_SIZE);
+
+	zassert_true(out_size == RINGBUFFER_SIZE - 1, NULL);
+
+	out_size = sys_ring_buf_raw_get(&ringbuf_raw, outbuf,
+					RINGBUFFER_SIZE + 1);
+	zassert_true(out_size == 0, NULL);
+
+
+}
+
 /*test case main entry*/
 void test_main(void)
 {
@@ -239,6 +287,8 @@ void test_main(void)
 			 ztest_unit_test(test_ringbuffer_put_get_thread_isr),
 			 ztest_unit_test(test_ringbuffer_pow2_put_get_thread_isr),
 			 ztest_unit_test(test_ringbuffer_size_put_get_thread_isr),
-			 ztest_unit_test(test_ring_buffer_main));
+			 ztest_unit_test(test_ring_buffer_main),
+			 ztest_unit_test(test_ringbuffer_raw)
+			 );
 	ztest_run_test_suite(test_ringbuffer_api);
 }

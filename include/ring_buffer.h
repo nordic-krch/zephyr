@@ -30,7 +30,11 @@ struct ring_buf {
 				     * put attempts
 				     */
 	u32_t size;   /**< Size of buf in 32-bit chunks */
-	u32_t *buf;	 /**< Memory region for stored entries */
+
+	union ring_buf_buffer {
+		u32_t *buf32;	 /**< Memory region for stored entries */
+		u8_t *buf8;
+	} buf;
 	u32_t mask;   /**< Modulo mask if size is a power of 2 */
 };
 
@@ -61,8 +65,8 @@ struct ring_buf {
 	struct ring_buf name = { \
 		.size = (1 << (pow)), \
 		.mask = (1 << (pow)) - 1, \
-		.buf = _ring_buffer_data_##name \
-	};
+		.buf = { .buf32 = _ring_buffer_data_##name } \
+	}
 
 /**
  * @brief Statically define and initialize a standard ring buffer.
@@ -82,23 +86,45 @@ struct ring_buf {
 	static u32_t _ring_buffer_data_##name[size32]; \
 	struct ring_buf name = { \
 		.size = size32, \
-		.buf = _ring_buffer_data_##name \
-	};
+		.buf = { .buf32 = _ring_buffer_data_##name} \
+	}
+
+/**
+ * @brief Statically define and initialize a ring buffer for raw byte data.
+ *
+ * This macro establishes a ring buffer of an arbitrary size. A standard
+ * ring buffer uses modulo arithmetic operations to maintain itself.
+ *
+ * The ring buffer can be accessed outside the module where it is defined
+ * using:
+ *
+ * @code extern struct ring_buf <name>; @endcode
+ *
+ * @param name  Name of the ring buffer.
+ * @param size8 Size of ring buffer (in bytes).
+ */
+#define SYS_RING_BUF_RAW_DECLARE_SIZE(name, size8) \
+	static u8_t _ring_buffer_data_##name[size8]; \
+	struct ring_buf name = { \
+		.size = size8, \
+		.buf = { .buf8 = _ring_buffer_data_##name} \
+	}
 
 /**
  * @brief Initialize a ring buffer.
  *
  * This routine initializes a ring buffer, prior to its first use. It is only
- * used for ring buffers not defined using SYS_RING_BUF_DECLARE_POW2 or
- * SYS_RING_BUF_DECLARE_SIZE.
+ * used for ring buffers not defined using SYS_RING_BUF_DECLARE_POW2,
+ * SYS_RING_BUF_DECLARE_SIZE or SYS_RING_BUF_RAW_DECLARE_SIZE.
  *
  * Setting @a size to a power of 2 establishes a high performance ring buffer
  * that doesn't require the use of modulo arithmetic operations to maintain
  * itself.
  *
  * @param buf Address of ring buffer.
- * @param size Ring buffer size (in 32-bit words).
- * @param data Ring buffer data area (typically u32_t data[size]).
+ * @param size Ring buffer size (in 32-bit words or bytes).
+ * @param data Ring buffer data area (u32_t data[size] or u8_t data[size] for
+ *	       raw mode).
  */
 static inline void sys_ring_buf_init(struct ring_buf *buf, u32_t size,
 				     u32_t *data)
@@ -107,7 +133,7 @@ static inline void sys_ring_buf_init(struct ring_buf *buf, u32_t size,
 	buf->tail = 0;
 	buf->dropped_put_count = 0;
 	buf->size = size;
-	buf->buf = data;
+	buf->buf.buf32 = data;
 	if (is_power_of_two(size)) {
 		buf->mask = size - 1;
 	} else {
@@ -133,7 +159,7 @@ static inline int sys_ring_buf_is_empty(struct ring_buf *buf)
  *
  * @param buf Address of ring buffer.
  *
- * @return Ring buffer free space (in 32-bit words).
+ * @return Ring buffer free space (in 32-bit words or bytes).
  */
 static inline int sys_ring_buf_space_get(struct ring_buf *buf)
 {
@@ -161,6 +187,11 @@ static inline int sys_ring_buf_space_get(struct ring_buf *buf)
  * concurrent write operations, either by preventing all writers from
  * being preempted or by using a mutex to govern writes to the ring buffer.
  *
+ * @warning
+ * Ring buffer instance should not mix raw data (@ref sys_ring_buf_raw_put and
+ * @ref sys_ring_buf_raw_get interfaces) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
+ *
  * @param buf Address of ring buffer.
  * @param type Data item's type identifier (application specific).
  * @param value Data item's integer value (application specific).
@@ -185,6 +216,11 @@ int sys_ring_buf_put(struct ring_buf *buf, u16_t type, u8_t value,
  * concurrent read operations, either by preventing all readers from
  * being preempted or by using a mutex to govern reads to the ring buffer.
  *
+ * @warning
+ * Ring buffer instance should not mix raw data (@ref sys_ring_buf_raw_put and
+ * @ref sys_ring_buf_raw_get interfaces) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
+ *
  * @param buf Address of ring buffer.
  * @param type Area to store the data item's type identifier.
  * @param value Area to store the data item's integer value.
@@ -200,6 +236,54 @@ int sys_ring_buf_put(struct ring_buf *buf, u16_t type, u8_t value,
 int sys_ring_buf_get(struct ring_buf *buf, u16_t *type, u8_t *value,
 		     u32_t *data, u8_t *size32);
 
+/**
+ * @brief Write raw data to a ring buffer.
+ *
+ * This routine writes raw data to a ring buffer @a buf.
+ *
+ * @warning
+ * Use cases involving multiple writers to the ring buffer must prevent
+ * concurrent write operations, either by preventing all writers from
+ * being preempted or by using a mutex to govern writes to the ring buffer.
+ *
+ * @warning
+ * Ring buffer instance should not mix raw data (@ref sys_ring_buf_raw_put and
+ * @ref sys_ring_buf_raw_get interfaces) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
+ *
+ * @param buf Address of ring buffer.
+ * @param data Address of data.
+ * @param size Data size (in bytes).
+ *
+ * @retval Number of bytes written.
+ */
+size_t sys_ring_buf_raw_put(struct ring_buf *buf, u8_t *data, size_t size);
+
+/**
+ * @brief Read raw data from a ring buffer.
+ *
+ * This routine reads raw data from a ring buffer @a buf.
+ *
+ * @warning
+ * Use cases involving multiple reads of the ring buffer must prevent
+ * concurrent read operations, either by preventing all readers from
+ * being preempted or by using a mutex to govern reads to the ring buffer.
+ *
+ * @warning
+ * Ring buffer instance should not mix raw data (@ref sys_ring_buf_raw_put and
+ * @ref sys_ring_buf_raw_get interfaces) and data items (@ref sys_ring_buf_put
+ * and @ref sys_ring_buf_get interfaces).
+ *
+ * be used on the
+ * same instance.
+ *
+ * @param buf Address of ring buffer.
+ * @param data Address of output buffer.
+ * @param size Data size (in bytes).
+ *
+ * @retval Number of bytes written to the output buffer.
+ */
+size_t sys_ring_buf_raw_get(struct ring_buf *buf, u8_t *data, size_t size);
 /**
  * @}
  */
