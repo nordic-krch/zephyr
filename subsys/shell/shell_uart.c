@@ -6,15 +6,23 @@
 
 #include <shell/shell_uart.h>
 #include <uart.h>
+#include <logging/log.h>
+
+#define LOG_MODULE_NAME shell_uart
+LOG_MODULE_REGISTER();
 
 static void timer_handler(struct k_timer *timer)
 {
-	struct shell_uart *sh_uart =
-			CONTAINER_OF(timer, struct shell_uart, timer);
+	u8_t c;
+	struct shell_uart *sh_uart = k_timer_user_data_get(timer);
 
-	if (uart_poll_in(sh_uart->dev, sh_uart->rx) == 0) {
-		sh_uart->rx_cnt = 1;
-		sh_uart->handler(SHELL_TRANSPORT_EVT_RX_RDY, sh_uart->context);
+	while (uart_poll_in(sh_uart->ctrl_blk->dev, &c) == 0) {
+		if (sys_ring_buf_raw_put(sh_uart->rx_ringbuf, &c, 1) == 0) {
+			/* ring buffer full. */
+			LOG_WRN("RX ring buffer full.");
+		}
+		sh_uart->ctrl_blk->handler(SHELL_TRANSPORT_EVT_RX_RDY,
+					   sh_uart->ctrl_blk->context);
 	}
 }
 
@@ -26,13 +34,14 @@ static int init(const struct shell_transport *transport,
 {
 	struct shell_uart *sh_uart = (struct shell_uart *)transport->ctx;
 
-	sh_uart->dev = device_get_binding(CONFIG_UART_CONSOLE_ON_DEV_NAME);
-	sh_uart->handler = evt_handler;
-	sh_uart->context = context;
+	sh_uart->ctrl_blk->dev = (struct device *)config;
+	sh_uart->ctrl_blk->handler = evt_handler;
+	sh_uart->ctrl_blk->context = context;
 
-	k_timer_init(&sh_uart->timer, timer_handler, NULL);
+	k_timer_init(sh_uart->timer, timer_handler, NULL);
+	k_timer_user_data_set(sh_uart->timer, sh_uart);
 
-	k_timer_start(&sh_uart->timer, 20, 20);
+	k_timer_start(sh_uart->timer, 20, 20);
 
 	return 0;
 }
@@ -54,12 +63,13 @@ static int write(const struct shell_transport *transport,
 	const u8_t *data8 = (const u8_t *)data;
 
 	for (size_t i = 0; i < length; i++) {
-		uart_poll_out(sh_uart->dev, data8[i]);
+		uart_poll_out(sh_uart->ctrl_blk->dev, data8[i]);
 	}
 
 	*cnt = length;
 
-	sh_uart->handler(SHELL_TRANSPORT_EVT_TX_RDY, sh_uart->context);
+	sh_uart->ctrl_blk->handler(SHELL_TRANSPORT_EVT_TX_RDY,
+				   sh_uart->ctrl_blk->context);
 
 	return 0;
 }
@@ -69,13 +79,7 @@ static int read(const struct shell_transport *transport,
 {
 	struct shell_uart *sh_uart = (struct shell_uart *)transport->ctx;
 
-	if (sh_uart->rx_cnt) {
-		memcpy(data, sh_uart->rx, 1);
-		sh_uart->rx_cnt = 0;
-		*cnt = 1;
-	} else {
-		*cnt = 0;
-	}
+	*cnt = sys_ring_buf_raw_get(sh_uart->rx_ringbuf, data, length);
 
 	return 0;
 }

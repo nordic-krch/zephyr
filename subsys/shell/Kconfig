@@ -168,4 +168,9 @@ config SHELL_CMDS_RESIZE
 	  must be called to ensure correct text display on the terminal screen.
 	  Resize command can be turned off to safe code memory (~0,5k).
 
+config SHELL_UART
+	bool "Enable shell UART transport"
+	select RING_BUFFER
+	default y
+
 endif #SHELL
