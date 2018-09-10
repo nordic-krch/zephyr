@@ -16,7 +16,7 @@
 #define LOG_MODULE_NAME app
 LOG_MODULE_REGISTER();
 
-SHELL_UART_DEFINE(shell_transport_uart, 1 , 8);
+SHELL_UART_DEFINE(shell_transport_uart, 8 , 8);
 SHELL_DEFINE(uart_shell, "uart:~$ ", &shell_transport_uart, '\r', 10);
 
 void timer_expired_handler(struct k_timer *timer)
