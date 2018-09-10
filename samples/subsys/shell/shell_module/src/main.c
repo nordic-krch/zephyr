@@ -10,12 +10,13 @@
 #include <shell/shell_uart.h>
 #include <version.h>
 #include <logging/log.h>
+#include <device.h>
 #include <stdlib.h>
 
 #define LOG_MODULE_NAME app
 LOG_MODULE_REGISTER();
 
-SHELL_UART_DEFINE(shell_transport_uart);
+SHELL_UART_DEFINE(shell_transport_uart, 1 , 8);
 SHELL_DEFINE(uart_shell, "uart:~$ ", &shell_transport_uart, '\r', 10);
 
 void timer_expired_handler(struct k_timer *timer)
@@ -125,5 +126,8 @@ SHELL_CMD_REGISTER(version, NULL, "Show kernel version", cmd_version);
 
 void main(void)
 {
-	(void)shell_init(&uart_shell, NULL, true, true, LOG_LEVEL_INF);
+	struct device *dev =
+			device_get_binding(CONFIG_UART_CONSOLE_ON_DEV_NAME);
+
+	(void)shell_init(&uart_shell, (void *)dev, true, true, LOG_LEVEL_INF);
 }

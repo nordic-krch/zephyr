@@ -16,8 +16,12 @@ zephyr_sources_ifdef(
   shell_fprintf.c
   shell_utils.c
   shell_ops.c
-  shell_uart.c
   )
+
+zephyr_sources_ifdef(
+  CONFIG_SHELL_UART
+  shell_uart.c
+)
 
 zephyr_sources_ifdef(
   CONFIG_SHELL_CMDS
