@@ -78,6 +78,7 @@ static void module_logging_showcase(void)
 	printk("Module logging showcase.\n");
 
 	sample_module_func();
+	inline_func();
 
 	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING)) {
 		printk("Disabling logging in the %s module\n",
@@ -108,7 +109,9 @@ static void instance_logging_showcase(void)
 {
 	printk("Instance level logging showcase.\n");
 
+	sample_instance_inline_call(&inst1);
 	sample_instance_call(&inst1);
+	sample_instance_inline_call(&inst2);
 	sample_instance_call(&inst2);
 
 	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING)) {
@@ -118,7 +121,9 @@ static void instance_logging_showcase(void)
 		log_filter_set(NULL, 0,
 			       log_source_id_get(INST1_NAME), LOG_LEVEL_WRN);
 
+		sample_instance_inline_call(&inst1);
 		sample_instance_call(&inst1);
+		sample_instance_inline_call(&inst2);
 		sample_instance_call(&inst2);
 
 		printk("Disabling logging on both instances.\n");
@@ -131,7 +136,9 @@ static void instance_logging_showcase(void)
 			       log_source_id_get(INST2_NAME),
 			       LOG_LEVEL_NONE);
 
+		sample_instance_inline_call(&inst1);
 		sample_instance_call(&inst1);
+		sample_instance_inline_call(&inst2);
 		sample_instance_call(&inst2);
 
 		printk("Function call on both instances with logging disabled.\n");
