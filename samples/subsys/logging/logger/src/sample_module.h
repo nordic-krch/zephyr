@@ -9,6 +9,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+#include <logging/log.h>
+
+#define MODULE_NAME sample_module
 
 const char *sample_module_name_get(void);
 void sample_module_func(void);

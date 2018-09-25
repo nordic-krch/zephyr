@@ -47,8 +47,8 @@ extern "C" {
 /**
  * @brief Macro for conditional code generation if provided log level allows.
  *
- * Macro behaves similarly to standard #if #else #endif clause. The difference is
- * that it is evaluated when used and not when header file is included.
+ * Macro behaves similarly to standard #if #else #endif clause. The difference
+ * is that it is evaluated when used and not when header file is included.
  *
  * @param _eval_level Evaluated level. If level evaluates to one of existing log
  *		      log level (1-4) then macro evaluates to _iftrue.
@@ -182,7 +182,7 @@ extern "C" {
 	_LOG_LEVEL_CHECK(_level, CONFIG_LOG_OVERRIDE_LEVEL, LOG_LEVEL_NONE) \
 	||								    \
 	(!IS_ENABLED(CONFIG_LOG_OVERRIDE_LEVEL) &&			    \
-	_LOG_LEVEL_CHECK(_level, LOG_LEVEL, CONFIG_LOG_DEFAULT_LEVEL) &&    \
+	(_level <= __log_level()) &&					    \
 	(_level <= CONFIG_LOG_MAX_LEVEL)				    \
 	)								    \
 	))

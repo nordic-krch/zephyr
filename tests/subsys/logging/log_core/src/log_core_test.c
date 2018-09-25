@@ -17,10 +17,10 @@
 #include <ztest.h>
 #include <logging/log_backend.h>
 #include <logging/log_ctrl.h>
+#include <logging/log.h>
+#include "test_module.h"
 
 #define LOG_MODULE_NAME test
-#include "logging/log.h"
-
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 struct backend_cb {
@@ -143,6 +143,8 @@ static void log_setup(bool backend2_enable)
 		backend2_cb.check_timestamp = false;
 
 		log_backend_enable(&backend2, &backend2_cb, LOG_LEVEL_DBG);
+	} else {
+		log_backend_disable(&backend2);
 	}
 
 	test_source_id = log_source_id_get(STRINGIFY(LOG_MODULE_NAME));
@@ -302,11 +304,10 @@ static void test_log_panic(void)
 		      "Unexpected amount of messages received by the backend.");
 }
 
-/* extern function comes from the file which is part of test module. It is
+/* Function comes from the file which is part of test module. It is
  * expected that logs coming from it will have same source_id as current
  * module (this file).
  */
-extern void test_func(void);
 static void test_log_from_declared_module(void)
 {
 	log_setup(false);

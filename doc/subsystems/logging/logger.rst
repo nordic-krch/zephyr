@@ -141,23 +141,27 @@ Logging in a module
 In order to use logger in the module, a unique name of a module must be
 specified and module must be registered with the logger core using
 :c:macro:`LOG_MODULE_REGISTER`. Optionally, a compile time log level for the
-module can be specified as well.
+module can be specified as the second parameter. Default log level
+(:option:`CONFIG_LOG_DEFAULT_LEVEL`) is used if custom log level is not
+provided.
 
 .. code-block:: c
 
-   #define LOG_LEVEL CONFIG_FOO_LOG_LEVEL /* From foo module Kconfig */
    #include <logging/log.h>
-   LOG_MODULE_REGISTER(foo); /* One per given log_module_name */
+   LOG_MODULE_REGISTER(foo, CONFIG_FOO_LOG_LEVEL);
 
 If the module consists of multiple files, then ``LOG_MODULE_REGISTER()`` should
 appear in exactly one of them. Each other file should use
 :c:macro:`LOG_MODULE_DECLARE` to declare its membership in the module.
+Optionally, a compile time log level for the module can be specified as
+the second parameter. Default log level (:option:`CONFIG_LOG_DEFAULT_LEVEL`)
+is used if custom log level is not provided.
 
 .. code-block:: c
 
-   #define LOG_LEVEL CONFIG_FOO_LOG_LEVEL /* From foo module Kconfig */
    #include <logging/log.h>
-   LOG_MODULE_DECLARE(foo); /* In all files comprising the module but one */
+   /* In all files comprising the module but one */
+   LOG_MODULE_DECLARE(foo, CONFIG_FOO_LOG_LEVEL);
 
 Dedicated Kconfig template (:file:`subsys/logging/Kconfig.template.log_config`)
 can be used to create local log level configuration.
@@ -207,9 +211,15 @@ In order to use instance level filtering following steps must be performed:
 Note that when logger is disabled logger instance and pointer to that instance
 are not created.
 
-- logger can be used in function
+In order to use instance logging API in the source file a compile-time log level
+must be set using :c:macro:`LOG_LEVEL_SET`. Optionally, a compile time log level
+for the module can be specified in the parameter. Default log level
+(:option:`CONFIG_LOG_DEFAULT_LEVEL`) is used if custom log level is not
+provided.
 
 .. code-block:: c
+
+   LOG_LEVEL_SET(CONFIG_FOO_LOG_LEVEL);
 
    void foo_init(foo_object *f)
    {
