@@ -152,13 +152,7 @@ module can be specified as well.
 If the module consists of multiple files, then ``LOG_MODULE_REGISTER()`` should
 appear in exactly one of them. Each other file should use
 :c:macro:`LOG_MODULE_DECLARE` to declare its membership in the module.
-
-.. code-block:: c
-
    #define LOG_LEVEL CONFIG_FOO_LOG_LEVEL /* From foo module Kconfig */
-   #include <logging/log.h>
-   LOG_MODULE_DECLARE(foo); /* In all files comprising the module but one */
-
 Dedicated Kconfig template (:file:`subsys/logging/Kconfig.template.log_config`)
 can be used to create local log level configuration.
 
