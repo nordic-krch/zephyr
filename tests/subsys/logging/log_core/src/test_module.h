@@ -11,4 +11,11 @@
 
 void test_func(void);
 
+static inline void test_inline_func(void)
+{
+	LOG_MODULE_DECLARE_IN_FUNC(test);
+
+	LOG_ERR("inline");
+}
+
 #endif /* TEST_MODULE_H */

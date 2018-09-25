@@ -25,4 +25,11 @@ struct sample_instance {
 
 void sample_instance_call(struct sample_instance *inst);
 
+static inline void sample_instance_inline_call(struct sample_instance *inst)
+{
+	LOG_LEVEL_SET_IN_FUNC(LOG_LEVEL_INF);
+
+	LOG_INST_INF(inst->log, "Inline call.");
+}
+
 #endif /*SAMPLE_INSTANCE_H*/

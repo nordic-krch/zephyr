@@ -163,6 +163,24 @@ is used if custom log level is not provided.
    /* In all files comprising the module but one */
    LOG_MODULE_DECLARE(foo, CONFIG_FOO_LOG_LEVEL);
 
+In order to use logger API in a function implemented in a header file
+:c:macro:`LOG_MODULE_DECLARE_IN_FUNC` macro must be used in the function body
+before logger API is called. Optionally, a compile time log level for the module
+can be specified as the second parameter. Default log level
+(:option:`CONFIG_LOG_DEFAULT_LEVEL`) is used if custom log level is not
+provided.
+
+.. code-block:: c
+
+   #include <logging/log.h>
+   /* In all files comprising the module but one */
+   static inline void foo(void)
+   {
+   	LOG_MODULE_DECLARE_IN_FUNC(foo, CONFIG_FOO_LOG_LEVEL);
+
+   	LOG_INF("foo");
+   }
+
 Dedicated Kconfig template (:file:`subsys/logging/Kconfig.template.log_config`)
 can be used to create local log level configuration.
 
@@ -223,6 +241,21 @@ provided.
 
    void foo_init(foo_object *f)
    {
+   	LOG_INST_INF(f->log, "Initialized.");
+   }
+
+In order to use instance logging API in the header file a compile-time log level
+must be set in each function using :c:macro:`LOG_LEVEL_SET_IN_FUNC`.
+Optionally, a compile time log level for the module can be provided in the
+parameter. Default log level (:option:`CONFIG_LOG_DEFAULT_LEVEL`) is used if
+custom log level is not provided.
+
+.. code-block:: c
+
+   static inline void foo_init(foo_object *f)
+   {
+   	LOG_LEVEL_SET_IN_FUNC(CONFIG_FOO_LOG_LEVEL);
+
    	LOG_INST_INF(f->log, "Initialized.");
    }
 

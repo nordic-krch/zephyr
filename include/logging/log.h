@@ -413,6 +413,30 @@ int log_printk(const char *fmt, va_list ap);
 		()/*Empty*/						  \
 	)
 
+
+/**
+ * @brief Macro for declaring a log module in a static inline function.
+ *
+ * Macro must be used within every static inline function in a header file which
+ * is using the logger API. Module must consist of at least one source file
+ * which registers the module.
+ *
+ * Macro accepts 1 or 2 parameters:
+ * - module name
+ * - optional module log level. Default log lovel is used if not present.
+ *
+ * Example usage:
+ *  - LOG_MODULE_DECLARE_IN_FUNC(foo, CONFIG_FOO_LOG_LEVEL)
+ *  - LOG_MODULE_DECLARE_IN_FUNC(foo)
+ */
+#define LOG_MODULE_DECLARE_IN_FUNC(...)					\
+	_LOG_EVAL(							\
+		_LOG_RESOLVE(__VA_ARGS__),				\
+		(_LOG_MODULE_DECLARE(_LOG_ARG1(__VA_ARGS__),		\
+				     _LOG_RESOLVE(__VA_ARGS__),)),	\
+		()/*Empty*/						\
+	)
+
 /**
  * @brief Macro for setting log level in the file where instance logging API
  *	  is used.
@@ -427,6 +451,22 @@ int log_printk(const char *fmt, va_list ap);
  */
 #define LOG_LEVEL_SET(...) \
 	static _LOG_LEVEL_FUNC(_LOG_RESOLVE(__VA_ARGS__))
+
+/**
+ * @brief Macro for setting log level in a static inline function which is
+ *	  using instance logging API (e.g. LOG_INST_INF).
+ *
+ * Macro must be used within every static inline function in a header file which
+ * is using the instance logging API.
+ *
+ * Example usage:
+ * - LOG_LEVEL_SET_IN_FUNC() - Default log level is used.
+ * - LOG_LEVEL_SET_IN_FUNC(CONFIG_FOO_LOG_LEVEL) - Custom level is used.
+ */
+#define LOG_LEVEL_SET_IN_FUNC(...) \
+	_LOG_LEVEL_FUNC(_LOG_RESOLVE(__VA_ARGS__))
+
+
 
 /**
  * @}

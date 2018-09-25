@@ -315,13 +315,15 @@ static void test_log_from_declared_module(void)
 	/* Setup log backend to validate source_id of the message. */
 	backend1_cb.check_id = true;
 	backend1_cb.exp_id[0] = LOG_CURRENT_MODULE_ID();
+	backend1_cb.exp_id[1] = LOG_CURRENT_MODULE_ID();
 
 	test_func();
+	test_inline_func();
 
 	while (log_process(false)) {
 	}
 
-	zassert_equal(1, backend1_cb.counter,
+	zassert_equal(2, backend1_cb.counter,
 		      "Unexpected amount of messages received by the backend.");
 }
 
