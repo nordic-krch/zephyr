@@ -442,6 +442,23 @@ static bool shell_tab_prepare(const struct shell *shell,
 			shell->ctx->cmd_buff_pos);
 	shell->ctx->temp_buff[shell->ctx->cmd_buff_pos] = '\0';
 
+	if (shell->ctx->selected_cmd) {
+		size_t buff_len =
+				shell_strlen(shell->ctx->temp_buff);
+		size_t root_cmd_len =
+			shell_strlen(shell->ctx->selected_cmd->u.entry->syntax);
+
+		memmove(shell->ctx->temp_buff + root_cmd_len +1,
+			shell->ctx->temp_buff,
+			buff_len);
+		memmove(shell->ctx->temp_buff,
+			shell->ctx->selected_cmd->u.entry->syntax,
+			root_cmd_len);
+		shell->ctx->temp_buff[root_cmd_len] = ' ';
+		/* +1 for ' ' */
+		shell->ctx->temp_buff[root_cmd_len + buff_len + 1] = '\0';
+	}
+
 	/* Create argument list. */
 	(void)shell_make_argv(argc, argv, shell->ctx->temp_buff,
 			      CONFIG_SHELL_ARGC_MAX);
@@ -455,7 +472,7 @@ static bool shell_tab_prepare(const struct shell *shell,
 	/* root command completion */
 	if ((*argc == 0) || ((space == 0) && (*argc == 1))) {
 		*complete_arg_idx = SHELL_CMD_ROOT_LVL;
-		*cmd = NULL;
+		cmd = NULL;
 		return true;
 	}
 
@@ -545,6 +562,7 @@ static void autocomplete(const struct shell *shell,
 	/* Next character in the buffer is not 'space'. */
 	if (!isspace((int) shell->ctx->cmd_buff[
 					shell->ctx->cmd_buff_pos])) {
+		shell->ctx->internal.flags.skip_space = 1;
 		if (shell->ctx->internal.flags.insert_mode) {
 			shell->ctx->internal.flags.insert_mode = 0;
 			shell_op_char_insert(shell, ' ');
@@ -664,7 +682,7 @@ static void shell_tab_handle(const struct shell *shell)
 	char *argv[CONFIG_SHELL_ARGC_MAX + 1];
 	/* d_entry - placeholder for dynamic command */
 	struct shell_static_entry d_entry;
-	const struct shell_static_entry *cmd;
+	const struct shell_static_entry *cmd = NULL;
 	size_t arg_idx;
 	u16_t longest;
 	size_t first;
@@ -720,6 +738,7 @@ static void metakeys_handle(const struct shell *shell, char data)
 		}
 		EXIT_HISTORY_REQUEST(shell);
 		shell_state_set(shell, SHELL_STATE_ACTIVE);
+		shell->ctx->selected_cmd = NULL;
 		break;
 
 	case SHELL_VT100_ASCII_CTRL_E: /* CTRL + E */
@@ -967,6 +986,24 @@ static int shell_execute(const struct shell *shell)
 	}
 
 	memset(&shell->ctx->active_cmd, 0, sizeof(shell->ctx->active_cmd));
+
+	if (shell->ctx->selected_cmd) {
+		size_t root_cmd_len =
+			shell_strlen(shell->ctx->selected_cmd->u.entry->syntax);
+		size_t buff_len = shell_strlen(shell->ctx->cmd_buff);
+
+		memmove(shell->ctx->cmd_buff + root_cmd_len +1,
+			shell->ctx->cmd_buff,
+			buff_len);
+		memmove(shell->ctx->cmd_buff,
+			shell->ctx->selected_cmd->u.entry->syntax,
+			root_cmd_len);
+		shell->ctx->cmd_buff[root_cmd_len] = ' ';
+		/* +1 for ' ' */
+		shell->ctx->cmd_buff[root_cmd_len + buff_len + 1] = '\0';
+		shell->ctx->cmd_buff_len = shell_strlen(shell->ctx->cmd_buff);
+		shell->ctx->cmd_buff_pos = shell->ctx->cmd_buff_len;
+	}
 
 	cmd_trim(shell);
 
@@ -1761,3 +1798,63 @@ int shell_execute_cmd(const struct shell *shell, const char *cmd)
 
 	return shell_execute(shell);
 }
+
+
+static int cmd_select(const struct shell *shell, size_t argc, char **argv)
+{
+	int ret = shell_cmd_precheck(shell, (argc == 2), NULL, 0);
+	const struct shell_cmd_entry *cmd;
+
+	if (ret) {
+		return ret;
+	}
+
+	cmd = root_cmd_find(argv[1]);
+
+	if (cmd == NULL) {
+		shell_fprintf(shell, SHELL_ERROR, "cmd not found\n");
+		return -EINVAL;
+	}
+
+	shell->ctx->selected_cmd = cmd;
+
+	shell_fprintf(shell, SHELL_NORMAL,
+			"found: %s\n", cmd->u.entry->syntax);
+
+	return 0;
+}
+
+SHELL_CMD_REGISTER(select, NULL, "Select a root command.", cmd_select);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
