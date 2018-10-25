@@ -14,10 +14,12 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "app_work_queue.h"
 #include "product_id.h"
 #include "elce2018_mqtt.h"
+#include "board.h"
 
 void main(void)
 {
 	app_wq_init();
+	(void)board_init();
 
 	LOG_INF("ELCE 2018 Cloud Connected Hackathon application");
 	LOG_INF("Board: %s, DeviceID: %x",
