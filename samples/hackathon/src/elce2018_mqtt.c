@@ -41,6 +41,8 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "bluetooth.h"
 #endif
 
+#include <shell/shell.h>
+
 #define MAX_FAILURES		5
 #define NUM_TEST_RESULTS	5
 #define AMB_TEMP_DEV		"ambient-temp"
@@ -77,6 +79,7 @@ BUILD_ASSERT_MSG(sizeof(CONFIG_NET_CONFIG_PEER_IPV4_ADDR) > 1,
 struct mqtt_sensor_data {
 	int amb_temp;
 	int die_temp;
+	char * msg;
 };
 
 #define MAX_SENSOR_DATA 2
@@ -89,6 +92,7 @@ struct elce2018_mqtt_data {
 	u8_t mqtt_client_id[30];	/* Device-unique identifier */
 	u8_t mqtt_password[20];	/* MQTT password */
 	u8_t mqtt_topic[255];		/* Buffer for topic names */
+	u8_t sub_topic[255];		/* Buffer for topic names */
 	u8_t mqtt_message[1024];	/* Buffer for message data */
 	struct mqtt_ctx mqtt;
 	struct mqtt_connect_msg connect_msg;
@@ -118,6 +122,10 @@ static const struct json_obj_descr json_amb_temp_descr =
 static const struct json_obj_descr json_die_temp_descr =
 	JSON_OBJ_DESCR_PRIM(struct mqtt_sensor_data, die_temp,
 			    JSON_TOK_NUMBER);
+
+static const struct json_obj_descr json_chat_descr =
+	JSON_OBJ_DESCR_PRIM(struct mqtt_sensor_data, msg,
+			    JSON_TOK_STRING);
 
 static struct elce2018_mqtt_data temp_data;
 
@@ -263,6 +271,43 @@ static int elce2018_mqtt_connect(struct elce2018_mqtt_data *data)
 	return -ETIMEDOUT;
 }
 
+static int publish_chat(struct elce2018_mqtt_data *data, char * str)
+{
+	struct mqtt_publish_msg *pub_msg = &data->pub_msg;
+	int ret;
+
+	/* Fill out the MQTT publication, and ship it.
+	 *
+	 * IMPORTANT: don't increase the level of QoS here, even if
+	 *            Zephyr claims to support it, until the Zephyr
+	 *            MQTT stack can correctly parse multiple MQTT
+	 *            packets within a single struct net_pkt.
+	 *
+	 * Working around that issue implies never receiving multiple
+	 * MQTT packets in the same net_pkt.
+	 *
+	 * Keep this at QoS 0 to avoid receiving PUBACK or PUBREC in
+	 * response to this message. Since this app is a publisher
+	 * only, the remaining possible incoming messages are CONNACK
+	 * and PINGRESP (depending on nonzero keep_alive). Those will
+	 * never be transmitted at the same time, as we ought to wait
+	 * for CONNACK before sending any PINGREQs.
+	 */
+	pub_msg->msg = str;
+	pub_msg->msg_len = strlen(pub_msg->msg);
+	pub_msg->qos = MQTT_QoS0;
+	pub_msg->topic = data->mqtt_topic;
+	pub_msg->topic_len = strlen(pub_msg->topic);
+
+	LOG_DBG("topic: %s", data->pub_msg.topic);
+	LOG_DBG("message: %s", data->pub_msg.msg);
+	ret = mqtt_tx_publish(&data->mqtt, &data->pub_msg);
+	if (ret) {
+		LOG_ERR("publish failed: %d", ret);
+	}
+
+	return ret;
+}
 static int elce2018_mqtt_publish(struct elce2018_mqtt_data *data)
 {
 	struct mqtt_publish_msg *pub_msg = &data->pub_msg;
@@ -281,6 +326,8 @@ static int elce2018_mqtt_publish(struct elce2018_mqtt_data *data)
 	if (ret) {
 		LOG_ERR("json_obj_encode_buf: %d", ret);
 		return ret;
+	} else {
+		LOG_DBG("json: %s", data->mqtt_message);
 	}
 
 	/* Fill out the MQTT publication, and ship it.
@@ -366,12 +413,49 @@ static void elce2018_mqtt_try_to_publish(struct k_work *work)
 
  out:
 	elce2018_mqtt_reboot_check(data, ret);
-	app_wq_submit_delayed(&data->mqtt_work, PUBLISH_DELAY_TIME);
+	//app_wq_submit_delayed(&data->mqtt_work, PUBLISH_DELAY_TIME);
+}
+static void elce2018_mqtt_try_to_publish_chat(struct k_work *work, char *str)
+{
+	struct elce2018_mqtt_data *data =
+		CONTAINER_OF(work, struct elce2018_mqtt_data, mqtt_work);
+	int ret = 0;
+
+	if (!data->mqtt.connected) {
+		ret = elce2018_mqtt_connect(data);
+		if (ret) {
+			LOG_ERR("connection failed: %d", ret);
+			goto out;
+		}
+	}
+
+	LOG_INF("Connected");
+
+	ret = publish_chat(data, str);
+
+ out:
+	elce2018_mqtt_reboot_check(data, ret);
+	//app_wq_submit_delayed(&data->mqtt_work, PUBLISH_DELAY_TIME);
 }
 
 /*
  * Initialization
  */
+
+static int subscribed_cb(struct mqtt_ctx *ctx, u16_t pkt_id,
+		 u8_t items, enum mqtt_qos qos[])
+{
+	LOG_DBG("Subscribed");
+	return 0;
+}
+
+static int publish_rx_cb(struct mqtt_ctx *ctx, struct mqtt_publish_msg *msg,
+		  u16_t pkt_id, enum mqtt_packet type)
+{
+	msg->msg[msg->msg_len] = '\0';
+	LOG_INF("receive publication %s", msg->msg);
+	return 0;
+}
 
 static int init_mqtt_plumbing(struct elce2018_mqtt_data *data)
 {
@@ -393,7 +477,9 @@ static int init_mqtt_plumbing(struct elce2018_mqtt_data *data)
 	data->mqtt.net_timeout = MQTT_NET_TIMEOUT;
 	data->mqtt.peer_addr_str = MQTT_HELPER_SERVER_ADDR;
 	data->mqtt.peer_port = MQTT_PORT;
-	ret = mqtt_init(&data->mqtt, MQTT_APP_PUBLISHER);
+	data->mqtt.subscribe = subscribed_cb;
+	data->mqtt.publish_rx = publish_rx_cb;
+	ret = mqtt_init(&data->mqtt, MQTT_APP_PUBLISHER_SUBSCRIBER);
 	if (ret) {
 		return ret;
 	}
@@ -511,3 +597,63 @@ int elce2018_mqtt_start(void)
 	elce2018_mqtt_net_cb(NULL, NET_EVENT_IF_UP, iface);
 	return 0;
 }
+
+static int cmd_mqtt_publish(const struct shell *shell,
+			    size_t argc, char **argv)
+{
+	elce2018_mqtt_try_to_publish(&temp_data.mqtt_work.work);
+	//elce2018_mqtt_try_to_publish_chat(&temp_data.mqtt_work.work, "helo");
+	return 0;
+}
+
+static int cmd_mqtt_publish_str(const struct shell *shell,
+			    size_t argc, char **argv)
+{
+//	elce2018_mqtt_try_to_publish(&temp_data.mqtt_work.work);
+	if (argc != 2) {
+		LOG_ERR("Invalid arguments length");
+	}
+
+	elce2018_mqtt_try_to_publish_chat(&temp_data.mqtt_work.work, argv[1]);
+	return 0;
+}
+
+static int cmd_mqtt_subscribe(const struct shell *shell, size_t argc, char **argv)
+{
+
+	static const enum mqtt_qos qos[] = {MQTT_QoS0};
+	static const char * topics[] = {temp_data.mqtt_topic};
+
+	snprintk(temp_data.sub_topic, sizeof(temp_data.sub_topic),
+			 "id/+/%s",
+			 (argc == 2) ? argv[1] : (char *)temp_data.mqtt_client_id);
+	LOG_DBG("topic: %s", temp_data.mqtt_topic);
+	mqtt_tx_subscribe(&temp_data.mqtt, 0x1234, 1, topics, qos);
+
+	return 0;
+}
+
+static int cmd_mqtt_connect(const struct shell *shell,
+			    size_t argc, char **argv)
+{
+	if (!temp_data.mqtt.connected) {
+		int ret = elce2018_mqtt_connect(&temp_data);
+		if (ret) {
+			LOG_ERR("connection failed: %d", ret);
+			return -1;
+		}
+	}
+	shell_fprintf(shell, SHELL_NORMAL, "connected\n");
+	return 0;
+}
+
+SHELL_CREATE_STATIC_SUBCMD_SET(sub_mqtt_cmds)
+{
+	SHELL_CMD(connect,NULL, ".", cmd_mqtt_connect),
+	SHELL_CMD(chat,NULL, ".", cmd_mqtt_publish_str),
+	SHELL_CMD(subscribe,NULL, ".", cmd_mqtt_subscribe),
+	SHELL_CMD(temp,NULL, ".", cmd_mqtt_publish),
+	SHELL_SUBCMD_SET_END
+};
+
+SHELL_CMD_REGISTER(mqtt, &sub_mqtt_cmds, "Whatever", NULL);
