@@ -73,6 +73,26 @@ static inline void msg_finalize(struct log_msg *msg,
 	}
 }
 
+/** @brief Examine if arguments are buffers from internal logger pool and free
+ *	   them if yes.
+ *
+ * Function is called if log message is dropped. In that case it must be
+ * ensured that buffers allocated for string duplication are freed.
+ *
+ * @param args Array of arguments.
+ * @param nargs Number of arguments in the array.
+ */
+static void args_free(u32_t * args, nargs)
+{
+	int i;
+
+	for (i = 0; i < nargs; i++) {
+		if (log_is_strdup((void *)args[i])) {
+			log_free((void *)args[i]);
+		}
+	}
+}
+
 void log_0(const char *str, struct log_msg_ids src_level)
 {
 	struct log_msg *msg = log_msg_create_0(str);
@@ -80,58 +100,63 @@ void log_0(const char *str, struct log_msg_ids src_level)
 	if (msg == NULL) {
 		return;
 	}
+
 	msg_finalize(msg, src_level);
 }
 
-void log_1(const char *str,
-	   u32_t arg0,
-	   struct log_msg_ids src_level)
+void log_1(const char *str, u32_t arg0, struct log_msg_ids src_level)
 {
 	struct log_msg *msg = log_msg_create_1(str, arg0);
 
 	if (msg == NULL) {
+		args_free(&arg0, 1);
+
 		return;
 	}
+
 	msg_finalize(msg, src_level);
 }
 
-void log_2(const char *str,
-	   u32_t arg0,
-	   u32_t arg1,
+void log_2(const char *str, u32_t arg0, u32_t arg1,
 	   struct log_msg_ids src_level)
 {
 	struct log_msg *msg = log_msg_create_2(str, arg0, arg1);
 
 	if (msg == NULL) {
+		u32_t args[] = {arg0, arg1};
+
+		args_free(args, ARRAY_SIZE(args));
+
 		return;
 	}
 
 	msg_finalize(msg, src_level);
 }
 
-void log_3(const char *str,
-	   u32_t arg0,
-	   u32_t arg1,
-	   u32_t arg2,
+void log_3(const char *str, u32_t arg0, u32_t arg1, u32_t arg2,
 	   struct log_msg_ids src_level)
 {
 	struct log_msg *msg = log_msg_create_3(str, arg0, arg1, arg2);
 
 	if (msg == NULL) {
+		u32_t args[] = {arg0, arg1, arg2};
+
+		args_free(args, ARRAY_SIZE(args));
+
 		return;
 	}
 
 	msg_finalize(msg, src_level);
 }
 
-void log_n(const char *str,
-	   u32_t *args,
-	   u32_t narg,
+void log_n(const char *str, u32_t *args, u32_t narg,
 	   struct log_msg_ids src_level)
 {
 	struct log_msg *msg = log_msg_create_n(str, args, narg);
 
 	if (msg == NULL) {
+		args_free(args, narg);
+
 		return;
 	}
 
