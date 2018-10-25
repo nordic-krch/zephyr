@@ -42,6 +42,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #endif
 
 #include <shell/shell.h>
+#include "board.h"
 
 #define MAX_FAILURES		5
 #define NUM_TEST_RESULTS	5

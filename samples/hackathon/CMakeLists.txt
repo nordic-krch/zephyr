@@ -25,4 +25,6 @@ target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/lib)
 target_sources(app PRIVATE src/main.c)
 target_sources(app PRIVATE src/app_work_queue.c)
 target_sources(app PRIVATE src/elce2018_mqtt.c)
+target_sources(app PRIVATE src/${BOARD}.c)
+
 target_sources_ifdef(CONFIG_BT               app PRIVATE src/bluetooth.c)
