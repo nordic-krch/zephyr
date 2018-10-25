@@ -289,6 +289,7 @@ struct shell_flags {
 	u32_t tx_rdy      :1;
 	u32_t mode_delete :1; /*!< Operation mode of backspace key */
 	u32_t history_exit:1; /*!< Request to exit history mode */
+	u32_t skip_space  :1;
 };
 
 BUILD_ASSERT_MSG((sizeof(struct shell_flags) == sizeof(u32_t)),
@@ -320,6 +321,9 @@ struct shell_ctx {
 
 	/*!< Currently executed command.*/
 	struct shell_static_entry active_cmd;
+
+	/*!< Pointer to selected root command */
+	const struct shell_cmd_entry *selected_cmd;
 
 	/*!< VT100 color and cursor position, terminal width.*/
 	struct shell_vt100_ctx vt100_ctx;
