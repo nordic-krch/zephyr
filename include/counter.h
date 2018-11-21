@@ -33,12 +33,11 @@ struct counter_alarm_cfg;
 
 /** @brief Alarm callback
  *
- * @param dev     Pointer to the device structure for the driver instance.
- * @param cfg     Original structure owning this handler.
- * @param ticks   Counter value that triggered the callback.
+ * @param user_data User data.
+ * @param chan_id   Channel ID.
+ * @param ticks     Counter value that triggered the callback.
  */
-typedef void (*counter_alarm_callback_t)(struct device *dev,
-					 const struct counter_alarm_cfg *cfg,
+typedef void (*counter_alarm_callback_t)(void *user_data, u8_t chan_id,
 					 u32_t ticks);
 
 /** @brief Alarm callback structure.
@@ -60,9 +59,7 @@ struct counter_alarm_cfg {
 		      *   counter implementation may count asynchronous events.
 		      */
 
-	u8_t channel_id; /*!< Channel ID. Number of channels is driver
-			  * dependent.
-			  */
+	void *user_data; /*!< User data returned in callback.*/
 
 	bool absolute; /*!< If true ticks are treated as absolute value, else
 			*   it is relative to the counter reading performed
@@ -102,10 +99,9 @@ struct counter_config_info {
 typedef int (*counter_api_start)(struct device *dev);
 typedef int (*counter_api_stop)(struct device *dev);
 typedef u32_t (*counter_api_read)(struct device *dev);
-typedef int (*counter_api_set_alarm)(struct device *dev,
+typedef int (*counter_api_set_alarm)(struct device *dev, u8_t chan_id,
 				const struct counter_alarm_cfg *alarm_cfg);
-typedef int (*counter_api_disable_alarm)(struct device *dev,
-				const struct counter_alarm_cfg *alarm_cfg);
+typedef int (*counter_api_disable_alarm)(struct device *dev, u8_t chan_id);
 typedef int (*counter_api_set_wrap)(struct device *dev, u32_t ticks,
 				    counter_wrap_callback_t callback,
 				    void *user_data);
@@ -261,6 +257,7 @@ static inline u32_t _impl_counter_read(struct device *dev)
  * counter_get_max_relative_alarm.
  *
  * @param dev		Pointer to the device structure for the driver instance.
+ * @param chan_id	Channel ID.
  * @param alarm_cfg	Alarm configuration.
  *
  * @retval 0 If successful.
@@ -268,39 +265,37 @@ static inline u32_t _impl_counter_read(struct device *dev)
  *		    interrupts or requested channel).
  * @retval -EINVAL if alarm settings are invalid.
  */
-static inline int counter_set_ch_alarm(struct device *dev,
-				    const struct counter_alarm_cfg *alarm_cfg)
+static inline int counter_set_ch_alarm(struct device *dev, u8_t chan_id,
+				      const struct counter_alarm_cfg *alarm_cfg)
 {
 	const struct counter_driver_api *api = dev->driver_api;
 
-	if (alarm_cfg->channel_id >= counter_get_num_of_channels(dev)) {
+	if (chan_id >= counter_get_num_of_channels(dev)) {
 		return -ENOTSUP;
 	}
 
-	return api->set_alarm(dev, alarm_cfg);
+	return api->set_alarm(dev, chan_id, alarm_cfg);
 }
 
 /**
  * @brief Disable an alarm on a channel.
  *
  * @param dev		Pointer to the device structure for the driver instance.
- * @param alarm_cfg	Alarm configuration. It must be the same address as the
- *			one used for @ref counter_set_alarm.
+ * @param chan_id	Channel ID.
  *
  * @retval 0 If successful.
  * @retval -ENOTSUP if request is not supported or the counter was not started
  *		    yet.
  */
-static inline int counter_disable_ch_alarm(struct device *dev,
-				const struct counter_alarm_cfg *alarm_cfg)
+static inline int counter_disable_ch_alarm(struct device *dev, u8_t chan_id)
 {
 	const struct counter_driver_api *api = dev->driver_api;
 
-	if (alarm_cfg->channel_id >= counter_get_num_of_channels(dev)) {
+	if (chan_id >= counter_get_num_of_channels(dev)) {
 		return -ENOTSUP;
 	}
 
-	return api->disable_alarm(dev, alarm_cfg);
+	return api->disable_alarm(dev, chan_id);
 }
 
 /**
@@ -390,9 +385,6 @@ static inline u32_t _impl_counter_get_max_relative_alarm(struct device *dev)
 	return api->get_max_relative_alarm(dev);
 }
 
-#ifdef __cplusplus
-}
-#endif
 
 __deprecated static inline int counter_set_alarm(struct device *dev,
 						 counter_callback_t callback,
@@ -424,6 +416,9 @@ __deprecated static inline void *counter_get_user_data(struct device *dev)
 /**
  * @}
  */
+#ifdef __cplusplus
+}
+#endif
 
 #include <syscalls/counter.h>
 
