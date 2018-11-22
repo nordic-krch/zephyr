@@ -649,71 +649,87 @@ static const struct bt_data ad_discov[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
 };
 
-static int cmd_advertise(const struct shell *shell, size_t argc, char *argv[])
+static int adv_start(const struct shell *shell,
+		bool use_name, bool conn, bool discov)
 {
 	struct bt_le_adv_param param;
 	const struct bt_data *ad;
 	size_t ad_len;
 	int err;
 
-	if (!strcmp(argv[1], "off")) {
-		if (bt_le_adv_stop() < 0) {
-			shell_error(shell, "Failed to stop advertising");
-			return -ENOEXEC;
-		} else {
-			shell_print(shell, "Advertising stopped");
-		}
-
-		return 0;
-	}
-
 	param.id = selected_id;
-	param.interval_min = BT_GAP_ADV_FAST_INT_MIN_2;
-	param.interval_max = BT_GAP_ADV_FAST_INT_MAX_2;
+		param.interval_min = BT_GAP_ADV_FAST_INT_MIN_2;
+		param.interval_max = BT_GAP_ADV_FAST_INT_MAX_2;
+		param.options = (use_name ? BT_LE_ADV_OPT_USE_NAME : 0) |
+				(conn ? BT_LE_ADV_OPT_CONNECTABLE : 0);
 
-	if (!strcmp(argv[1], "on")) {
-		param.options = (BT_LE_ADV_OPT_CONNECTABLE |
-				 BT_LE_ADV_OPT_USE_NAME);
-	} else if (!strcmp(argv[1], "scan")) {
-		param.options = BT_LE_ADV_OPT_USE_NAME;
-	} else if (!strcmp(argv[1], "nconn")) {
-		param.options = 0;
-	} else {
-		goto fail;
-	}
-
-	/* Parse advertisement data */
-	if (argc >= 3) {
-		const char *mode = argv[2];
-
-		if (!strcmp(mode, "discov")) {
-			ad = ad_discov;
-			ad_len = ARRAY_SIZE(ad_discov);
-		} else if (!strcmp(mode, "non_discov")) {
-			ad = NULL;
-			ad_len = 0;
-		} else {
-			goto fail;
-		}
-	} else {
+	if (discov) {
 		ad = ad_discov;
 		ad_len = ARRAY_SIZE(ad_discov);
+	} else {
+		ad = NULL;
+		ad_len = 0;
 	}
 
 	err = bt_le_adv_start(&param, ad, ad_len, NULL, 0);
 	if (err < 0) {
-		shell_error(shell, "Failed to start advertising (err %d)",
+		shell_error(shell, "Failed to start advertising (err %d).",
 			    err);
 		return err;
-	} else {
-		shell_print(shell, "Advertising started");
 	}
 
-	return 0;
+	shell_print(shell, "Advertising started.");
 
-fail:
-	shell_help(shell);
-	return -ENOEXEC;
+	return 0;
+}
+
+static int cmd_advertise_conn_discov(const struct shell *shell,
+				size_t argc, char *argv[])
+{
+	return adv_start(shell, true, true, true);
+}
+
+static int cmd_advertise_conn_ndiscov(const struct shell *shell,
+				size_t argc, char *argv[])
+{
+	return adv_start(shell, true, true, false);
+}
+
+static int cmd_advertise_scan_discov(const struct shell *shell,
+				size_t argc, char *argv[])
+{
+	return adv_start(shell, true, false, true);
+}
+
+static int cmd_advertise_scan_ndiscov(const struct shell *shell,
+				size_t argc, char *argv[])
+{
+	return adv_start(shell, true, false, false);
+}
+
+static int cmd_advertise_nconn_discov(const struct shell *shell,
+				size_t argc, char *argv[])
+{
+	return adv_start(shell, false, false, true);
+}
+
+static int cmd_advertise_nconn_ndiscov(const struct shell *shell,
+				size_t argc, char *argv[])
+{
+	return adv_start(shell, false, false, false);
+}
+
+static int cmd_advertise_off(const struct shell *shell,
+				size_t argc, char *argv[])
+{
+	if (bt_le_adv_stop() < 0) {
+		shell_error(shell, "Failed to stop advertising.");
+		return -ENOEXEC;
+	}
+
+	shell_print(shell, "Advertising stopped.");
+
+	return 0;
 }
 
 #if defined(CONFIG_BT_PERIPHERAL)
@@ -1332,6 +1348,47 @@ static int cmd_auth_passkey(const struct shell *shell,
 #define HELP_NONE "[none]"
 #define HELP_ADDR_LE "<address: XX:XX:XX:XX:XX:XX> <type: (public|random)>"
 
+#if defined(CONFIG_BT_BROADCASTER)
+SHELL_CREATE_STATIC_SUBCMD_SET(sub_bt_advertise_on_cmds)
+{
+	SHELL_CMD_ARG(discov, NULL, "Discoverable",
+			cmd_advertise_conn_discov, 0, 0),
+	SHELL_CMD_ARG(ndiscov, NULL, "Non-discoverable",
+			cmd_advertise_conn_ndiscov, 0, 0),
+	SHELL_SUBCMD_SET_END /* Array terminated. */
+};
+
+SHELL_CREATE_STATIC_SUBCMD_SET(sub_bt_advertise_scan_cmds)
+{
+	SHELL_CMD_ARG(discov, NULL, "Discoverable",
+			cmd_advertise_scan_discov, 0, 0),
+	SHELL_CMD_ARG(ndiscov, NULL, "Non-discoverable",
+			cmd_advertise_scan_ndiscov, 0, 0),
+	SHELL_SUBCMD_SET_END /* Array terminated. */
+};
+
+SHELL_CREATE_STATIC_SUBCMD_SET(sub_bt_advertise_nconn_cmds)
+{
+	SHELL_CMD_ARG(discov, NULL, "Discoverable",
+			cmd_advertise_nconn_discov, 0, 0),
+	SHELL_CMD_ARG(ndiscov, NULL, "Non-discoverable",
+			cmd_advertise_nconn_ndiscov, 0, 0),
+	SHELL_SUBCMD_SET_END /* Array terminated. */
+};
+
+SHELL_CREATE_STATIC_SUBCMD_SET(sub_bt_advertise_cmds)
+{
+	SHELL_CMD_ARG(nconn, &sub_bt_advertise_nconn_cmds, "Non-connectable",
+			cmd_advertise_nconn_discov, 0, 1),
+	SHELL_CMD_ARG(off, NULL, "Advertise off.", cmd_advertise_off, 0, 0),
+	SHELL_CMD_ARG(on, &sub_bt_advertise_on_cmds, "Connectable",
+			cmd_advertise_conn_discov, 0, 1),
+	SHELL_CMD_ARG(scan, &sub_bt_advertise_scan_cmds, "Scannable",
+			cmd_advertise_scan_discov, 0, 1),
+	SHELL_SUBCMD_SET_END /* Array terminated. */
+};
+#endif /* CONFIG_BT_BROADCASTER */
+
 SHELL_CREATE_STATIC_SUBCMD_SET(bt_cmds) {
 	SHELL_CMD_ARG(init, NULL, HELP_ADDR_LE, cmd_init, 1, 0),
 #if defined(CONFIG_BT_HCI)
@@ -1349,9 +1406,8 @@ SHELL_CREATE_STATIC_SUBCMD_SET(bt_cmds) {
 		      cmd_scan, 3, 0),
 #endif /* CONFIG_BT_OBSERVER */
 #if defined(CONFIG_BT_BROADCASTER)
-	SHELL_CMD_ARG(advertise, NULL,
-		      "<type: off, on, scan, nconn> <mode: discov, non_discov>",
-		      cmd_advertise, 2, 1),
+	SHELL_CMD_ARG(advertise, &sub_bt_advertise_cmds, "Control advertising",
+		      NULL, 1, 0),
 #if defined(CONFIG_BT_PERIPHERAL)
 	SHELL_CMD_ARG(directed-adv, NULL, HELP_ADDR_LE " [mode: low]",
 		      cmd_directed_adv, 1, 1),
