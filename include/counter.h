@@ -265,7 +265,7 @@ static inline u32_t _impl_counter_read(struct device *dev)
  *		    interrupts or requested channel).
  * @retval -EINVAL if alarm settings are invalid.
  */
-static inline int counter_set_ch_alarm(struct device *dev, u8_t chan_id,
+static inline int counter_set_channel_alarm(struct device *dev, u8_t chan_id,
 				      const struct counter_alarm_cfg *alarm_cfg)
 {
 	const struct counter_driver_api *api = dev->driver_api;
@@ -287,7 +287,8 @@ static inline int counter_set_ch_alarm(struct device *dev, u8_t chan_id,
  * @retval -ENOTSUP if request is not supported or the counter was not started
  *		    yet.
  */
-static inline int counter_disable_ch_alarm(struct device *dev, u8_t chan_id)
+static inline int counter_disable_channel_alarm(struct device *dev,
+						u8_t chan_id)
 {
 	const struct counter_driver_api *api = dev->driver_api;
 
@@ -385,7 +386,9 @@ static inline u32_t _impl_counter_get_max_relative_alarm(struct device *dev)
 	return api->get_max_relative_alarm(dev);
 }
 
-
+/**
+ * @brief Deprecated function.
+ */
 __deprecated static inline int counter_set_alarm(struct device *dev,
 						 counter_callback_t callback,
 						 u32_t count, void *user_data)
