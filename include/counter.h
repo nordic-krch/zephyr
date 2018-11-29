@@ -67,9 +67,6 @@ struct counter_alarm_cfg {
  */
 typedef void (*counter_wrap_callback_t)(struct device *dev, void *user_data);
 
-__deprecated typedef void (*counter_callback_t)(struct device *dev,
-						void *user_data);
-
 /** @brief Structure with generic counter features.
  *
  * @param max_wrap Maximal (default) wrap value on which counter is reset
@@ -376,6 +373,10 @@ static inline u32_t _impl_counter_get_max_relative_alarm(struct device *dev)
 
 	return api->get_max_relative_alarm(dev);
 }
+
+/* Deprecated counter callback. */
+typedef void (*counter_callback_t)(struct device *dev,
+						void *user_data);
 
 /**
  * @brief Deprecated function.
