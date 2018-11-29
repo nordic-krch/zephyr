@@ -29,8 +29,6 @@
 extern "C" {
 #endif
 
-struct counter_alarm_cfg;
-
 /** @brief Alarm callback
  *
  * @param user_data User data.
@@ -42,29 +40,24 @@ typedef void (*counter_alarm_callback_t)(void *user_data, u8_t chan_id,
 
 /** @brief Alarm callback structure.
  *
- * Used to set an alarm.
- * Beware such structure should not be allocated on stack.
+ * @param handler Handler called on alarm (cannot be NULL).
+ * @param ticks Ticks that triggers the alarm. In case of absolute flag is set,
+ *		maximal value that can be set equals wrap value
+ *		(counter_get_wrap). Otherwise counter_get_max_relative_alarm()
+ *		returns maximal value that can be set. If counter is clock
+ *		driven then ticks can be converted to microseconds (see @ref
+ *		counter_ticks_to_us). Alternatively, counter implementation may
+ *		count asynchronous events.
+ * @param user_data User data returned in callback.
+ * @param absolute Ticks relation to counter value. If true ticks are treated as
+ *		absolute value, else it is relative to the counter reading
+ *		performed during the call.
  */
 struct counter_alarm_cfg {
-	counter_alarm_callback_t handler; /*!< handler called on alarm
-					   *   (cannot be NULL).
-					   */
-
-	u32_t ticks; /*!< In case of absolute flag is set, maximal value that
-		      *   can be set equals wrap value (counter_get_wrap).
-		      *   Otherwise counter_get_max_relative_alarm() returns
-		      *   maximal value that can be set. If counter is clock
-		      *   driven then ticks can be converted to microseconds
-		      *   (see @ref counter_ticks_to_us). Alternatively,
-		      *   counter implementation may count asynchronous events.
-		      */
-
-	void *user_data; /*!< User data returned in callback.*/
-
-	bool absolute; /*!< If true ticks are treated as absolute value, else
-			*   it is relative to the counter reading performed
-			*   during the call.
-			*/
+	counter_alarm_callback_t handler;
+	u32_t ticks;
+	void *user_data;
+	bool absolute;
 };
 
 /** @brief Wrap callback
@@ -77,23 +70,21 @@ typedef void (*counter_wrap_callback_t)(struct device *dev, void *user_data);
 __deprecated typedef void (*counter_callback_t)(struct device *dev,
 						void *user_data);
 
-/** @brief Structure with generic counter features. */
+/** @brief Structure with generic counter features.
+ *
+ * @param max_wrap Maximal (default) wrap value on which counter is reset
+ *		   (cleared or reloaded).
+ * @param freq Frequency of the source clock if synchronous events are counted.
+ * @param count_up Flag indicating direction of the counter. If true counter is
+ *		   counting up else counting down.
+ * @param channels Number of channels that can be used for setting alarm,
+ *		   see @ref counter_set_alarm.
+ */
 struct counter_config_info {
-	u32_t max_wrap; /*!< Maximal (default) wrap value on which counter is
-			 *   reset (cleared or reloaded).
-			 */
-
-	u32_t freq; /*!< Frequency of the source clock if synchronous events
-		     *   are counted.
-		     */
-
-	bool count_up; /*!< Flag indicating direction of the counter. If true
-			*   counter is counting up else counting down.
-			*/
-
-	u8_t channels; /*!< Number of channels that can be used for setting
-			*   alarm, see @ref counter_set_alarm.
-			*/
+	u32_t max_wrap;
+	u32_t freq;
+	bool count_up;
+	u8_t channels;
 };
 
 typedef int (*counter_api_start)(struct device *dev);
