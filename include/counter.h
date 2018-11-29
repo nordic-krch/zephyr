@@ -67,6 +67,9 @@ struct counter_alarm_cfg {
  */
 typedef void (*counter_wrap_callback_t)(struct device *dev, void *user_data);
 
+/* Deprecated counter callback. */
+typedef void (*counter_callback_t)(void *user_data);
+
 /** @brief Structure with generic counter features.
  *
  * @param max_wrap Maximal (default) wrap value on which counter is reset
@@ -374,10 +377,6 @@ static inline u32_t _impl_counter_get_max_relative_alarm(struct device *dev)
 	return api->get_max_relative_alarm(dev);
 }
 
-/* Deprecated counter callback. */
-typedef void (*counter_callback_t)(struct device *dev,
-						void *user_data);
-
 /**
  * @brief Deprecated function.
  */
@@ -385,7 +384,15 @@ __deprecated static inline int counter_set_alarm(struct device *dev,
 						 counter_callback_t callback,
 						 u32_t count, void *user_data)
 {
-	return counter_set_wrap(dev, count, callback, user_data);
+	const struct counter_driver_api *api = dev->driver_api;
+
+	if (IS_ENABLED(CONFIG_COUNTER_DEPRECATED_API_SUPPORT)) {
+		return counter_set_wrap(dev, count,
+					(counter_wrap_callback_t)callback,
+					user_data);
+	}
+
+	return -ENOTSUP;
 }
 
 /**

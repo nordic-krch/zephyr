@@ -13,6 +13,11 @@ menuconfig COUNTER
 
 if COUNTER
 
+config COUNTER_DEPRECATED_API_SUPPORT
+	bool "Enable legacy counter API"
+	help
+	  If legacy API is used then counter_set_wrap() function cannot be used.
+
 config COUNTER_LOG_LEVEL
 	int "Counter log level"
 	default 0

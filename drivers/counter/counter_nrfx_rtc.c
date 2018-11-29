@@ -23,7 +23,10 @@ LOG_MODULE_REGISTER();
 #define COUNTER_WRAP_INT NRFX_RTC_INT_COMPARE0
 
 struct counter_nrfx_data {
-	counter_wrap_callback_t wrap_cb;
+	union {
+		counter_wrap_callback_t wrap_cb;
+		counter_callback_t legacy_cb;
+	};
 	void *wrap_user_data;
 	u32_t wrap;
 };
@@ -134,7 +137,12 @@ static int counter_nrfx_set_wrap(struct device *dev, u32_t ticks,
 	nrfx_rtc_cc_disable(rtc, WRAP_CH);
 	nrfx_rtc_counter_clear(rtc);
 
-	dev_data->wrap_cb = callback;
+	if (IS_ENABLED(CONFIG_COUNTER_DEPRECATED_API_SUPPORT)) {
+		dev_data->legacy_cb = (counter_callback_t)callback;
+	} else {
+		dev_data->wrap_cb = callback;
+	}
+
 	dev_data->wrap_user_data = user_data;
 	dev_data->wrap = ticks;
 	nrfx_rtc_cc_set(rtc, WRAP_CH, ticks, callback ? true : false);
@@ -177,7 +185,11 @@ static void event_handler(nrfx_rtc_int_type_t int_type, void *p_context)
 		}
 
 		if (data->wrap_cb) {
-			data->wrap_cb(dev, data->wrap_user_data);
+			if (IS_ENABLED(CONFIG_COUNTER_DEPRECATED_API_SUPPORT)) {
+				data->legacy_cb(dev, data->wrap_user_data);
+			} else {
+				data->wrap_cb(data->wrap_user_data);
+			}
 		}
 	} else if (int_type > COUNTER_WRAP_INT) {
 		alarm_event_handler(dev, CC_TO_ID(int_type));
