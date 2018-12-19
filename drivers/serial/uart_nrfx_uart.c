@@ -38,7 +38,6 @@ static inline const struct uart_nrfx_config *get_dev_config(struct device *dev)
 	return dev->config->config_info;
 }
 
-#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
 
 static uart_irq_callback_user_data_t irq_callback; /**< Callback function pointer */
 static void *irq_cb_data; /**< Callback function arg */
@@ -50,24 +49,18 @@ static void *irq_cb_data; /**< Callback function arg */
  */
 static volatile u8_t uart_sw_event_txdrdy;
 
-#endif /* CONFIG_UART_0_INTERRUPT_DRIVEN */
-
 
 static bool event_txdrdy_check(void)
 {
 	return (nrf_uart_event_check(uart0_addr, NRF_UART_EVENT_TXDRDY)
-#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
 		|| uart_sw_event_txdrdy
-#endif
 	       );
 }
 
 static void event_txdrdy_clear(void)
 {
 	nrf_uart_event_clear(uart0_addr, NRF_UART_EVENT_TXDRDY);
-#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
 	uart_sw_event_txdrdy = 0U;
-#endif
 }
 
 
@@ -291,8 +284,6 @@ static int uart_nrfx_config_get(struct device *dev, struct uart_config *cfg)
 	return 0;
 }
 
-#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
-
 /** Interrupt driven FIFO fill function */
 static int uart_nrfx_fifo_fill(struct device *dev,
 			       const u8_t *tx_data,
@@ -458,7 +449,6 @@ static void uart_nrfx_isr(void *arg)
 		irq_callback(irq_cb_data);
 	}
 }
-#endif /* CONFIG_UART_0_INTERRUPT_DRIVEN */
 
 DEVICE_DECLARE(uart_nrfx_uart0);
 
@@ -520,33 +510,24 @@ static int uart_nrfx_init(struct device *dev)
 
 	nrf_uart_task_trigger(uart0_addr, NRF_UART_TASK_STARTRX);
 
-#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
-	/* Simulate that the TXDRDY event is set, so that the transmitter status
-	 * is indicated correctly.
-	 */
-	uart_sw_event_txdrdy = 1U;
+	if (IS_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN)) {
+		/* Simulate that the TXDRDY event is set, so that the transmitter status
+		 * is indicated correctly.
+		 */
+		uart_sw_event_txdrdy = 1U;
 
-	IRQ_CONNECT(DT_NORDIC_NRF_UART_UART_0_IRQ,
-		    DT_NORDIC_NRF_UART_UART_0_IRQ_PRIORITY,
-		    uart_nrfx_isr,
-		    DEVICE_GET(uart_nrfx_uart0),
-		    0);
-	irq_enable(DT_NORDIC_NRF_UART_UART_0_IRQ);
-#endif
+		IRQ_CONNECT(DT_NORDIC_NRF_UART_UART_0_IRQ,
+			    DT_NORDIC_NRF_UART_UART_0_IRQ_PRIORITY,
+			    uart_nrfx_isr,
+			    DEVICE_GET(uart_nrfx_uart0),
+			    0);
+		irq_enable(DT_NORDIC_NRF_UART_UART_0_IRQ);
+	}
 
 	return 0;
 }
 
-/* Common function: uart_nrfx_irq_tx_ready_complete is used for two API entries
- * because Nordic hardware does not distinguish between them.
- */
-static const struct uart_driver_api uart_nrfx_uart_driver_api = {
-	.poll_in          = uart_nrfx_poll_in,
-	.poll_out         = uart_nrfx_poll_out,
-	.err_check        = uart_nrfx_err_check,
-	.configure        = uart_nrfx_configure,
-	.config_get       = uart_nrfx_config_get,
-#ifdef CONFIG_UART_0_INTERRUPT_DRIVEN
+static const struct uart_driver_irq_api uart_irq_api = {
 	.fifo_fill        = uart_nrfx_fifo_fill,
 	.fifo_read        = uart_nrfx_fifo_read,
 	.irq_tx_enable    = uart_nrfx_irq_tx_enable,
@@ -560,8 +541,19 @@ static const struct uart_driver_api uart_nrfx_uart_driver_api = {
 	.irq_err_disable  = uart_nrfx_irq_err_disable,
 	.irq_is_pending   = uart_nrfx_irq_is_pending,
 	.irq_update       = uart_nrfx_irq_update,
-	.irq_callback_set = uart_nrfx_irq_callback_set,
-#endif /* CONFIG_UART_0_INTERRUPT_DRIVEN */
+	.irq_callback_set = uart_nrfx_irq_callback_set
+};
+/* Common function: uart_nrfx_irq_tx_ready_complete is used for two API entries
+ * because Nordic hardware does not distinguish between them.
+ */
+static const struct uart_driver_api uart_nrfx_uart_driver_api = {
+	.irq_api = IS_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN) ?
+			&uart_irq_api : NULL,
+	.poll_in          = uart_nrfx_poll_in,
+	.poll_out         = uart_nrfx_poll_out,
+	.err_check        = uart_nrfx_err_check,
+	.configure        = uart_nrfx_configure,
+	.config_get       = uart_nrfx_config_get,
 };
 
 #ifdef CONFIG_DEVICE_POWER_MANAGEMENT

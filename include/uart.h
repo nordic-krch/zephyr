@@ -173,21 +173,7 @@ struct uart_device_config {
 #endif
 };
 
-/** @brief Driver API structure. */
-struct uart_driver_api {
-	/** Console I/O function */
-	int (*poll_in)(struct device *dev, unsigned char *p_char);
-	void (*poll_out)(struct device *dev, unsigned char out_char);
-
-	/** Console I/O function */
-	int (*err_check)(struct device *dev);
-
-	/** UART configuration functions */
-	int (*configure)(struct device *dev, const struct uart_config *cfg);
-	int (*config_get)(struct device *dev, struct uart_config *cfg);
-
-#ifdef CONFIG_UART_INTERRUPT_DRIVEN
-
+struct uart_driver_irq_api {
 	/** Interrupt driven FIFO fill function */
 	int (*fifo_fill)(struct device *dev, const u8_t *tx_data, int len);
 
@@ -231,8 +217,23 @@ struct uart_driver_api {
 	void (*irq_callback_set)(struct device *dev,
 				 uart_irq_callback_user_data_t cb,
 				 void *user_data);
+};
 
-#endif
+/** @brief Driver API structure. */
+struct uart_driver_api {
+
+	const struct uart_driver_irq_api * irq_api;
+
+	/** Console I/O function */
+	int (*poll_in)(struct device *dev, unsigned char *p_char);
+	void (*poll_out)(struct device *dev, unsigned char out_char);
+
+	/** Console I/O function */
+	int (*err_check)(struct device *dev);
+
+	/** UART configuration functions */
+	int (*configure)(struct device *dev, const struct uart_config *cfg);
+	int (*config_get)(struct device *dev, struct uart_config *cfg);
 
 #ifdef CONFIG_UART_LINE_CTRL
 	int (*line_ctrl_set)(struct device *dev, u32_t ctrl, u32_t val);
@@ -371,7 +372,6 @@ static inline int _impl_uart_config_get(struct device *dev,
 	return -ENOTSUP;
 }
 
-#ifdef CONFIG_UART_INTERRUPT_DRIVEN
 
 /**
  * @brief Fill FIFO with data.
@@ -397,8 +397,8 @@ static inline int uart_fifo_fill(struct device *dev, const u8_t *tx_data,
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->fifo_fill) {
-		return api->fifo_fill(dev, tx_data, size);
+	if (api->irq_api) {
+		return api->irq_api->fifo_fill(dev, tx_data, size);
 	}
 
 	return 0;
@@ -426,10 +426,10 @@ static inline int uart_fifo_fill(struct device *dev, const u8_t *tx_data,
 static inline int uart_fifo_read(struct device *dev, u8_t *rx_data,
 				 const int size)
 {
-	const struct uart_driver_api *api =
-		(const struct uart_driver_api *)dev->driver_api;
+	const struct uart_driver_irq_api *api =
+		((const struct uart_driver_api *)dev->driver_api)->irq_api;
 
-	if (api->fifo_read) {
+	if (api) {
 		return api->fifo_read(dev, rx_data, size);
 	}
 
@@ -447,11 +447,11 @@ __syscall void uart_irq_tx_enable(struct device *dev);
 
 static inline void _impl_uart_irq_tx_enable(struct device *dev)
 {
-	const struct uart_driver_api *api =
-		(const struct uart_driver_api *)dev->driver_api;
+	const struct uart_driver_irq_api *api =
+		((const struct uart_driver_api *)dev->driver_api)->irq_api;
 
-	if (api->irq_tx_enable) {
-		api->irq_tx_enable(dev);
+	if (api) {
+		return api->irq_tx_enable(dev);
 	}
 }
 /**
@@ -468,8 +468,8 @@ static inline void _impl_uart_irq_tx_disable(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_tx_disable) {
-		api->irq_tx_disable(dev);
+	if (api->irq_api) {
+		api->irq_api->irq_tx_disable(dev);
 	}
 }
 
@@ -493,8 +493,8 @@ static inline int uart_irq_tx_ready(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_tx_ready) {
-		return api->irq_tx_ready(dev);
+	if (api->irq_api) {
+		return api->irq_api->irq_tx_ready(dev);
 	}
 
 	return 0;
@@ -511,10 +511,10 @@ __syscall void uart_irq_rx_enable(struct device *dev);
 
 static inline void _impl_uart_irq_rx_enable(struct device *dev)
 {
-	const struct uart_driver_api *api =
-		(const struct uart_driver_api *)dev->driver_api;
+	const struct uart_driver_irq_api *api =
+		((const struct uart_driver_api *)dev->driver_api)->irq_api;
 
-	if (api->irq_rx_enable) {
+	if (api) {
 		api->irq_rx_enable(dev);
 	}
 }
@@ -533,8 +533,8 @@ static inline void _impl_uart_irq_rx_disable(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_rx_disable) {
-		api->irq_rx_disable(dev);
+	if (api->irq_api) {
+		api->irq_api->irq_rx_disable(dev);
 	}
 }
 
@@ -561,8 +561,8 @@ static inline int uart_irq_tx_complete(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_tx_complete) {
-		return api->irq_tx_complete(dev);
+	if (api->irq_api && api->irq_api->irq_tx_complete) {
+		return api->irq_api->irq_tx_complete(dev);
 	}
 
 	return -ENOTSUP;
@@ -592,8 +592,8 @@ static inline int uart_irq_rx_ready(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_rx_ready) {
-		return api->irq_rx_ready(dev);
+	if (api->irq_api) {
+		return api->irq_api->irq_rx_ready(dev);
 	}
 
 	return 0;
@@ -612,8 +612,8 @@ static inline void _impl_uart_irq_err_enable(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_err_enable) {
-		api->irq_err_enable(dev);
+	if (api->irq_api) {
+		api->irq_api->irq_err_enable(dev);
 	}
 }
 
@@ -632,8 +632,8 @@ static inline void _impl_uart_irq_err_disable(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_err_disable) {
-		api->irq_err_disable(dev);
+	if (api->irq_api) {
+		api->irq_api->irq_err_disable(dev);
 	}
 }
 
@@ -652,8 +652,8 @@ static inline int _impl_uart_irq_is_pending(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_is_pending)	{
-		return api->irq_is_pending(dev);
+	if (api->irq_api)	{
+		return api->irq_api->irq_is_pending(dev);
 	}
 
 	return 0;
@@ -689,8 +689,8 @@ static inline int _impl_uart_irq_update(struct device *dev)
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if (api->irq_update) {
-		return api->irq_update(dev);
+	if (api->irq_api) {
+		return api->irq_api->irq_update(dev);
 	}
 
 	return 0;
@@ -717,8 +717,8 @@ static inline void uart_irq_callback_user_data_set(
 	const struct uart_driver_api *api =
 		(const struct uart_driver_api *)dev->driver_api;
 
-	if ((api != NULL) && (api->irq_callback_set != NULL)) {
-		api->irq_callback_set(dev, cb, user_data);
+	if (api->irq_api && api->irq_api->irq_callback_set) {
+		api->irq_api->irq_callback_set(dev, cb, user_data);
 	}
 }
 
@@ -739,8 +739,6 @@ static inline void uart_irq_callback_set(struct device *dev,
 	uart_irq_callback_user_data_set(dev, (uart_irq_callback_user_data_t)cb,
 					dev);
 }
-
-#endif
 
 #ifdef CONFIG_UART_LINE_CTRL
 

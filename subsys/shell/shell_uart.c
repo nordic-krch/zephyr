@@ -24,7 +24,6 @@ SHELL_UART_DEFINE(shell_transport_uart,
 SHELL_DEFINE(shell_uart, "uart:~$ ", &shell_transport_uart, 10,
 	     SHELL_FLAG_OLF_CRLF);
 
-#ifdef CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN
 static void uart_rx_handle(const struct shell_uart *sh_uart)
 {
 	u8_t *data;
@@ -99,16 +98,13 @@ static void uart_callback(void *user_data)
 		uart_tx_handle(sh_uart);
 	}
 }
-#endif /* CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN */
 
 static void uart_irq_init(const struct shell_uart *sh_uart)
 {
-#ifdef CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN
 	struct device *dev = sh_uart->ctrl_blk->dev;
 
 	uart_irq_callback_user_data_set(dev, uart_callback, (void *)sh_uart);
 	uart_irq_rx_enable(dev);
-#endif
 }
 
 static void timer_handler(struct k_timer *timer)
@@ -160,13 +156,12 @@ static int enable(const struct shell_transport *transport, bool blocking)
 	sh_uart->ctrl_blk->blocking = blocking;
 
 	if (blocking) {
-		if (!IS_ENABLED(CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN)) {
+		if (IS_ENABLED(CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN)) {
+			uart_irq_rx_disable(sh_uart->ctrl_blk->dev);
+			uart_irq_tx_disable(sh_uart->ctrl_blk->dev);
+		} else {
 			k_timer_stop(sh_uart->timer);
 		}
-#ifdef CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN
-		uart_irq_rx_disable(sh_uart->ctrl_blk->dev);
-		uart_irq_tx_disable(sh_uart->ctrl_blk->dev);
-#endif
 	}
 
 	return 0;
@@ -178,9 +173,9 @@ static void irq_write(const struct shell_uart *sh_uart, const void *data,
 	*cnt = ring_buf_put(sh_uart->tx_ringbuf, data, length);
 
 	if (atomic_set(&sh_uart->ctrl_blk->tx_busy, 1) == 0) {
-#ifdef CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN
-		uart_irq_tx_enable(sh_uart->ctrl_blk->dev);
-#endif
+		if (IS_ENABLED(CONFIG_SHELL_BACKEND_SERIAL_INTERRUPT_DRIVEN)) {
+			uart_irq_tx_enable(sh_uart->ctrl_blk->dev);
+		}
 	}
 }
 
