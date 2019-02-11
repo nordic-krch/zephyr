@@ -1321,6 +1321,7 @@ void shell_fprintf(const struct shell *shell, enum shell_vt100_color color,
 	va_list args = { 0 };
 
 	if (k_current_get() != shell->ctx->tid) {
+printk("shell: hehe, I'm deadlocking!\n");
 		k_mutex_lock(&shell->ctx->wr_mtx, K_FOREVER);
 		shell_cmd_line_erase(shell);
 	}
