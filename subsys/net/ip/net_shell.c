@@ -1299,17 +1299,12 @@ static void dns_result_cb(enum dns_resolve_status status,
 			  struct dns_addrinfo *info,
 			  void *user_data)
 {
-	struct net_shell_user_data *data = user_data;
-	const struct shell *shell = data->shell;
-	struct k_sem *sem = data->user_data;
-printk("in cb, status=%d, sem=%p, isr=%d\n", status, sem, k_is_in_isr());
-shell_error(shell, "shell_error\n");
-//PR_WARNING("hello\n");
-printk("here\n");
+	const struct shell *shell = (const struct shell *)user_data;
+
 
 	if (status == DNS_EAI_CANCELED) {
 		PR_WARNING("Timeout while resolving name.\n");
-		goto release_sem;
+		return;
 	}
 
 	if (status == DNS_EAI_INPROGRESS && info) {
@@ -1334,19 +1329,15 @@ printk("here\n");
 
 	if (status == DNS_EAI_ALLDONE) {
 		PR("All results received\n");
-		goto release_sem;
+		return;
 	}
 
 	if (status == DNS_EAI_FAIL) {
 		PR_WARNING("No such name found.\n");
-		goto release_sem;
+		return;
 	}
 
 	PR_WARNING("Unhandled status %d received\n", status);
-
-release_sem:
-printk("k_sem_give\n");
-	k_sem_give(sem);
 }
 
 static void print_dns_info(const struct shell *shell,
@@ -1449,11 +1440,9 @@ static int cmd_net_dns_query(const struct shell *shell, size_t argc,
 
 #if defined(CONFIG_DNS_RESOLVER)
 #define DNS_TIMEOUT K_MSEC(2000) /* ms */
-	struct net_shell_user_data user_data;
 	enum dns_query_type qtype = DNS_QUERY_TYPE_A;
 	char *host, *type = NULL;
 	int ret, arg = 1;
-	struct k_sem sem;
 
 	host = argv[arg++];
 	if (!host) {
@@ -1479,24 +1468,18 @@ static int cmd_net_dns_query(const struct shell *shell, size_t argc,
 		}
 	}
 
-	user_data.shell = shell;
-	k_sem_init(&sem, 0, UINT_MAX);
-	user_data.user_data = &sem;
-
-	ret = dns_get_addr_info(host, qtype, NULL, dns_result_cb, &user_data,
+	ret = dns_get_addr_info(host, qtype, NULL, dns_result_cb, (void *)shell,
 				DNS_TIMEOUT);
 	if (ret < 0) {
 		PR_WARNING("Cannot resolve '%s' (%d)\n", host, ret);
 	} else {
 		PR("Query for '%s' sent.\n", host);
-		k_sem_take(&sem, K_FOREVER);
 	}
 #else
 	PR_INFO("DNS resolver not supported. Set CONFIG_DNS_RESOLVER to "
 		"enable it.\n");
 #endif
 
-printk("retting\n");
 	return 0;
 }
 
