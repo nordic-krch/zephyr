@@ -73,8 +73,9 @@ static int log_source_id_get(const char *name)
 {
 
 	for (int i = 0; i < log_src_cnt_get(CONFIG_LOG_DOMAIN_ID); i++) {
-		if (strcmp(log_source_name_get(CONFIG_LOG_DOMAIN_ID, i), name)
-		    == 0) {
+		char *source_name = log_source_name_get(NULL, 0,
+					CONFIG_LOG_DOMAIN_ID, i);
+		if (strcmp(source_name, name) == 0) {
 			return i;
 		}
 	}
