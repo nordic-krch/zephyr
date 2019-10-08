@@ -618,6 +618,7 @@ __syscall void z_log_hexdump_from_user(u32_t src_level_val,
 
 #include <syscalls/log_core.h>
 
+u32_t z_log_get_timestamp(void);
 #ifdef __cplusplus
 }
 #endif

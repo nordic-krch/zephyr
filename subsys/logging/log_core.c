@@ -190,16 +190,11 @@ static void detect_missed_strdup(struct log_msg *msg)
 #undef ERR_MSG
 }
 
-static inline void msg_finalize(struct log_msg *msg,
-				struct log_msg_ids src_level)
+void z_log_msg_enqueue(struct log_msg *msg)
 {
-	unsigned int key;
-
-	msg->hdr.ids = src_level;
-	msg->hdr.timestamp = timestamp_func();
+	int key;
 
 	atomic_inc(&buffered_cnt);
-
 	key = irq_lock();
 
 	log_list_add_tail(&list, msg);
@@ -218,6 +213,14 @@ static inline void msg_finalize(struct log_msg *msg,
 	}
 }
 
+static inline void msg_finalize(struct log_msg *msg,
+				struct log_msg_ids src_level)
+{
+	msg->hdr.ids = src_level;
+	msg->hdr.timestamp = timestamp_func();
+	z_log_msg_enqueue(msg);
+
+}
 void log_0(const char *str, struct log_msg_ids src_level)
 {
 	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
@@ -231,7 +234,6 @@ void log_0(const char *str, struct log_msg_ids src_level)
 		msg_finalize(msg, src_level);
 	}
 }
-
 void log_1(const char *str,
 	   log_arg_t arg0,
 	   struct log_msg_ids src_level)
@@ -245,6 +247,7 @@ void log_1(const char *str,
 			return;
 		}
 		msg_finalize(msg, src_level);
+
 	}
 }
 
@@ -697,6 +700,11 @@ int log_set_timestamp_func(timestamp_get_t timestamp_getter, u32_t freq)
 	return 0;
 }
 
+timestamp_get_t log_get_timeout_func(void)
+{
+	return timestamp_func;
+}
+
 void z_impl_log_panic(void)
 {
 	struct log_backend const *backend;
@@ -1143,6 +1151,11 @@ void log_free(void *str)
 			atomic_dec((atomic_t *)&log_strdup_in_use);
 		}
 	}
+}
+
+u32_t z_log_get_timestamp(void)
+{
+	return timestamp_func();
 }
 
 #if defined(CONFIG_USERSPACE)
