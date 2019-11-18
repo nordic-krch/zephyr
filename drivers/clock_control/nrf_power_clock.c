@@ -45,6 +45,8 @@ struct nrf_clock_control_config {
 	nrf_clock_task_t stop_tsk;	/* Clock stop task */
 };
 
+static bool common_init_done;
+
 /* Return true if given event has enabled interrupt and is triggered. Event
  * is cleared.
  */
@@ -198,19 +200,17 @@ static int clock_start(struct device *dev, clock_control_subsys_t sub_system)
  */
 void nrf_power_clock_isr(void *arg);
 
-static int hfclk_init(struct device *dev)
+static void common_part_init(void)
 {
+	if (common_init_done) {
+		return;
+	}
+
 	IRQ_CONNECT(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0,
 		    DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0_PRIORITY,
 		    nrf_power_clock_isr, 0, 0);
 
 	irq_enable(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0);
-
-	nrf_clock_lf_src_set(NRF_CLOCK, CLOCK_CONTROL_NRF_K32SRC);
-
-	if (IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION)) {
-		z_nrf_clock_calibration_init(dev);
-	}
 
 	nrf_clock_int_enable(NRF_CLOCK,
 		(NRF_CLOCK_INT_HF_STARTED_MASK |
@@ -220,15 +220,42 @@ static int hfclk_init(struct device *dev)
 			 NRF_POWER_INT_USBREMOVED_MASK |
 			 NRF_POWER_INT_USBPWRRDY_MASK),
 			(0))));
+	common_init_done = true;
+}
 
+/* Generic initialization of clock instance.
+ *
+ * @return True if initialization should continue, false if it should be
+ * terminated because it is already done.
+ */
+static bool generic_init(struct device *dev)
+{
+	DBG(dev, "init");
+	common_part_init();
 	sys_slist_init(&((struct nrf_clock_control *)dev->driver_data)->list);
+	k_sem_init(&((struct nrf_clock_control *)dev->driver_data)->sem, 0, 1);
+
+	return true;
+}
+
+static int hfclk_init(struct device *dev)
+{
+	(void)generic_init(dev);
 
 	return 0;
 }
 
 static int lfclk_init(struct device *dev)
 {
-	sys_slist_init(&((struct nrf_clock_control *)dev->driver_data)->list);
+	if (!generic_init(dev)) {
+		return 0;
+	}
+
+	nrf_clock_lf_src_set(NRF_CLOCK, CLOCK_CONTROL_NRF_K32SRC);
+	if (IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION)) {
+		z_nrf_clock_calibration_init(dev);
+	}
+
 	return 0;
 }
 
