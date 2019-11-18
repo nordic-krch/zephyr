@@ -32,6 +32,7 @@ typedef bool (*nrf_clock_handler_t)(struct device *dev);
 /* Clock instance structure */
 struct nrf_clock_control {
 	sys_slist_t list;	/* List of users requesting callback */
+	struct k_sem sem;	/* Semaphore for blocking operation. */
 	s8_t ref;		/* Users counter */
 	bool started;		/* Indicated that clock is started */
 };
@@ -185,9 +186,28 @@ static int clock_async_start(struct device *dev,
 	return 0;
 }
 
+static void clock_on_cb(struct device *dev, void *user_data)
+{
+	struct nrf_clock_control *clk_data = dev->driver_data;
+
+	k_sem_give(&clk_data->sem);
+}
+
 static int clock_start(struct device *dev, clock_control_subsys_t sub_system)
 {
-	return clock_async_start(dev, sub_system, NULL);
+	__ASSERT(k_is_in_isr() == false, "Need to be in thread mode.");
+	struct clock_control_async_data data = {
+		.cb = clock_on_cb
+	};
+	struct nrf_clock_control *clk_data = dev->driver_data;
+	int err;
+
+	err = clock_async_start(dev, sub_system, &data);
+	if (err == 0) {
+		err = k_sem_take(&clk_data->sem, K_FOREVER);
+	}
+
+	return err;
 }
 
 /* Note: this function has public linkage, and MUST have this
