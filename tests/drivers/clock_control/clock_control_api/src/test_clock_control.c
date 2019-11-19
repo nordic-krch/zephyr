@@ -91,14 +91,7 @@ static void test_on_off_status_instance(const char *dev_name, u32_t startup_us)
 	zassert_equal(0, err, "%s: Unexpected err (%d)", dev_name, err);
 
 	status = clock_control_get_status(dev, NULL);
-	zassert_true((status == CLOCK_CONTROL_STATUS_STARTING) ||
-			(status == CLOCK_CONTROL_STATUS_ON),
-			"%s: Unexpected status (%d)", dev_name, status);
-
-	k_busy_wait(startup_us);
-
-	status = clock_control_get_status(dev, NULL);
-	zassert_equal(CLOCK_CONTROL_STATUS_ON, status,
+	zassert_true(status == CLOCK_CONTROL_STATUS_ON,
 			"%s: Unexpected status (%d)", dev_name, status);
 
 	err = clock_control_off(dev, 0);
