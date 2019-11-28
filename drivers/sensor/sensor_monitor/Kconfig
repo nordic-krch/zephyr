@@ -1,0 +1,10 @@
+# Copyright (c) 2019, Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+config SENSOR_MONITOR
+	bool "Sensor monitor"
+	help
+	  Enable sensor monitor. Module manages periodical sensor's channel
+	  sampling. User function gets each sample and decides if it should
+	  trigger an action. Action can also be triggered periodically even
+	  if sample level did not lead to the trigger.
