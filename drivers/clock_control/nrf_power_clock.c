@@ -33,7 +33,7 @@ LOG_MODULE_REGISTER(clock_control, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 /* returns true if clock stopping or starting can be performed. If false then
  * start/stop will be deferred and performed later on by handler owner.
  */
-typedef bool (*nrf_clock_handler_t)(struct device *dev);
+typedef void (*nrf_clock_handler_t)(struct device *dev);
 
 /* Clock subsys structure */
 struct nrf_clock_control_sub_data {
@@ -44,7 +44,6 @@ struct nrf_clock_control_sub_data {
 
 /* Clock subsys static configuration */
 struct nrf_clock_control_sub_config {
-	nrf_clock_handler_t start_handler; /* Called before start */
 	nrf_clock_handler_t stop_handler; /* Called before stop */
 	nrf_clock_event_t started_evt;	/* Clock started event */
 	nrf_clock_task_t start_tsk;	/* Clock start task */
@@ -161,30 +160,33 @@ static int clock_stop(struct device *dev, clock_control_subsys_t subsys)
 	}
 	data->ref--;
 	if (data->ref == 0) {
-		bool do_stop;
-
-		DBG(dev, subsys, "Stopping");
 		sys_slist_init(&data->list);
 
-		do_stop =  (config->stop_handler) ?
-				config->stop_handler(dev) : true;
-
-		if (do_stop) {
-			nrf_clock_task_trigger(NRF_CLOCK, config->stop_tsk);
-			/* It may happen that clock is being stopped when it
-			 * has just been started and start is not yet handled
-			 * (due to irq_lock). In that case after stopping the
-			 * clock, started event is cleared to prevent false
-			 * interrupt being triggered.
-			 */
-			nrf_clock_event_clear(NRF_CLOCK, config->started_evt);
+		if (config->stop_handler) {
+			config->stop_handler(dev);
 		}
+
+		nrf_clock_task_trigger(NRF_CLOCK, config->stop_tsk);
+		/* It may happen that clock is being stopped when it
+		 * has just been started and start is not yet handled
+		 * (due to irq_lock). In that case after stopping the
+		 * clock, started event is cleared to prevent false
+		 * interrupt being triggered.
+		 */
+		nrf_clock_event_clear(NRF_CLOCK, config->started_evt);
 
 		data->started = false;
 	}
 
 out:
 	irq_unlock(key);
+
+	if (err == 0) {
+		DBG(dev, subsys, "Clock released %s",
+			data->started ? "but kept running" : "and stoppped");
+	} else {
+		DBG(dev, subsys, "Clock release error:%d", err);
+	}
 
 	return err;
 }
@@ -257,7 +259,6 @@ static int clock_async_start(struct device *dev,
 	ref = ++clk_data->ref;
 	__ASSERT_NO_MSG(clk_data->ref > 0);
 	irq_unlock(key);
-
 	if (data) {
 		bool already_started;
 
@@ -268,31 +269,17 @@ static int clock_async_start(struct device *dev,
 		}
 		clock_irqs_enable();
 
+
 		if (already_started) {
+			DBG(dev, subsys,
+			"Clock already running, callback from user-context");
 			data->cb(dev, data->user_data);
 		}
 	}
 
 	if (ref == 1) {
-		bool do_start;
-
-		do_start =  (config->start_handler) ?
-				config->start_handler(dev) : true;
-		if (do_start) {
-			DBG(dev, subsys, "Triggering start task");
-			nrf_clock_task_trigger(NRF_CLOCK,
-					       config->start_tsk);
-		} else {
-			/* If external start_handler indicated that clcok is
-			 * still running (it may happen in case of LF RC clock
-			 * which was requested to be stopped during ongoing
-			 * calibration (clock will not be stopped in that case)
-			 * and requested to be started before calibration is
-			 * completed. In that case clock is still running and
-			 * we can notify enlisted requests.
-			 */
-			clkstarted_handle(dev, type);
-		}
+		DBG(dev, subsys, "Triggering start task");
+		nrf_clock_task_trigger(NRF_CLOCK, config->start_tsk);
 	}
 
 	return 0;
@@ -322,10 +309,6 @@ static int clk_init(struct device *dev)
 	irq_enable(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0);
 
 	nrf_clock_lf_src_set(NRF_CLOCK, CLOCK_CONTROL_NRF_K32SRC);
-
-	if (IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION)) {
-		z_nrf_clock_calibration_init(dev);
-	}
 
 	clock_irqs_enable();
 
@@ -361,7 +344,6 @@ static const struct nrf_clock_control_config config = {
 			IF_ENABLED(
 				CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION,
 				(
-				.start_handler = z_nrf_clock_calibration_start,
 				.stop_handler = z_nrf_clock_calibration_stop,
 				)
 			)
@@ -445,11 +427,11 @@ void nrf_power_clock_isr(void *arg)
 
 	if (clock_event_check_and_clean(NRF_CLOCK_EVENT_LFCLKSTARTED,
 					NRF_CLOCK_INT_LF_STARTED_MASK)) {
+		clkstarted_handle(dev, CLOCK_CONTROL_NRF_TYPE_LFCLK);
 		if (IS_ENABLED(
 			CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION)) {
 			z_nrf_clock_calibration_lfclk_started(dev);
 		}
-		clkstarted_handle(dev, CLOCK_CONTROL_NRF_TYPE_LFCLK);
 	}
 
 	usb_power_isr();
