@@ -24,6 +24,7 @@
 static struct k_spinlock lock;
 
 static u32_t last_count;
+static struct onoff_client clk_client;
 
 static u32_t counter_sub(u32_t a, u32_t b)
 {
@@ -38,6 +39,12 @@ static void set_comparator(u32_t cyc)
 static u32_t counter(void)
 {
 	return nrf_rtc_counter_get(RTC);
+}
+
+static void clk_callback(struct onoff_service *srv, struct onoff_client *cli,
+			void *user_data, int res)
+{
+	/* empty */
 }
 
 /* Note: this function has public linkage, and MUST have this
@@ -78,15 +85,24 @@ void rtc1_nrf_isr(void *arg)
 int z_clock_driver_init(struct device *device)
 {
 	struct device *clock;
+	int err;
 
 	ARG_UNUSED(device);
 
-	clock = device_get_binding(DT_INST_0_NORDIC_NRF_CLOCK_LABEL "_32K");
+	clock = device_get_binding(DT_INST_0_NORDIC_NRF_CLOCK_LABEL "_32k");
 	if (!clock) {
 		return -1;
 	}
 
-	clock_control_on(clock, NULL);
+	err = onoff_client_init_callback(&clk_client, clk_callback, NULL);
+	if (err < 0) {
+		return err;
+	}
+
+	err = clock_control_request(clock, NULL, &clk_client);
+	if (err < 0) {
+		return err;
+	}
 
 	/* TODO: replace with counter driver to access RTC */
 	nrf_rtc_prescaler_set(RTC, 0);

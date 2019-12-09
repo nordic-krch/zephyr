@@ -10,7 +10,21 @@
 #include <device.h>
 #include <hal/nrf_clock.h>
 
-/* TODO: move all these to clock_control.h ? */
+/** @brief Clocks handled by the CLOCK peripheral.
+ *
+ * Enum shall be used as a sys argument in clock_control API.
+ */
+enum nrf_clock_type {
+	NRF_CLOCK_TYPE_HFCLK,
+	NRF_CLOCK_TYPE_LFCLK,
+	NRF_CLOCK_TYPE_COUNT
+};
+
+/* Define can be used with clock control API instead of enum directly to
+ * increase code readability.
+ */
+#define NRF_CLOCK_SUBSYS_HF ((clock_control_subsys_t)NRF_CLOCK_TYPE_HFCLK)
+#define NRF_CLOCK_SUBSYS_LF ((clock_control_subsys_t)NRF_CLOCK_TYPE_LFCLK)
 
 /* Define 32KHz clock source */
 #ifdef CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC

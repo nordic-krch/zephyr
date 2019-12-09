@@ -45,147 +45,75 @@ struct nrf_clock_control_config {
 	nrf_clock_task_t stop_tsk;	/* Clock stop task */
 };
 
-/* Return true if given event has enabled interrupt and is triggered. Event
- * is cleared.
- */
-static bool clock_event_check_and_clean(nrf_clock_event_t evt, u32_t intmask)
+struct clock_ctrl_service {
+	struct onoff_service service;
+	onoff_service_notify_fn started_cb;
+	nrf_clock_task_t start_tsk;	/* Clock start task */
+	nrf_clock_task_t stop_tsk;	/* Clock stop task */
+	nrf_clock_event_t started_evt;	/* Clock started event */
+	bool started;
+};
+
+static void started(struct clock_ctrl_service *clk_srv)
 {
-	bool ret = nrf_clock_event_check(NRF_CLOCK, evt) &&
-			nrf_clock_int_enable_check(NRF_CLOCK, intmask);
+	clk_srv->started = true;
+	clk_srv->started_cb(&clk_srv->service, 0);
+}
 
-	if (ret) {
-		nrf_clock_event_clear(NRF_CLOCK, evt);
+static void clk_start(struct onoff_service *srv,
+			onoff_service_notify_fn notify)
+{
+	struct clock_ctrl_service *clk_srv =
+			CONTAINER_OF(srv, struct clock_ctrl_service, service);
+
+	clk_srv->started_cb = notify;
+	nrf_clock_task_trigger(NRF_CLOCK, clk_srv->start_tsk);
+}
+
+static void clk_stop(struct onoff_service *srv,
+			onoff_service_notify_fn notify)
+{
+	struct clock_ctrl_service *clk_srv =
+			CONTAINER_OF(srv, struct clock_ctrl_service, service);
+
+	nrf_clock_task_trigger(NRF_CLOCK, clk_srv->stop_tsk);
+	clk_srv->started = false;
+
+	if (notify) {
+		notify(srv, 0);
 	}
-
-	return ret;
 }
 
 static enum clock_control_status get_status(struct device *dev,
 					    clock_control_subsys_t sys)
 {
-	struct nrf_clock_control *data = dev->driver_data;
+	struct clock_ctrl_service *clk_srv = dev->driver_data;
 
-	if (data->started) {
+	if (clk_srv->started) {
 		return CLOCK_CONTROL_STATUS_ON;
 	}
 
-	if (data->ref > 0) {
+	if (clk_srv->service.refs > 0) {
 		return CLOCK_CONTROL_STATUS_STARTING;
 	}
 
 	return CLOCK_CONTROL_STATUS_OFF;
 }
 
-static int clock_stop(struct device *dev, clock_control_subsys_t sub_system)
+static int request(struct device *dev, clock_control_subsys_t sys,
+		   struct onoff_client *client)
 {
-	const struct nrf_clock_control_config *config =
-						dev->config->config_info;
-	struct nrf_clock_control *data = dev->driver_data;
-	int err = 0;
-	int key;
+	struct clock_ctrl_service *clk_srv = dev->driver_data;
 
-	key = irq_lock();
-	data->ref--;
-	if (data->ref == 0) {
-		bool do_stop;
-
-		DBG(dev, "Stopping");
-		sys_slist_init(&data->list);
-
-		do_stop =  (config->stop_handler) ?
-				config->stop_handler(dev) : true;
-
-		if (do_stop) {
-			nrf_clock_task_trigger(NRF_CLOCK, config->stop_tsk);
-			/* It may happen that clock is being stopped when it
-			 * has just been started and start is not yet handled
-			 * (due to irq_lock). In that case after stopping the
-			 * clock, started event is cleared to prevent false
-			 * interrupt being triggered.
-			 */
-			nrf_clock_event_clear(NRF_CLOCK, config->started_evt);
-		}
-
-		data->started = false;
-	} else if (data->ref < 0) {
-		data->ref = 0;
-		err = -EALREADY;
-	}
-
-	irq_unlock(key);
-
-	return err;
+	return onoff_request(&clk_srv->service, client);
 }
 
-static bool is_in_list(sys_slist_t *list, sys_snode_t *node)
+static int release(struct device *dev, clock_control_subsys_t sys,
+		   struct onoff_client *client)
 {
-	sys_snode_t *item = sys_slist_peek_head(list);
+	struct clock_ctrl_service *clk_srv = dev->driver_data;
 
-	do {
-		if (item == node) {
-			return true;
-		}
-
-		item = sys_slist_peek_next(item);
-	} while (item);
-
-	return false;
-}
-
-static int clock_async_start(struct device *dev,
-			     clock_control_subsys_t sub_system,
-			     struct clock_control_async_data *data)
-{
-	const struct nrf_clock_control_config *config =
-						dev->config->config_info;
-	struct nrf_clock_control *clk_data = dev->driver_data;
-	int key;
-	s8_t ref;
-
-	__ASSERT_NO_MSG((data == NULL) ||
-			((data != NULL) && (data->cb != NULL)));
-
-	key = irq_lock();
-	ref = ++clk_data->ref;
-	irq_unlock(key);
-
-	if (clk_data->started) {
-		if (data) {
-			data->cb(dev, data->user_data);
-		}
-	} else {
-		if (ref == 1) {
-			bool do_start;
-
-			do_start =  (config->start_handler) ?
-					config->start_handler(dev) : true;
-			if (do_start) {
-				nrf_clock_task_trigger(NRF_CLOCK,
-						       config->start_tsk);
-				DBG(dev, "Triggered start task");
-			} else if (data) {
-				data->cb(dev, data->user_data);
-			}
-		}
-
-		/* if node is in the list it means that it is scheduled for
-		 * the second time.
-		 */
-		if (data) {
-			if (is_in_list(&clk_data->list, &data->node)) {
-				return -EALREADY;
-			}
-
-			sys_slist_append(&clk_data->list, &data->node);
-		}
-	}
-
-	return 0;
-}
-
-static int clock_start(struct device *dev, clock_control_subsys_t sub_system)
-{
-	return clock_async_start(dev, sub_system, NULL);
+	return onoff_release(&clk_srv->service, client);
 }
 
 /* Note: this function has public linkage, and MUST have this
@@ -198,8 +126,15 @@ static int clock_start(struct device *dev, clock_control_subsys_t sub_system)
  */
 void nrf_power_clock_isr(void *arg);
 
+static int srv_init(struct onoff_service *srv)
+{
+	return onoff_service_init(srv, clk_start, clk_stop, NULL, 0);
+}
+
 static int hfclk_init(struct device *dev)
 {
+	struct clock_ctrl_service *clk_srv = dev->driver_data;
+
 	IRQ_CONNECT(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0,
 		    DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0_PRIORITY,
 		    nrf_power_clock_isr, 0, 0);
@@ -221,73 +156,45 @@ static int hfclk_init(struct device *dev)
 			 NRF_POWER_INT_USBPWRRDY_MASK),
 			(0))));
 
-	sys_slist_init(&((struct nrf_clock_control *)dev->driver_data)->list);
 
-	return 0;
+	clk_srv->start_tsk = NRF_CLOCK_TASK_HFCLKSTART;
+	clk_srv->stop_tsk = NRF_CLOCK_TASK_HFCLKSTOP;
+	clk_srv->started_evt = NRF_CLOCK_EVENT_HFCLKSTARTED;
+	return srv_init(&clk_srv->service);
 }
 
 static int lfclk_init(struct device *dev)
 {
-	sys_slist_init(&((struct nrf_clock_control *)dev->driver_data)->list);
-	return 0;
+	struct clock_ctrl_service *clk_srv = dev->driver_data;
+
+	clk_srv->start_tsk = NRF_CLOCK_TASK_LFCLKSTART;
+	clk_srv->stop_tsk = NRF_CLOCK_TASK_LFCLKSTOP;
+	clk_srv->started_evt = NRF_CLOCK_EVENT_LFCLKSTARTED;
+	return srv_init(&clk_srv->service);
 }
 
 static const struct clock_control_driver_api clock_control_api = {
-	.on = clock_start,
-	.off = clock_stop,
-	.async_on = clock_async_start,
+	.request = request,
+	.release = release,
 	.get_status = get_status,
 };
 
-static struct nrf_clock_control hfclk;
-static const struct nrf_clock_control_config hfclk_config = {
-	.start_tsk = NRF_CLOCK_TASK_HFCLKSTART,
-	.started_evt = NRF_CLOCK_EVENT_HFCLKSTARTED,
-	.stop_tsk = NRF_CLOCK_TASK_HFCLKSTOP
-};
+static struct clock_ctrl_service lfclk_ctrl_service;
+static struct clock_ctrl_service hfclk_ctrl_service;
 
 DEVICE_AND_API_INIT(clock_nrf5_m16src,
 		    DT_INST_0_NORDIC_NRF_CLOCK_LABEL  "_16M",
-		    hfclk_init, &hfclk, &hfclk_config, PRE_KERNEL_1,
+		    hfclk_init, &hfclk_ctrl_service, NULL, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &clock_control_api);
-
-
-static struct nrf_clock_control lfclk;
-static const struct nrf_clock_control_config lfclk_config = {
-	.start_tsk = NRF_CLOCK_TASK_LFCLKSTART,
-	.started_evt = NRF_CLOCK_EVENT_LFCLKSTARTED,
-	.stop_tsk = NRF_CLOCK_TASK_LFCLKSTOP,
-	.start_handler =
-		IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION) ?
-			z_nrf_clock_calibration_start : NULL,
-	.stop_handler =
-		IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION) ?
-			z_nrf_clock_calibration_stop : NULL
-};
 
 DEVICE_AND_API_INIT(clock_nrf5_k32src,
-		    DT_INST_0_NORDIC_NRF_CLOCK_LABEL  "_32K",
-		    lfclk_init, &lfclk, &lfclk_config, PRE_KERNEL_1,
+		    DT_INST_0_NORDIC_NRF_CLOCK_LABEL  "_32k",
+		    lfclk_init, &lfclk_ctrl_service, NULL, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &clock_control_api);
 
-static void clkstarted_handle(struct device *dev)
-{
-	struct clock_control_async_data *async_data;
-	struct nrf_clock_control *data = dev->driver_data;
-	sys_snode_t *node = sys_slist_get(&data->list);
 
-	DBG(dev, "Clock started");
-	data->started = true;
-
-	while (node != NULL) {
-		async_data = CONTAINER_OF(node,
-				struct clock_control_async_data, node);
-		async_data->cb(dev, async_data->user_data);
-		node = sys_slist_get(&data->list);
-	}
-}
 
 #if defined(CONFIG_USB_NRFX)
 static bool power_event_check_and_clean(nrf_power_event_t evt, u32_t intmask)
@@ -325,32 +232,46 @@ static void usb_power_isr(void)
 #endif
 }
 
+/* Return true if given event has enabled interrupt and is triggered. Event
+ * is cleared.
+ */
+static bool clock_event_check_and_clean(nrf_clock_event_t evt, u32_t intmask)
+{
+	bool ret = nrf_clock_event_check(NRF_CLOCK, evt) &&
+			nrf_clock_int_enable_check(NRF_CLOCK, intmask);
+
+	if (ret) {
+		nrf_clock_event_clear(NRF_CLOCK, evt);
+	}
+
+	return ret;
+}
+
 void nrf_power_clock_isr(void *arg)
 {
 	ARG_UNUSED(arg);
 
 	if (clock_event_check_and_clean(NRF_CLOCK_EVENT_HFCLKSTARTED,
 					NRF_CLOCK_INT_HF_STARTED_MASK)) {
-		struct device *hfclk_dev = DEVICE_GET(clock_nrf5_m16src);
-		struct nrf_clock_control *data = hfclk_dev->driver_data;
+		struct device *dev = DEVICE_GET(clock_nrf5_m16src);
+		struct clock_ctrl_service *clk_srv = dev->driver_data;
 
-		/* Check needed due to anomaly 201:
-		 * HFCLKSTARTED may be generated twice.
-		 */
-		if (!data->started) {
-			clkstarted_handle(hfclk_dev);
-		}
+		DBG(dev, "started");
+		started(clk_srv);
 	}
 
 	if (clock_event_check_and_clean(NRF_CLOCK_EVENT_LFCLKSTARTED,
 					NRF_CLOCK_INT_LF_STARTED_MASK)) {
-		struct device *lfclk_dev = DEVICE_GET(clock_nrf5_k32src);
+		struct device *dev = DEVICE_GET(clock_nrf5_k32src);
+		struct clock_ctrl_service *clk_srv = dev->driver_data;
 
 		if (IS_ENABLED(
 			CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION)) {
-			z_nrf_clock_calibration_lfclk_started(lfclk_dev);
+			z_nrf_clock_calibration_lfclk_started(dev);
 		}
-		clkstarted_handle(lfclk_dev);
+
+		DBG(dev, "started");
+		started(clk_srv);
 	}
 
 	usb_power_isr();
