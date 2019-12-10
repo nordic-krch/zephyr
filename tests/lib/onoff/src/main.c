@@ -472,7 +472,7 @@ static void test_validate_args(void)
 		      "validate req cli flags");
 
 	onoff_client_init_no_wait(&cli);
-	cli.flags = ONOFF_CLIENT_INTERNAL_BASE - 1U;
+	cli.flags = ONOFF_CLIENT_NOTIFY_INVALID;
 	rc = onoff_request(&srv, &cli);
 	zassert_equal(rc, -EINVAL,
 		      "validate req cli mode");
@@ -943,6 +943,50 @@ static void test_cancel_release(void)
 		      "has error");
 }
 
+static void test_anonymous(void)
+{
+	int rc;
+	struct onoff_service srv;
+	struct k_poll_signal sig;
+	struct onoff_client cli;
+
+	clear_transit();
+	start_state.retval = 16;
+	start_state.async = true;
+
+	init_notify_sig(&cli, &sig, 1);
+
+	rc = onoff_service_init(&srv, start, stop, NULL,
+				ONOFF_SERVICE_START_WAITS);
+	zassert_equal(rc, 0,
+		      "service init");
+
+	rc = onoff_request(&srv, &cli);
+	zassert_true(rc > 0,
+		"request done");
+
+
+	struct onoff_client anoncli;
+
+	onoff_client_init_anonymous(&anoncli);
+	rc = onoff_request(&srv, &anoncli);
+	zassert_true(rc > 0,
+		"request done");
+
+	notify(&start_state);
+
+	zassert_equal(srv.refs, 2U,
+		      "refs correct");
+
+	rc = onoff_release(&srv, &anoncli);
+	zassert_equal(rc, -ENOTSUP,
+		      "anon release");
+
+	rc = onoff_service_reset(&srv, &anoncli);
+	zassert_equal(rc, -ENOTSUP,
+		      "anon reset");
+}
+
 void test_main(void)
 {
 	k_sem_init(&isr_sync, 0, 1);
@@ -961,6 +1005,7 @@ void test_main(void)
 			 ztest_unit_test(test_cancel_request_waits),
 			 ztest_unit_test(test_cancel_request_ok),
 			 ztest_unit_test(test_blocked_restart),
-			 ztest_unit_test(test_cancel_release));
+			 ztest_unit_test(test_cancel_release),
+			 ztest_unit_test(test_anonymous));
 	ztest_run_test_suite(onoff_api);
 }

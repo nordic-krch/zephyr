@@ -199,6 +199,8 @@ int onoff_service_init(struct onoff_service *srv,
  * the client.
  */
 enum onoff_client_flags {
+	ONOFF_CLIENT_NOTIFY_INVALID = 0,
+
 	/**
 	 * @brief Require synchronous notification.
 	 *
@@ -209,7 +211,7 @@ enum onoff_client_flags {
 	 *
 	 * See onoff_client_init_no_wait().
 	 */
-	ONOFF_CLIENT_NOTIFY_NO_WAIT = 0,
+	ONOFF_CLIENT_NOTIFY_NO_WAIT = 1,
 
 	/**
 	 * @brief Require notification through @ref k_poll signal
@@ -217,7 +219,7 @@ enum onoff_client_flags {
 	 * See onoff_client_init_signal().
 	 */
 #if CONFIG_POLL
-	ONOFF_CLIENT_NOTIFY_SIGNAL = 1,
+	ONOFF_CLIENT_NOTIFY_SIGNAL = 2,
 #endif /* CONFIG_POLL */
 
 	/**
@@ -225,10 +227,17 @@ enum onoff_client_flags {
 	 *
 	 * See onoff_client_init_callback().
 	 */
-	ONOFF_CLIENT_NOTIFY_CALLBACK = 2,
+	ONOFF_CLIENT_NOTIFY_CALLBACK = 3,
+
+	/**
+	 * @brief Issue an anonymous request.
+	 *
+	 * See onoff_client_init_anonymous().
+	 */
+	ONOFF_CLIENT_NOTIFY_ANONYMOUS = 4,
 
 	/* This and higher bits reserved for internal use. */
-	ONOFF_CLIENT_INTERNAL_BASE = BIT(2),
+	ONOFF_CLIENT_INTERNAL_BASE = BIT(3),
 };
 
 /* Forward declaration */
@@ -272,9 +281,10 @@ typedef void (*onoff_client_callback)(struct onoff_service *srv,
  * function.  While the service provider controls the object the
  * client must not change any object fields.  Control reverts to the
  * client:
- * * if the call to the service API returns an error; or
+ * * if the call to the service API returns an error;
  * * if the call to the service API succeeds for a no-wait operation;
- *   otherwise
+ * * if the call to the service API succeeds for an anonymous
+ *   operation (@ref ONOFF_CLIENT_NOTIFY_ANONYMOUS); otherwise
  * * when operation completion is posted (signalled or callback
  *   invoked).
  *
@@ -417,6 +427,33 @@ static inline int onoff_client_init_callback(struct onoff_client *cli,
 }
 
 /**
+ * @brief Initialize an on-off client for an anonymous request.
+ *
+ * Clients may use this initialization to issue a request in a special
+ * circumstance where the client does not intend to be notified of the
+ * success or failure of the operation.
+ *
+ * @note Anonymous operations are supported by onoff_request().
+ *
+ * @param cli pointer to the client state object.
+ *
+ * @retval 0 on success
+ * @retval -EINVAL if cli is null
+ */
+static inline int onoff_client_init_anonymous(struct onoff_client *cli)
+{
+	if (cli == NULL) {
+		return -EINVAL;
+	}
+
+	*cli = (struct onoff_client){
+		.flags = ONOFF_CLIENT_NOTIFY_ANONYMOUS,
+	};
+
+	return 0;
+}
+
+/**
  * @brief Request a reservation to use an on-off service.
  *
  * The return value indicates the success or failure of an attempt to
@@ -475,6 +512,7 @@ __syscall int onoff_request(struct onoff_service *srv,
  *
  * @retval Non-negative on successful (initiation of) release
  * @retval -EINVAL if the parameters are invalid
+ * @retval -ENOTSUP if an anonymous release is requested
  * @retval -EIO if service has recorded an an error
  * @retval -EWOULDBLOCK if a non-blocking request was made and
  *         could not be satisfied without potentially blocking.
@@ -536,7 +574,8 @@ __syscall bool onoff_service_has_error(const struct onoff_service *srv);
  * operation.
  *
  * @retval 0 on success
- * @retval -ENOTSUP if reset is not supported
+ * @retval -ENOTSUP if an anonymous reset is requested, or if reset is
+ * not supported
  * @retval -EINVAL if the parameters are invalid, or if the service
  * does not have a recorded error
  */
@@ -574,6 +613,7 @@ __syscall int onoff_service_reset(struct onoff_service *srv,
  * be notified.  The client will be notified through cli with an
  * operation completion of `-ECANCELED`.
  * @retval -EINVAL if the parameters are invalid.
+ * @retval -ENOTSUP if an anonymous cancel is requested
  * @retval -EALREADY if cli was not a record of an uncompleted
  * notification at the time the cancellation was processed.  This
  * likely indicates that the operation and client notification had

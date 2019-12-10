@@ -15,6 +15,8 @@
 	 | ONOFF_SERVICE_STOP_WAITS  \
 	 | ONOFF_SERVICE_RESET_WAITS)
 
+#define SERVICE_REFS_MAX UINT16_MAX
+
 #define SERVICE_STATE_OFF 0
 #define SERVICE_STATE_ON ONOFF_SERVICE_INTERNAL_BASE
 #define SERVICE_STATE_TRANSITION (ONOFF_SERVICE_INTERNAL_BASE << 1)
@@ -23,6 +25,29 @@
 
 #define SERVICE_STATE_MASK (SERVICE_STATE_ON | SERVICE_STATE_TRANSITION)
 
+#define ANONYMOUS_COUNT_BITS 3
+#define MAX_ANONYMOUS_COUNT (BIT(ANONYMOUS_COUNT_BITS) - 1U)
+
+#define SERVICE_STATE_ANONYMOUS_COUNT_BASE (ONOFF_SERVICE_INTERNAL_BASE << 2)
+#define SERVICE_STATE_ANONYMOUS_COUNT_MASK (MAX_ANONYMOUS_COUNT * SERVICE_STATE_ANONYMOUS_COUNT_BASE)
+/* Next ONOFF_SERVICE_INTERNAL_BASE << (2 + ANONYMOUS_COUNT_BITS) */
+
+static inline size_t get_anonymous_count(unsigned int flags)
+{
+	return (flags & SERVICE_STATE_ANONYMOUS_COUNT_MASK)
+		/ SERVICE_STATE_ANONYMOUS_COUNT_BASE;
+}
+
+static inline unsigned int set_anonymous_count(unsigned int flags,
+					       unsigned int count)
+{
+	flags &= ~SERVICE_STATE_ANONYMOUS_COUNT_MASK;
+	flags |= (count * SERVICE_STATE_ANONYMOUS_COUNT_BASE)
+		& SERVICE_STATE_ANONYMOUS_COUNT_MASK;
+
+	return flags;
+}
+
 static void set_service_state(struct onoff_service *srv,
 			      u32_t state)
 {
@@ -30,6 +55,7 @@ static void set_service_state(struct onoff_service *srv,
 	srv->flags |= (state & SERVICE_STATE_MASK);
 }
 
+/* Returns the client notification mode */
 static int validate_args(const struct onoff_service *srv,
 			 struct onoff_client *cli,
 			 bool *nowait)
@@ -63,6 +89,8 @@ static int validate_args(const struct onoff_service *srv,
 		}
 		break;
 #endif /* CONFIG_POLL */
+	case ONOFF_CLIENT_NOTIFY_ANONYMOUS:
+		break;
 	default:
 		rv = -EINVAL;
 		break;
@@ -71,6 +99,7 @@ static int validate_args(const struct onoff_service *srv,
 	/* Clear the result here instead of in all callers. */
 	if (rv == 0) {
 		cli->result = 0;
+		rv = mode;
 	}
 
 	return rv;
@@ -99,18 +128,22 @@ static void notify_one(struct onoff_service *srv,
 		       struct onoff_client *cli,
 		       int res)
 {
-	u32_t mode = cli->flags & CLIENT_NOTIFY_MASK;
-
 	/* Store the result, and notify if requested. */
 	cli->result = res;
-	if (mode == ONOFF_CLIENT_NOTIFY_CALLBACK) {
+	switch(cli->flags & CLIENT_NOTIFY_MASK) {
+	case ONOFF_CLIENT_NOTIFY_NO_WAIT:
+	case ONOFF_CLIENT_NOTIFY_ANONYMOUS:
+		break;
+	case ONOFF_CLIENT_NOTIFY_CALLBACK:
 		cli->async.callback.handler(srv, cli,
 					    cli->async.callback.user_data, res);
+		break;
 #if CONFIG_POLL
-	} else if (mode == ONOFF_CLIENT_NOTIFY_SIGNAL) {
+	case ONOFF_CLIENT_NOTIFY_SIGNAL:
 		k_poll_signal_raise(cli->async.signal, res);
+		break;
 #endif /* CONFIG_POLL */
-	} else if (mode != ONOFF_CLIENT_NOTIFY_NO_WAIT) {
+	default:
 		__ASSERT_NO_MSG(false);
 	}
 }
@@ -158,12 +191,25 @@ static void onoff_start_notify(struct onoff_service *srv,
 		srv->flags |= ONOFF_SERVICE_HAS_ERROR;
 	} else {
 		sys_snode_t *node;
+		unsigned int refs = 0U;
+
+		set_service_state(srv, SERVICE_STATE_ON);
 
 		SYS_SLIST_FOR_EACH_NODE(&clients, node) {
-			srv->refs += 1;
+			refs += 1U;
 		}
-		set_service_state(srv, SERVICE_STATE_ON);
+		refs += get_anonymous_count(srv->flags);
+		srv->flags = set_anonymous_count(srv->flags, 0U);
+
+		/* Mark an error if reference count would overflow. */
+		if (srv->refs > (SERVICE_REFS_MAX - refs)) {
+			srv->flags |= ONOFF_SERVICE_HAS_ERROR;
+		} else {
+			srv->refs += refs;
+		}
+
 		stop = (srv->refs == 0);
+
 		if ((stop || k_is_in_isr())
 		    && ((srv->flags & ONOFF_SERVICE_STOP_WAITS) != 0U)) {
 			srv->flags |= ONOFF_SERVICE_HAS_ERROR;
@@ -189,10 +235,13 @@ int z_impl_onoff_request(struct onoff_service *srv,
 	bool notify = false;            /* do client notification */
 	bool no_wait = false;
 	int rv = validate_args(srv, cli, &no_wait);
+	bool is_anonymous = (rv == ONOFF_CLIENT_NOTIFY_ANONYMOUS);
+	unsigned int anonymous_count = 0;
 
-	if (rv != 0) {
+	if (rv < 0) {
 		return rv;
 	}
+	rv = 0;
 
 	k_spinlock_key_t key = k_spin_lock(&srv->lock);
 
@@ -201,9 +250,26 @@ int z_impl_onoff_request(struct onoff_service *srv,
 		goto out;
 	}
 
-	if (srv->refs == UINT16_MAX) {
+	/* Assume we have no more requesters waiting than the maximum
+	 * number of anonymous counts.  To do this "right" we'd have
+	 * to maintain a count of the number of pending clients, which
+	 * gets ugly and expensive.
+	 */
+	if (srv->refs >= (SERVICE_REFS_MAX - MAX_ANONYMOUS_COUNT)) {
 		rv = -EAGAIN;
 		goto out;
+	}
+
+	if (is_anonymous) {
+		/* Capture the new number of anonymous references and
+		 * verify it won't cause a reference overflow.
+		 */
+		anonymous_count = get_anonymous_count(srv->flags);
+		anonymous_count += 1U;
+		if (anonymous_count > MAX_ANONYMOUS_COUNT) {
+			rv = -EAGAIN;
+			goto out;
+		}
 	}
 
 	u32_t state = srv->flags & SERVICE_STATE_MASK;
@@ -264,7 +330,11 @@ int z_impl_onoff_request(struct onoff_service *srv,
 
 out:
 	if (add_client) {
-		sys_slist_append(&srv->clients, &cli->node);
+		if (is_anonymous) {
+			srv->flags = set_anonymous_count(srv->flags, anonymous_count);
+		} else {
+			sys_slist_append(&srv->clients, &cli->node);
+		}
 	} else if (notify) {
 		srv->refs += 1;
 	}
@@ -354,9 +424,15 @@ int z_impl_onoff_release(struct onoff_service *srv,
 	bool no_wait = false;
 	int rv = validate_args(srv, cli, &no_wait);
 
-	if (rv != 0) {
+	if (rv < 0) {
 		return rv;
 	}
+
+	if (rv == ONOFF_CLIENT_NOTIFY_ANONYMOUS) {
+		return -ENOTSUP;
+	}
+
+	rv = 0;
 
 	k_spinlock_key_t key = k_spin_lock(&srv->lock);
 
@@ -458,9 +534,15 @@ int z_impl_onoff_service_reset(struct onoff_service *srv,
 	bool reset = false;
 	int rv = validate_args(srv, cli, &no_wait);
 
-	if (rv != 0) {
+	if (rv < 0) {
 		return rv;
 	}
+
+	if (rv == ONOFF_CLIENT_NOTIFY_ANONYMOUS) {
+		return -ENOTSUP;
+	}
+
+	rv = 0;
 
 	/* Reject if in a no-wait context and reset could
 	 * wait.
@@ -502,8 +584,12 @@ int z_impl_onoff_cancel(struct onoff_service *srv,
 	bool no_wait = false;
 	int rv = validate_args(srv, cli, &no_wait);
 
-	if (rv != 0) {
+	if (rv < 0) {
 		return rv;
+	}
+
+	if (rv == ONOFF_CLIENT_NOTIFY_ANONYMOUS) {
+		return -ENOTSUP;
 	}
 
 	rv = -EALREADY;
