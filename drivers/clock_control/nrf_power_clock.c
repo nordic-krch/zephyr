@@ -11,6 +11,12 @@
 #include "nrf_clock_calibration.h"
 #include <logging/log.h>
 #include <hal/nrf_power.h>
+#include <helpers/nrfx_gppi.h>
+#ifdef DPPI_PRESENT
+#include <nrfx_dppi.h>
+#else
+#include <nrfx_ppi.h>
+#endif
 
 LOG_MODULE_REGISTER(clock_control, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 
@@ -52,12 +58,70 @@ struct clock_ctrl_service {
 	nrf_clock_task_t stop_tsk;	/* Clock stop task */
 	nrf_clock_event_t started_evt;	/* Clock started event */
 	bool started;
+	bool srv_req;
+	bool ppi_req;
+	u8_t ppi_ch;
 };
+
+/** @brief Allocate (D)PPI channel. */
+static nrfx_err_t ppi_alloc(u8_t *ch)
+{
+#ifdef DPPI_PRESENT
+	return nrfx_dppi_channel_alloc(ch);
+#else
+	return nrfx_ppi_channel_alloc(ch);
+#endif
+}
 
 static void started(struct clock_ctrl_service *clk_srv)
 {
 	clk_srv->started = true;
-	clk_srv->started_cb(&clk_srv->service, 0);
+	if (clk_srv->srv_req) {
+		clk_srv->started_cb(&clk_srv->service, 0);
+	}
+}
+
+int z_clock_control_nrf_ppi_request(struct device *dev,
+				   clock_control_subsys_t sys, u32_t evt)
+{
+	struct clock_ctrl_service *clk_srv = dev->driver_data;
+	int err = 0;
+	int key;
+
+	key = irq_lock();
+	if (clk_srv->ppi_req) {
+		err = -EBUSY;
+		goto out;
+	}
+	clk_srv->ppi_req = true;
+	nrfx_gppi_event_endpoint_setup(clk_srv->ppi_ch, evt);
+	nrfx_gppi_channels_enable(BIT(clk_srv->ppi_ch));
+out:
+	irq_unlock(key);
+	DBG(dev, "ppi req ch:%d, evt:%x, err:%d", clk_srv->ppi_ch, evt, err);
+
+	return err;
+}
+
+int z_clock_control_nrf_ppi_release(struct device *dev,
+				   clock_control_subsys_t sys)
+{
+	struct clock_ctrl_service *clk_srv = dev->driver_data;
+	int key = irq_lock();
+
+	if (!clk_srv->ppi_req) {
+		return -EALREADY;
+	}
+
+	nrfx_gppi_channels_disable(BIT(clk_srv->ppi_ch));
+	clk_srv->ppi_req = false;
+	if (clk_srv->srv_req == false) {
+		nrf_clock_task_trigger(NRF_CLOCK, clk_srv->stop_tsk);
+		clk_srv->started = false;
+	}
+
+	irq_unlock(key);
+	return 0;
 }
 
 static void clk_start(struct onoff_service *srv,
@@ -65,9 +129,19 @@ static void clk_start(struct onoff_service *srv,
 {
 	struct clock_ctrl_service *clk_srv =
 			CONTAINER_OF(srv, struct clock_ctrl_service, service);
+	int key = irq_lock();
 
-	clk_srv->started_cb = notify;
-	nrf_clock_task_trigger(NRF_CLOCK, clk_srv->start_tsk);
+	clk_srv->srv_req = true;
+	if (clk_srv->started == false) {
+		irq_unlock(key);
+		clk_srv->started_cb = notify;
+		nrf_clock_task_trigger(NRF_CLOCK, clk_srv->start_tsk);
+		return;
+	}
+	irq_unlock(key);
+
+	notify(srv, 0);
+
 }
 
 static void clk_stop(struct onoff_service *srv,
@@ -76,8 +150,11 @@ static void clk_stop(struct onoff_service *srv,
 	struct clock_ctrl_service *clk_srv =
 			CONTAINER_OF(srv, struct clock_ctrl_service, service);
 
-	nrf_clock_task_trigger(NRF_CLOCK, clk_srv->stop_tsk);
-	clk_srv->started = false;
+	clk_srv->srv_req = false;
+	if (clk_srv->ppi_req == false) {
+		nrf_clock_task_trigger(NRF_CLOCK, clk_srv->stop_tsk);
+		clk_srv->started = false;
+	}
 
 	if (notify) {
 		notify(srv, 0);
@@ -134,6 +211,7 @@ static int srv_init(struct onoff_service *srv)
 static int hfclk_init(struct device *dev)
 {
 	struct clock_ctrl_service *clk_srv = dev->driver_data;
+	nrfx_err_t err;
 
 	IRQ_CONNECT(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0,
 		    DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0_PRIORITY,
@@ -156,20 +234,33 @@ static int hfclk_init(struct device *dev)
 			 NRF_POWER_INT_USBPWRRDY_MASK),
 			(0))));
 
-
 	clk_srv->start_tsk = NRF_CLOCK_TASK_HFCLKSTART;
 	clk_srv->stop_tsk = NRF_CLOCK_TASK_HFCLKSTOP;
 	clk_srv->started_evt = NRF_CLOCK_EVENT_HFCLKSTARTED;
+	err = ppi_alloc(&clk_srv->ppi_ch);
+	if (err != NRFX_SUCCESS) {
+		return -ENODEV;
+	}
+
+	nrfx_gppi_task_endpoint_setup(clk_srv->ppi_ch,
+		nrf_clock_task_address_get(NRF_CLOCK, clk_srv->start_tsk));
+
 	return srv_init(&clk_srv->service);
 }
 
 static int lfclk_init(struct device *dev)
 {
 	struct clock_ctrl_service *clk_srv = dev->driver_data;
+	nrfx_err_t err;
 
 	clk_srv->start_tsk = NRF_CLOCK_TASK_LFCLKSTART;
 	clk_srv->stop_tsk = NRF_CLOCK_TASK_LFCLKSTOP;
 	clk_srv->started_evt = NRF_CLOCK_EVENT_LFCLKSTARTED;
+	err = ppi_alloc(&clk_srv->ppi_ch);
+	if (err != NRFX_SUCCESS) {
+		return -ENODEV;
+	}
+	nrfx_gppi_task_endpoint_setup(clk_srv->ppi_ch, clk_srv->start_tsk);
 	return srv_init(&clk_srv->service);
 }
 

@@ -92,4 +92,9 @@ int z_nrf_clock_calibration_count(void);
  */
 int z_nrf_clock_calibration_skips_count(void);
 
+int z_clock_control_nrf_ppi_request(struct device *dev,
+				   clock_control_subsys_t sys, u32_t evt);
+
+int z_clock_control_nrf_ppi_release(struct device *dev,
+				   clock_control_subsys_t sys);
 #endif /* ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_NRF_CLOCK_CONTROL_H_ */

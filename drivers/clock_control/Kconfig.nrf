@@ -46,6 +46,12 @@ config CLOCK_CONTROL_NRF_K32SRC_EXT_FULL_SWING
 
 endchoice
 
+config CLOCK_CONTROL_NRF_PPI_CTRL
+	bool "Enable PPI clock control"
+	default y
+	select NRFX_PPI if HAS_HW_NRF_PPI
+	select NRFX_DPPI if HAS_HW_NRF_DPPIC
+
 config CLOCK_CONTROL_NRF_K32SRC_RC_CALIBRATION
 	bool
 	depends on !SOC_SERIES_NRF91X
