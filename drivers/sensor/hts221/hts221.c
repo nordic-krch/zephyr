@@ -20,6 +20,22 @@ static const char * const hts221_odr_strings[] = {
 	"1", "7", "12.5"
 };
 
+struct hts221_data hts221_driver;
+static u8_t addr =
+		HTS221_REG_DATA_START | HTS221_AUTOINCREMENT_ADDR;
+static const struct i2c_ll_msg fetch_data_msgs[2] = {
+	{
+		.buf = (u8_t *)&addr,
+		.len = 1,
+		.flags = I2C_MSG_WRITE
+	},
+	{
+		.buf = (u8_t *)&hts221_driver.rh_sample,
+		.len = 4,
+		.flags = I2C_MSG_RESTART | I2C_MSG_READ | I2C_MSG_STOP
+	}
+};
+
 static int hts221_channel_get(struct device *dev,
 			       enum sensor_channel chan,
 			       struct sensor_value *val)
@@ -55,6 +71,38 @@ static int hts221_channel_get(struct device *dev,
 	}
 
 	return 0;
+}
+
+static void i2c_mngr_callback(struct i2c_mngr *mngr, int res, void *user_data)
+{
+	struct device *dev = user_data;
+	struct hts221_data *drv_data = dev->driver_data;
+	sensor_fetched_callback_t callback = drv_data->callback;
+	void *ud = drv_data->user_data;
+
+	drv_data->callback = NULL;
+	callback(dev, SENSOR_CHAN_ALL, res, ud);
+}
+
+static int hts221_sample_fetch_async(struct device *dev,
+					enum sensor_channel chan,
+					sensor_fetched_callback_t cb,
+					void *user_data)
+{
+	struct hts221_data *drv_data = dev->driver_data;
+	struct i2c_mngr *mngr = drv_data->i2c->driver_data;
+
+	if (atomic_cas((atomic_t *)&drv_data->callback, 0, (atomic_val_t)cb) ==
+		false) {
+			LOG_ERR("aaaa");
+		return -EBUSY;
+	}
+
+	drv_data->user_data = user_data;
+	drv_data->transaction.msgs = (struct i2c_ll_msg *)fetch_data_msgs;
+	drv_data->transaction.num_msgs = ARRAY_SIZE(fetch_data_msgs);
+
+	return i2c_mngr_schedule(mngr, &drv_data->transaction);
 }
 
 static int hts221_sample_fetch(struct device *dev, enum sensor_channel chan)
@@ -105,6 +153,8 @@ static const struct sensor_driver_api hts221_driver_api = {
 	.trigger_set = hts221_trigger_set,
 #endif
 	.sample_fetch = hts221_sample_fetch,
+	.sample_fetch_async = IS_ENABLED(CONFIG_I2C_USE_MNGR) ?
+				hts221_sample_fetch_async : NULL,
 	.channel_get = hts221_channel_get,
 };
 
@@ -169,11 +219,12 @@ int hts221_init(struct device *dev)
 		return -EIO;
 	}
 #endif
+	drv_data->transaction.callback = i2c_mngr_callback;
+	drv_data->transaction.user_data = dev;
+	drv_data->transaction.address = DT_INST_0_ST_HTS221_BASE_ADDRESS;
 
 	return 0;
 }
-
-struct hts221_data hts221_driver;
 
 DEVICE_AND_API_INIT(hts221, DT_INST_0_ST_HTS221_LABEL, hts221_init, &hts221_driver,
 		    NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
