@@ -21,6 +21,7 @@
 
 #include <zephyr/types.h>
 #include <device.h>
+#include <drivers/i2c_mngr.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -208,8 +209,26 @@ static inline int z_impl_i2c_configure(struct device *dev, u32_t dev_config)
 {
 	const struct i2c_driver_api *api =
 		(const struct i2c_driver_api *)dev->driver_api;
+	const struct i2c_ll_driver_api *ll_api =
+		(const struct i2c_ll_driver_api *)dev->driver_api;
 
-	return api->configure(dev, dev_config);
+	return !IS_ENABLED(CONFIG_I2C_USE_MNGR) ?
+		api->configure(dev, dev_config) :
+		ll_api->configure(dev, dev_config, NULL, NULL);
+}
+
+struct i2c_with_mngr_data {
+	struct k_sem sem;
+	int res;
+};
+
+static inline void z_i2c_transaction_callback(struct i2c_mngr *mngr, int res,
+						void *user_data)
+{
+	struct i2c_with_mngr_data *data = user_data;
+
+	data->res = res;
+	k_sem_give(&data->sem);
 }
 
 /**
@@ -248,8 +267,29 @@ static inline int z_impl_i2c_transfer(struct device *dev,
 {
 	const struct i2c_driver_api *api =
 		(const struct i2c_driver_api *)dev->driver_api;
+	struct i2c_with_mngr_data data = { };
+	struct i2c_mngr_transaction transaction = {
+		.callback = z_i2c_transaction_callback,
+		.user_data = &data,
+		.address = addr,
+		.num_msgs = num_msgs,
+		.msgs = (struct i2c_ll_msg *)msgs
+	};
+	struct i2c_mngr *mngr = dev->driver_data;
+	int err;
 
-	return api->transfer(dev, msgs, num_msgs, addr);
+	k_sem_init(&data.sem, 0, 1);
+	if (!IS_ENABLED(CONFIG_I2C_USE_MNGR)) {
+		return api->transfer(dev, msgs, num_msgs, addr);
+	}
+
+	err = i2c_mngr_schedule(mngr, &transaction);
+	if (err == 0) {
+		k_sem_take(&data.sem, K_FOREVER);
+		err = data.res;
+	}
+
+	return err;
 }
 
 /**
