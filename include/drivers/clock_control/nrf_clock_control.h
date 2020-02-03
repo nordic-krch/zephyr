@@ -9,6 +9,7 @@
 
 #include <device.h>
 #include <hal/nrf_clock.h>
+#include <sys/onoff.h>
 
 /** @brief Clocks handled by the CLOCK peripheral.
  *
@@ -93,5 +94,13 @@ int z_nrf_clock_calibration_count(void);
  * @return Number of calibrations or -1 if feature is disabled.
  */
 int z_nrf_clock_calibration_skips_count(void);
+
+/** @brief Get onoff service for given clock subsystem.
+ *
+ * @param sys Subsystem.
+ *
+ * @return Service handler or NULL.
+ */
+struct onoff_service *z_nrf_clock_control_get_onoff(clock_control_subsys_t sys);
 
 #endif /* ZEPHYR_INCLUDE_DRIVERS_CLOCK_CONTROL_NRF_CLOCK_CONTROL_H_ */

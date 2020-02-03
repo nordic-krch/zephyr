@@ -6,6 +6,7 @@
  */
 
 #include <soc.h>
+#include <sys/onoff.h>
 #include <drivers/clock_control.h>
 #include <drivers/clock_control/nrf_clock_control.h>
 #include "nrf_clock_calibration.h"
@@ -13,6 +14,9 @@
 #include <hal/nrf_power.h>
 
 LOG_MODULE_REGISTER(clock_control, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
+
+#define NRF_CLOCK_CONTROL_FLAG_ONOFF_USED BIT(1)
+#define NRF_CLOCK_CONTROL_FLAG_DIRECT_USED BIT(2)
 
 /* Helper logging macros which prepends subsys name to the log. */
 #ifdef CONFIG_LOG
@@ -37,9 +41,10 @@ typedef bool (*nrf_clock_handler_t)(struct device *dev);
 
 /* Clock subsys structure */
 struct nrf_clock_control_sub_data {
-	sys_slist_t list;	/* List of users requesting callback */
-	u8_t ref;		/* Users counter */
-	bool started;		/* Indicated that clock is started */
+	clock_control_cb_t cb;
+	void *user_data;
+	enum clock_control_status status;
+	u8_t flags;
 };
 
 /* Clock subsys static configuration */
@@ -55,6 +60,7 @@ struct nrf_clock_control_sub_config {
 };
 
 struct nrf_clock_control_data {
+	struct onoff_service onoff_service[CLOCK_CONTROL_NRF_TYPE_COUNT];
 	struct nrf_clock_control_sub_data subsys[CLOCK_CONTROL_NRF_TYPE_COUNT];
 };
 
@@ -62,9 +68,6 @@ struct nrf_clock_control_config {
 	struct nrf_clock_control_sub_config
 					subsys[CLOCK_CONTROL_NRF_TYPE_COUNT];
 };
-
-static void clkstarted_handle(struct device *dev,
-			      enum clock_control_nrf_type type);
 
 /* Return true if given event has enabled interrupt and is triggered. Event
  * is cleared.
@@ -79,18 +82,6 @@ static bool clock_event_check_and_clean(nrf_clock_event_t evt, u32_t intmask)
 	}
 
 	return ret;
-}
-
-static void clock_irqs_disable(void)
-{
-	nrf_clock_int_disable(NRF_CLOCK,
-			(NRF_CLOCK_INT_HF_STARTED_MASK |
-			 NRF_CLOCK_INT_LF_STARTED_MASK |
-			 COND_CODE_1(CONFIG_USB_NRFX,
-				(NRF_POWER_INT_USBDETECTED_MASK |
-				 NRF_POWER_INT_USBREMOVED_MASK |
-				 NRF_POWER_INT_USBPWRRDY_MASK),
-				(0))));
 }
 
 static void clock_irqs_enable(void)
@@ -123,109 +114,42 @@ static const struct nrf_clock_control_sub_config *get_sub_config(
 	return &config->subsys[type];
 }
 
+static struct onoff_service *get_onoff_service(struct device *dev,
+					enum clock_control_nrf_type type)
+{
+	struct nrf_clock_control_data *data = dev->driver_data;
+
+	return &data->onoff_service[type];
+}
+
+DEVICE_DECLARE(clock_nrf);
+
+struct onoff_service *z_nrf_clock_control_get_onoff(clock_control_subsys_t sys)
+{
+	return get_onoff_service(DEVICE_GET(clock_nrf),
+	 			(enum clock_control_nrf_type)sys);
+}
+
 static enum clock_control_status get_status(struct device *dev,
 					    clock_control_subsys_t subsys)
 {
 	enum clock_control_nrf_type type = (enum clock_control_nrf_type)subsys;
-	struct nrf_clock_control_sub_data *data;
 
 	__ASSERT_NO_MSG(type < CLOCK_CONTROL_NRF_TYPE_COUNT);
-	data = get_sub_data(dev, type);
-	if (data->started) {
-		return CLOCK_CONTROL_STATUS_ON;
-	}
 
-	if (data->ref > 0) {
-		return CLOCK_CONTROL_STATUS_STARTING;
-	}
-
-	return CLOCK_CONTROL_STATUS_OFF;
+	return get_sub_data(dev, type)->status;
 }
+
 
 static int clock_stop(struct device *dev, clock_control_subsys_t subsys)
 {
 	enum clock_control_nrf_type type = (enum clock_control_nrf_type)subsys;
-	const struct nrf_clock_control_sub_config *config;
-	struct nrf_clock_control_sub_data *data;
-	int err = 0;
-	int key;
 
 	__ASSERT_NO_MSG(type < CLOCK_CONTROL_NRF_TYPE_COUNT);
-	config = get_sub_config(dev, type);
-	data = get_sub_data(dev, type);
+	get_sub_data(dev, type)->status = CLOCK_CONTROL_STATUS_OFF;
+	nrf_clock_task_trigger(NRF_CLOCK, get_sub_config(dev, type)->stop_tsk);
 
-	key = irq_lock();
-	if (data->ref == 0) {
-		err = -EALREADY;
-		goto out;
-	}
-	data->ref--;
-	if (data->ref == 0) {
-		bool do_stop;
-
-		DBG(dev, subsys, "Stopping");
-		sys_slist_init(&data->list);
-
-		do_stop =  (config->stop_handler) ?
-				config->stop_handler(dev) : true;
-
-		if (do_stop) {
-			nrf_clock_task_trigger(NRF_CLOCK, config->stop_tsk);
-			/* It may happen that clock is being stopped when it
-			 * has just been started and start is not yet handled
-			 * (due to irq_lock). In that case after stopping the
-			 * clock, started event is cleared to prevent false
-			 * interrupt being triggered.
-			 */
-			nrf_clock_event_clear(NRF_CLOCK, config->started_evt);
-		}
-
-		data->started = false;
-	}
-
-out:
-	irq_unlock(key);
-
-	return err;
-}
-
-static bool is_in_list(sys_slist_t *list, sys_snode_t *node)
-{
-	sys_snode_t *item = sys_slist_peek_head(list);
-
-	do {
-		if (item == node) {
-			return true;
-		}
-
-		item = sys_slist_peek_next(item);
-	} while (item);
-
-	return false;
-}
-
-static void list_append(sys_slist_t *list, sys_snode_t *node)
-{
-	int key;
-
-	key = irq_lock();
-	sys_slist_append(list, node);
-	irq_unlock(key);
-}
-
-static struct clock_control_async_data *list_get(sys_slist_t *list)
-{
-	struct clock_control_async_data *async_data;
-	sys_snode_t *node;
-	int key;
-
-	key = irq_lock();
-	node = sys_slist_get(list);
-	irq_unlock(key);
-	async_data = CONTAINER_OF(node,
-		struct clock_control_async_data, node);
-
-	return async_data;
+	return 0;
 }
 
 static inline void anomaly_132_workaround(void)
@@ -240,85 +164,126 @@ static inline void anomaly_132_workaround(void)
 #endif
 }
 
-static int clock_async_start(struct device *dev,
-			     clock_control_subsys_t subsys,
-			     struct clock_control_async_data *data)
+static int async_start(struct device *dev, clock_control_subsys_t subsys,
+			struct clock_control_async_data *data)
 {
 	enum clock_control_nrf_type type = (enum clock_control_nrf_type)subsys;
-	const struct nrf_clock_control_sub_config *config;
-	struct nrf_clock_control_sub_data *clk_data;
-	int key;
-	u8_t ref;
+	struct nrf_clock_control_sub_data *subdata = get_sub_data(dev, type);
 
-	__ASSERT_NO_MSG(type < CLOCK_CONTROL_NRF_TYPE_COUNT);
-	config = get_sub_config(dev, type);
-	clk_data = get_sub_data(dev, type);
+	subdata->cb = data->cb;
+	subdata->user_data = data->user_data;
 
-	__ASSERT_NO_MSG((data == NULL) ||
-			((data != NULL) && (data->cb != NULL)));
-
-	/* if node is in the list it means that it is scheduled for
-	 * the second time.
-	 */
-	if ((data != NULL)
-	    && is_in_list(&clk_data->list, &data->node)) {
-		return -EBUSY;
+	if (IS_ENABLED(CONFIG_NRF52_ANOMALY_132_WORKAROUND) &&
+		(subsys == CLOCK_CONTROL_NRF_SUBSYS_LF)) {
+		anomaly_132_workaround();
 	}
 
-	key = irq_lock();
-	ref = ++clk_data->ref;
-	__ASSERT_NO_MSG(clk_data->ref > 0);
-	irq_unlock(key);
-
-	if (data) {
-		bool already_started;
-
-		clock_irqs_disable();
-		already_started = clk_data->started;
-		if (!already_started) {
-			list_append(&clk_data->list, &data->node);
-		}
-		clock_irqs_enable();
-
-		if (already_started) {
-			data->cb(dev, data->user_data);
-		}
-	}
-
-	if (ref == 1) {
-		bool do_start;
-
-		do_start =  (config->start_handler) ?
-				config->start_handler(dev) : true;
-		if (do_start) {
-			DBG(dev, subsys, "Triggering start task");
-
-			if (IS_ENABLED(CONFIG_NRF52_ANOMALY_132_WORKAROUND) &&
-			    (subsys == CLOCK_CONTROL_NRF_SUBSYS_LF)) {
-				anomaly_132_workaround();
-			}
-
-			nrf_clock_task_trigger(NRF_CLOCK,
-					       config->start_tsk);
-		} else {
-			/* If external start_handler indicated that clcok is
-			 * still running (it may happen in case of LF RC clock
-			 * which was requested to be stopped during ongoing
-			 * calibration (clock will not be stopped in that case)
-			 * and requested to be started before calibration is
-			 * completed. In that case clock is still running and
-			 * we can notify enlisted requests.
-			 */
-			clkstarted_handle(dev, type);
-		}
-	}
+	get_sub_data(dev, type)->status = CLOCK_CONTROL_STATUS_STARTING;
+	nrf_clock_task_trigger(NRF_CLOCK, get_sub_config(dev, type)->start_tsk);
 
 	return 0;
 }
 
-static int clock_start(struct device *dev, clock_control_subsys_t sub_system)
+static int clock_async_start(struct device *dev, clock_control_subsys_t subsys,
+			     struct clock_control_async_data *data)
 {
-	return clock_async_start(dev, sub_system, NULL);
+	enum clock_control_nrf_type type = (enum clock_control_nrf_type)subsys;
+	struct nrf_clock_control_sub_data *subdata = get_sub_data(dev, type);
+
+	if (subdata->flags & NRF_CLOCK_CONTROL_FLAG_ONOFF_USED) {
+		ERR(DEVICE_GET(clock_nrf), "Direct API used when onoff in use");
+		return -EINVAL;
+	}
+	subdata->flags |= NRF_CLOCK_CONTROL_FLAG_DIRECT_USED;
+
+	return async_start(dev, subsys, data);
+}
+
+static void blocking_start_callback(struct device *dev,
+				    clock_control_subsys_t subsys,
+				    void *user_data)
+{
+	struct k_sem *sem = user_data;
+
+	k_sem_give(sem);
+}
+
+static int clock_start(struct device *dev, clock_control_subsys_t subsys)
+{
+	struct k_sem sem = Z_SEM_INITIALIZER(sem, 0, 1);
+	struct clock_control_async_data data = {
+		.cb = blocking_start_callback,
+		.user_data = &sem
+	};
+	int err;
+	int key;
+
+	key = irq_lock();
+
+	if (get_status(dev, subsys) != CLOCK_CONTROL_STATUS_OFF) {
+		err = -EALREADY;
+	} else {
+		err = clock_async_start(dev, subsys, &data);
+	}
+
+	irq_unlock(key);
+
+	if (err < 0) {
+		return err;
+	}
+
+	k_sem_take(&sem, K_FOREVER);
+
+	return 0;
+}
+
+static clock_control_subsys_t get_subsys(struct onoff_service *srv)
+{
+	struct nrf_clock_control_data *data = DEVICE_GET(clock_nrf)->driver_data;
+	size_t offset = (size_t)(srv - data->onoff_service);
+
+	return (clock_control_subsys_t)offset;
+}
+
+static void onoff_stop(struct onoff_service *srv,
+			onoff_service_notify_fn notify)
+{
+	(void)clock_stop(DEVICE_GET(clock_nrf), get_subsys(srv));
+	notify(srv, 0);
+}
+
+static void onoff_started_callback(struct device *dev,
+				   clock_control_subsys_t sys,
+				   void *user_data)
+{
+	enum clock_control_nrf_type type = (enum clock_control_nrf_type)sys;
+	struct onoff_service *srv = get_onoff_service(DEVICE_GET(clock_nrf),
+							type);
+	onoff_service_notify_fn notify = user_data;
+
+	notify(srv, 0);
+}
+
+static void onoff_start(struct onoff_service *srv,
+			onoff_service_notify_fn notify)
+{
+	enum clock_control_nrf_type type =
+					(enum clock_control_nrf_type)get_subsys(srv);
+	struct nrf_clock_control_sub_data *subdata =
+				get_sub_data(DEVICE_GET(clock_nrf), type);
+	struct clock_control_async_data data = {
+		.cb = onoff_started_callback,
+		.user_data = notify
+	};
+
+	if (subdata->flags & NRF_CLOCK_CONTROL_FLAG_DIRECT_USED) {
+		ERR(DEVICE_GET(clock_nrf), "Onoff API used when direct in use");
+		__ASSERT_NO_MSG(0);
+	}
+	subdata->flags |= NRF_CLOCK_CONTROL_FLAG_DIRECT_USED;
+
+	(void)async_start(DEVICE_GET(clock_nrf), (clock_control_subsys_t)type,
+			&data);
 }
 
 /* Note: this function has public linkage, and MUST have this
@@ -333,6 +298,8 @@ void nrf_power_clock_isr(void *arg);
 
 static int clk_init(struct device *dev)
 {
+	int err;
+
 	IRQ_CONNECT(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0,
 		    DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0_PRIORITY,
 		    nrf_power_clock_isr, 0, 0);
@@ -349,7 +316,11 @@ static int clk_init(struct device *dev)
 
 	for (enum clock_control_nrf_type i = 0;
 		i < CLOCK_CONTROL_NRF_TYPE_COUNT; i++) {
-		sys_slist_init(&(get_sub_data(dev, i)->list));
+		err = onoff_service_init(get_onoff_service(dev, i),
+					 onoff_start, onoff_stop, NULL, 0);
+		if (err < 0) {
+			return err;
+		}
 	}
 
 	return 0;
@@ -397,13 +368,15 @@ static void clkstarted_handle(struct device *dev,
 			      enum clock_control_nrf_type type)
 {
 	struct nrf_clock_control_sub_data *sub_data = get_sub_data(dev, type);
-	struct clock_control_async_data *async_data;
+	clock_control_cb_t callback = sub_data->cb;
+	void *user_data = sub_data->user_data;
 
+	sub_data->cb = NULL;
+	sub_data->status = CLOCK_CONTROL_STATUS_ON;
 	DBG(dev, type, "Clock started");
-	sub_data->started = true;
 
-	while ((async_data = list_get(&sub_data->list)) != NULL) {
-		async_data->cb(dev, async_data->user_data);
+	if (callback) {
+		callback(dev, (clock_control_subsys_t)type, user_data);
 	}
 }
 
@@ -456,7 +429,7 @@ void nrf_power_clock_isr(void *arg)
 		/* Check needed due to anomaly 201:
 		 * HFCLKSTARTED may be generated twice.
 		 */
-		if (!data->started) {
+		if (data->status == CLOCK_CONTROL_STATUS_STARTING) {
 			clkstarted_handle(dev, CLOCK_CONTROL_NRF_TYPE_HFCLK);
 		}
 	}
