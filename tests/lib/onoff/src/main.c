@@ -11,6 +11,8 @@ static struct onoff_client spinwait_cli;
 
 static int callback_res;
 static void *callback_ud;
+static void *transition_context;
+
 static void callback(struct onoff_service *srv,
 		     struct onoff_client *cli,
 		     void *ud,
@@ -64,10 +66,13 @@ static void reset_transit_state(struct transit_state *tsp)
 	tsp->srv = NULL;
 }
 
-static void run_transit(struct onoff_service *srv,
+static void run_transit(struct onoff_service *srv, void *context,
 			onoff_service_notify_fn notify,
 			struct transit_state *tsp)
 {
+	zassert_equal(transition_context, context,
+			"Unexpected context.");
+
 	if (tsp->async) {
 		TC_PRINT("%s async\n", tsp->tag);
 		tsp->notify = notify;
@@ -132,27 +137,30 @@ static struct transit_state start_state = {
 	.tag = "start",
 };
 static void start(struct onoff_service *srv,
-		  onoff_service_notify_fn notify)
+		  onoff_service_notify_fn notify,
+		  void *context)
 {
-	run_transit(srv, notify, &start_state);
+	run_transit(srv, context, notify, &start_state);
 }
 
 static struct transit_state stop_state = {
 	.tag = "stop",
 };
 static void stop(struct onoff_service *srv,
-		 onoff_service_notify_fn notify)
+		 onoff_service_notify_fn notify,
+		 void *context)
 {
-	run_transit(srv, notify, &stop_state);
+	run_transit(srv, context, notify, &stop_state);
 }
 
 static struct transit_state reset_state = {
 	.tag = "reset",
 };
 static void reset(struct onoff_service *srv,
-		  onoff_service_notify_fn notify)
+		  onoff_service_notify_fn notify,
+		  void *context)
 {
-	run_transit(srv, notify, &reset_state);
+	run_transit(srv, context, notify, &reset_state);
 }
 
 static void clear_transit(void)
@@ -170,23 +178,23 @@ static void test_service_init_validation(void)
 
 	clear_transit();
 
-	rc = onoff_service_init(NULL, NULL, NULL, NULL, 0);
+	rc = onoff_service_init(NULL, NULL, NULL, NULL, NULL, 0);
 	zassert_equal(rc, -EINVAL,
 		      "init null srv %d", rc);
 
-	rc = onoff_service_init(&srv, NULL, NULL, NULL, 0);
+	rc = onoff_service_init(&srv, NULL, NULL, NULL, NULL, 0);
 	zassert_equal(rc, -EINVAL,
 		      "init null transit %d", rc);
 
-	rc = onoff_service_init(&srv, start, NULL, NULL, 0);
+	rc = onoff_service_init(&srv, start, NULL, NULL, NULL, 0);
 	zassert_equal(rc, -EINVAL,
 		      "init null stop %d", rc);
 
-	rc = onoff_service_init(&srv, NULL, stop, NULL, 0);
+	rc = onoff_service_init(&srv, NULL, stop, NULL, NULL, 0);
 	zassert_equal(rc, -EINVAL,
 		      "init null start %d", rc);
 
-	rc = onoff_service_init(&srv, start, stop, NULL,
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL,
 				ONOFF_SERVICE_INTERNAL_BASE);
 	zassert_equal(rc, -EINVAL,
 		      "init bad flags %d", rc);
@@ -197,7 +205,7 @@ static void test_service_init_validation(void)
 	zassert_false(sys_slist_is_empty(&srv.clients),
 		      "slist empty");
 
-	rc = onoff_service_init(&srv, start, stop, reset, flags);
+	rc = onoff_service_init(&srv, start, stop, reset, NULL, flags);
 	zassert_equal(rc, 0,
 		      "init good %d", rc);
 	zassert_equal(srv.start, start,
@@ -263,7 +271,7 @@ static void test_validate_args(void)
 	 * release, and reset; test it through the request API.
 	 */
 
-	rc = onoff_service_init(&srv, start, stop, NULL, 0);
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL, 0);
 	zassert_equal(rc, 0,
 		      "service init");
 
@@ -337,14 +345,14 @@ static void test_reset(void)
 
 	clear_transit();
 
-	rc = onoff_service_init(&srv, start, stop, NULL, 0);
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL, 0);
 	zassert_equal(rc, 0,
 		      "service init");
 	rc = onoff_service_reset(&srv, &cli);
 	zassert_equal(rc, -ENOTSUP,
 		      "reset: %d", rc);
 
-	rc = onoff_service_init(&srv, start, stop, reset, 0);
+	rc = onoff_service_init(&srv, start, stop, reset, NULL, 0);
 	zassert_equal(rc, 0,
 		      "service init");
 
@@ -423,7 +431,7 @@ static void test_reset(void)
 	zassert_false(onoff_service_has_error(&srv),
 		      "has error");
 
-	rc = onoff_service_init(&srv, start, stop, reset,
+	rc = onoff_service_init(&srv, start, stop, reset, NULL,
 				ONOFF_SERVICE_RESET_SLEEPS);
 	zassert_equal(rc, 0,
 		      "service init");
@@ -463,7 +471,7 @@ static void test_request(void)
 
 	clear_transit();
 
-	rc = onoff_service_init(&srv, start, stop, reset, 0);
+	rc = onoff_service_init(&srv, start, stop, reset, NULL, 0);
 	zassert_equal(rc, 0,
 		      "service init");
 
@@ -546,7 +554,7 @@ static void test_request(void)
 		      "has error");
 
 	/* Diagnose a no-wait delayed start */
-	rc = onoff_service_init(&srv, start, stop, reset,
+	rc = onoff_service_init(&srv, start, stop, reset, NULL,
 				ONOFF_SERVICE_START_SLEEPS);
 	zassert_equal(rc, 0,
 		      "service init");
@@ -581,7 +589,7 @@ static void test_sync(void)
 
 	clear_transit();
 
-	rc = onoff_service_init(&srv, start, stop, reset, 0);
+	rc = onoff_service_init(&srv, start, stop, reset, NULL, 0);
 	zassert_equal(rc, 0,
 		      "service init");
 
@@ -635,7 +643,7 @@ static void test_async(void)
 	stop_state.async = true;
 	stop_state.retval = 17;
 
-	rc = onoff_service_init(&srv, start, stop, reset,
+	rc = onoff_service_init(&srv, start, stop, reset, NULL,
 				ONOFF_SERVICE_START_SLEEPS
 				| ONOFF_SERVICE_STOP_SLEEPS);
 	zassert_equal(rc, 0,
@@ -824,7 +832,7 @@ static void test_half_sync(void)
 	stop_state.async = true;
 	stop_state.retval = 17;
 
-	rc = onoff_service_init(&srv, start, stop, NULL,
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL,
 				ONOFF_SERVICE_STOP_SLEEPS);
 	zassert_equal(rc, 0,
 		      "service init");
@@ -881,7 +889,7 @@ static void test_cancel_request_waits(void)
 	stop_state.async = true;
 	stop_state.retval = 31;
 
-	rc = onoff_service_init(&srv, start, stop, NULL,
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL,
 				ONOFF_SERVICE_START_SLEEPS
 				| ONOFF_SERVICE_STOP_SLEEPS);
 	zassert_equal(rc, 0,
@@ -976,7 +984,7 @@ static void test_cancel_request_ok(void)
 	start_state.retval = 14;
 	stop_state.retval = 31;
 
-	rc = onoff_service_init(&srv, start, stop, NULL,
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL,
 				ONOFF_SERVICE_START_SLEEPS);
 	zassert_equal(rc, 0,
 		      "service init");
@@ -1032,7 +1040,7 @@ static void test_blocked_restart(void)
 	stop_state.async = true;
 	stop_state.retval = 31;
 
-	rc = onoff_service_init(&srv, start, stop, NULL,
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL,
 				ONOFF_SERVICE_START_SLEEPS
 				| ONOFF_SERVICE_STOP_SLEEPS);
 	zassert_equal(rc, 0,
@@ -1107,7 +1115,7 @@ static void test_cancel_release(void)
 	stop_state.async = true;
 	stop_state.retval = 94;
 
-	rc = onoff_service_init(&srv, start, stop, NULL,
+	rc = onoff_service_init(&srv, start, stop, NULL, NULL,
 				ONOFF_SERVICE_STOP_SLEEPS);
 	zassert_equal(rc, 0,
 		      "service init");
@@ -1142,6 +1150,42 @@ static void test_cancel_release(void)
 		      "has error");
 }
 
+static void test_context_in_transition_fn(void)
+{
+	int rc;
+	struct onoff_service srv;
+
+	clear_transit();
+	start_state.retval = 0;
+	stop_state.async = false;
+	stop_state.retval = 0;
+
+	transition_context = (void *)1234;
+
+	rc = onoff_service_init(&srv, start, stop, reset,
+				transition_context, 0);
+	zassert_equal(rc, 0, "service init");
+
+	init_spinwait(&spinwait_cli);
+	rc = onoff_request(&srv, &spinwait_cli);
+	zassert_true(rc > 0,
+		     "request done");
+	zassert_equal(cli_result(&spinwait_cli), start_state.retval,
+		      "started");
+
+	init_spinwait(&spinwait_cli);
+
+	rc = onoff_release(&srv, &spinwait_cli);
+	zassert_true(rc > 0,
+		     "request done");
+	zassert_equal(cli_result(&spinwait_cli), start_state.retval,
+		      "started");
+
+	init_spinwait(&spinwait_cli);
+
+	transition_context = NULL;
+}
+
 void test_main(void)
 {
 	k_sem_init(&isr_sync, 0, 1);
@@ -1159,6 +1203,7 @@ void test_main(void)
 			 ztest_unit_test(test_cancel_request_waits),
 			 ztest_unit_test(test_cancel_request_ok),
 			 ztest_unit_test(test_blocked_restart),
-			 ztest_unit_test(test_cancel_release));
+			 ztest_unit_test(test_cancel_release),
+			 ztest_unit_test(test_context_in_transition_fn));
 	ztest_run_test_suite(onoff_api);
 }

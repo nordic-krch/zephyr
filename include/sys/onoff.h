@@ -92,15 +92,16 @@ typedef void (*onoff_service_notify_fn)(struct onoff_service *srv,
  * onoff_service_has_error() returns true.
  *
  * @param srv the service for which transition was requested.
- *
  * @param notify the function to be invoked when the transition has
  * completed.  The callee shall capture this parameter to notify on
  * completion of asynchronous transitions.  If the transition is not
  * asynchronous, notify shall be invoked before the transition
  * function returns.
+ * @param context pointer to information specific to the service instance.
  */
 typedef void (*onoff_service_transition_fn)(struct onoff_service *srv,
-					    onoff_service_notify_fn notify);
+					    onoff_service_notify_fn notify,
+					    void *context);
 
 /**
  * @brief State associated with an on-off service.
@@ -128,6 +129,9 @@ struct onoff_service {
 	 */
 	onoff_service_transition_fn reset;
 
+	/* Context passed to transition functions. */
+	void *context;
+
 	/* Mutex protection for flags, clients, releaser, and refs. */
 	struct k_spinlock lock;
 
@@ -142,11 +146,12 @@ struct onoff_service {
 };
 
 /** @internal */
-#define ONOFF_SERVICE_INITIALIZER(_start, _stop, _reset, _flags) { \
-		.start = _start,				   \
-		.stop = _stop,					   \
-		.reset = _reset,				   \
-		.flags = _flags,				   \
+#define ONOFF_SERVICE_INITIALIZER(_start, _stop, _reset, _context, _flags) { \
+		.start = _start,					     \
+		.stop = _stop,						     \
+		.reset = _reset,					     \
+		.context = _context,					     \
+		.flags = _flags,					     \
 }
 
 /**
@@ -174,6 +179,8 @@ struct onoff_service {
  * with an error notification should support the reset operation.)
  * Include @ref ONOFF_SERVICE_RESET_SLEEPS as appropriate in flags.
  *
+ * @param context Context passed to the transition functions.
+ *
  * @param flags any or all of the flags mentioned above,
  * e.g. @ref ONOFF_SERVICE_START_SLEEPS.  Use of other flags produces an
  * error.
@@ -185,6 +192,7 @@ int onoff_service_init(struct onoff_service *srv,
 		       onoff_service_transition_fn start,
 		       onoff_service_transition_fn stop,
 		       onoff_service_transition_fn reset,
+		       void *context,
 		       u32_t flags);
 
 /** @internal
