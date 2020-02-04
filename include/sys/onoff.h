@@ -132,25 +132,11 @@ struct onoff_service_transitions {
 	onoff_service_transition_fn reset;
 };
 
-/**
- * @brief State associated with an on-off service.
- *
- * No fields in this structure are intended for use by service
- * providers or clients.  The state is to be initialized once, using
- * onoff_service_init(), when the service provider is initialized.
- * In case of error it may be reset through the
- * onoff_service_reset() API.
- */
-struct onoff_service {
+struct onoff_service_ctrl_blk {
 	/* List of clients waiting for completion of reset or
 	 * transition to on.
 	 */
 	sys_slist_t clients;
-
-	const struct onoff_service_transitions *transitions;
-
-	/* Context passed to transition functions. */
-	void *context;
 
 	/* Mutex protection for flags, clients, releaser, and refs. */
 	struct k_spinlock lock;
@@ -163,6 +149,26 @@ struct onoff_service {
 
 	/* Number of active clients for the service. */
 	u16_t refs;
+};
+
+/**
+ * @brief State associated with an on-off service.
+ *
+ * No fields in this structure are intended for use by service
+ * providers or clients.  The state is to be initialized once, using
+ * onoff_service_init(), when the service provider is initialized.
+ * In case of error it may be reset through the
+ * onoff_service_reset() API.
+ */
+struct onoff_service {
+
+	const struct onoff_service_transitions *transitions;
+
+	/* Context passed to transition functions. */
+	void *context;
+
+	struct onoff_service_ctrl_blk *ctrl_blk;
+
 };
 
 #define ONOFF_SERIVCE_TRANSITIONS_INITIALIZER(_start, _stop, _reset) {  \
