@@ -44,13 +44,10 @@ static u8_t calib_skip_cnt; /* Counting down skipped calibrations. */
 static int total_cnt; /* Total number of calibrations. */
 static int total_skips_cnt; /* Total number of skipped calibrations. */
 
-/* Callback called on hfclk started. */
-static void cal_hf_on_callback(struct device *dev, void *user_data);
-static struct clock_control_async_data cal_hf_on_data = {
-	.cb = cal_hf_on_callback
-};
+static struct onoff_service *hf_srv;
+static struct onoff_client cli;
+static bool started;
 
-static struct device *clk_dev;
 static struct device *temp_sensor;
 
 static void measure_temperature(struct k_work *work);
@@ -88,14 +85,6 @@ bool z_nrf_clock_calibration_start(struct device *dev)
 	return ret;
 }
 
-void z_nrf_clock_calibration_lfclk_started(struct device *dev)
-{
-	/* Trigger unconditional calibration when lfclk is started. */
-	cal_state = CAL_HFCLK_REQ;
-	clock_control_async_on(clk_dev, CLOCK_CONTROL_NRF_SUBSYS_HF,
-				&cal_hf_on_data);
-}
-
 bool z_nrf_clock_calibration_stop(struct device *dev)
 {
 	int key;
@@ -124,6 +113,10 @@ bool z_nrf_clock_calibration_stop(struct device *dev)
 	return ret;
 }
 
+static void cal_hf_on_callback(struct onoff_service *srv,
+				struct onoff_client *cli,
+				void *user_data, int res);
+
 void z_nrf_clock_calibration_init(struct device *dev)
 {
 	/* Anomaly 36: After watchdog timeout reset, CPU lockup reset, soft
@@ -142,7 +135,11 @@ void z_nrf_clock_calibration_init(struct device *dev)
 		temp_sensor = device_get_binding(TEMP_SENSOR_NAME);
 	}
 
-	clk_dev = dev;
+	LOG_INF("init");
+	onoff_client_init_callback(&cli, cal_hf_on_callback, &started);
+	hf_srv = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_TYPE_HFCLK);
+	__ASSERT_NO_MSG(hf_srv);
+
 	total_cnt = 0;
 	total_skips_cnt = 0;
 }
@@ -161,11 +158,29 @@ static void start_calibration(void)
 	calib_skip_cnt = CONFIG_CLOCK_CONTROL_NRF_CALIBRATION_MAX_SKIP;
 }
 
+void hf_request(void)
+{
+	int err;
+
+	LOG_INF("request");
+	err = onoff_request(hf_srv, &cli);
+	__ASSERT(err >= 0, "Unexpected error:%d", err);
+}
+
+void hf_release(void)
+{
+	int err;
+
+	LOG_INF("release");
+	err = onoff_release(hf_srv, &cli);
+	__ASSERT(err >= 0, "Unexpected error:%d", err);
+}
+
 /* Restart calibration timer, release HFCLK XTAL. */
 static void to_idle(void)
 {
 	cal_state = CAL_IDLE;
-	clock_control_off(clk_dev, CLOCK_CONTROL_NRF_SUBSYS_HF);
+	hf_release();
 	nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_CTSTART);
 }
 
@@ -238,23 +253,30 @@ out:
 /* Called when HFCLK XTAL is on. Schedules temperature measurement or triggers
  * calibration.
  */
-static void cal_hf_on_callback(struct device *dev, void *user_data)
+static void cal_hf_on_callback(struct onoff_service *srv,
+				struct onoff_client *cli,
+				void *user_data, int res)
 {
-	int key = irq_lock();
+	bool *started = user_data;
 
-	if (cal_state == CAL_HFCLK_REQ) {
-		if ((CONFIG_CLOCK_CONTROL_NRF_CALIBRATION_MAX_SKIP == 0) ||
-		    (IS_ENABLED(CONFIG_MULTITHREADING) == false)) {
-			start_calibration();
+	*started = !*started;
+	if (*started == true) {
+		int key = irq_lock();
+
+		if (cal_state == CAL_HFCLK_REQ) {
+			if ((CONFIG_CLOCK_CONTROL_NRF_CALIBRATION_MAX_SKIP == 0) ||
+			(IS_ENABLED(CONFIG_MULTITHREADING) == false)) {
+				start_calibration();
+			} else {
+				cal_state = CAL_TEMP_REQ;
+				k_work_submit(&temp_measure_work);
+			}
 		} else {
-			cal_state = CAL_TEMP_REQ;
-			k_work_submit(&temp_measure_work);
+			hf_release();
 		}
-	} else {
-		clock_control_off(clk_dev, CLOCK_CONTROL_NRF_SUBSYS_HF);
-	}
 
-	irq_unlock(key);
+		irq_unlock(key);
+	}
 }
 
 static void on_cal_done(void)
@@ -270,7 +292,7 @@ static void on_cal_done(void)
 	int key = irq_lock();
 
 	if (cal_state == CAL_ACTIVE_OFF) {
-		clock_control_off(clk_dev, CLOCK_CONTROL_NRF_SUBSYS_HF);
+		hf_request();
 		nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_LFCLKSTOP);
 		cal_state = CAL_OFF;
 	} else {
@@ -288,8 +310,7 @@ void z_nrf_clock_calibration_force_start(void)
 
 	if (cal_state == CAL_IDLE) {
 		cal_state = CAL_HFCLK_REQ;
-		clock_control_async_on(clk_dev, CLOCK_CONTROL_NRF_SUBSYS_HF,
-				&cal_hf_on_data);
+		hf_request();
 	}
 
 	irq_unlock(key);
@@ -306,9 +327,7 @@ void z_nrf_clock_calibration_isr(void)
 		 */
 		if (cal_state == CAL_IDLE) {
 			cal_state = CAL_HFCLK_REQ;
-			clock_control_async_on(clk_dev,
-					       CLOCK_CONTROL_NRF_SUBSYS_HF,
-					       &cal_hf_on_data);
+			hf_request();
 		}
 	}
 
@@ -330,6 +349,12 @@ void z_nrf_clock_calibration_isr(void)
 					       NRF_CLOCK_TASK_CTSTART);
 		}
 	}
+}
+
+void z_nrf_clock_calibration_lfclk_started(struct device *dev)
+{
+	/* Trigger unconditional calibration when lfclk is started. */
+	hf_request();
 }
 
 int z_nrf_clock_calibration_count(void)

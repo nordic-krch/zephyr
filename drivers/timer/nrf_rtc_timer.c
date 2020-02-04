@@ -8,6 +8,7 @@
 #include <soc.h>
 #include <drivers/clock_control.h>
 #include <drivers/clock_control/nrf_clock_control.h>
+#include <sys/onoff.h>
 #include <drivers/timer/system_timer.h>
 #include <sys_clock.h>
 #include <hal/nrf_rtc.h>
@@ -77,18 +78,34 @@ void rtc1_nrf_isr(void *arg)
 	z_clock_announce(IS_ENABLED(CONFIG_TICKLESS_KERNEL) ? dticks : 1);
 }
 
-int z_clock_driver_init(struct device *device)
+static void clock_on_notify(struct onoff_service *srv, struct onoff_client *cli,
+			    void *user_data, int res)
+{
+	/* Empty as we are not interested when clock got started. */
+}
+
+static int request_lfclk(void)
 {
 	struct device *clock;
-
-	ARG_UNUSED(device);
+	struct onoff_service *srv;
+	static struct onoff_client cli;
 
 	clock = device_get_binding(DT_INST_0_NORDIC_NRF_CLOCK_LABEL);
 	if (!clock) {
-		return -1;
+		return -ENODEV;
 	}
 
-	clock_control_on(clock, CLOCK_CONTROL_NRF_SUBSYS_LF);
+	srv = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_LF);
+	__ASSERT_NO_MSG(srv);
+
+	onoff_client_init_callback(&cli, clock_on_notify, NULL);
+
+	return onoff_request(srv, &cli);
+}
+
+int z_clock_driver_init(struct device *device)
+{
+	ARG_UNUSED(device);
 
 	/* TODO: replace with counter driver to access RTC */
 	nrf_rtc_prescaler_set(RTC, 0);
@@ -109,7 +126,7 @@ int z_clock_driver_init(struct device *device)
 		set_comparator(counter() + CYC_PER_TICK);
 	}
 
-	return 0;
+	return request_lfclk();
 }
 
 void z_clock_set_timeout(s32_t ticks, bool idle)
