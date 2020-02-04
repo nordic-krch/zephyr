@@ -11,11 +11,6 @@
 #define CLIENT_NOTIFY_METHOD_MASK 0x03
 #define CLIENT_VALID_FLAGS_MASK 0x07
 
-#define SERVICE_CONFIG_FLAGS	     \
-	(ONOFF_SERVICE_START_SLEEPS  \
-	 | ONOFF_SERVICE_STOP_SLEEPS \
-	 | ONOFF_SERVICE_RESET_SLEEPS)
-
 #define SERVICE_REFS_MAX UINT16_MAX
 
 #define SERVICE_STATE_OFF 0
@@ -76,23 +71,20 @@ static int validate_args(const struct onoff_service *srv,
 }
 
 int onoff_service_init(struct onoff_service *srv,
-		       onoff_service_transition_fn start,
-		       onoff_service_transition_fn stop,
-		       onoff_service_transition_fn reset,
+		       const struct onoff_service_transitions *transitions,
 		       void *context,
 		       u32_t flags)
 {
-	if ((flags & SERVICE_CONFIG_FLAGS) != flags) {
+	if ((flags & ONOFF_SERVICE_CONFIG_FLAGS) != flags) {
 		return -EINVAL;
 	}
 
-	if ((start == NULL) || (stop == NULL)) {
+	if ((transitions->start == NULL) || (transitions->stop == NULL)) {
 		return -EINVAL;
 	}
 
-	*srv = (struct onoff_service)ONOFF_SERVICE_INITIALIZER(start, stop,
-							       reset, context,
-							       flags);
+	*srv = (struct onoff_service)ONOFF_SERVICE_INITIALIZER(transitions,
+							       context, flags);
 
 	return 0;
 }
@@ -263,8 +255,8 @@ out:
 	k_spin_unlock(&srv->lock, key);
 
 	if (start) {
-		__ASSERT_NO_MSG(srv->start != NULL);
-		srv->start(srv, onoff_start_notify, srv->context);
+		__ASSERT_NO_MSG(srv->transitions->start != NULL);
+		srv->transitions->start(srv, onoff_start_notify, srv->context);
 	} else if (notify) {
 		notify_one(srv, cli, 0);
 	}
@@ -330,7 +322,7 @@ static void onoff_stop_notify(struct onoff_service *srv,
 	if (notify_clients) {
 		notify_all(srv, &clients, client_res);
 	} else if (start) {
-		srv->start(srv, onoff_start_notify, srv->context);
+		srv->transitions->start(srv, onoff_start_notify, srv->context);
 	}
 }
 
@@ -398,8 +390,8 @@ out:
 	k_spin_unlock(&srv->lock, key);
 
 	if (stop) {
-		__ASSERT_NO_MSG(srv->stop != NULL);
-		srv->stop(srv, onoff_stop_notify, srv->context);
+		__ASSERT_NO_MSG(srv->transitions->stop != NULL);
+		srv->transitions->stop(srv, onoff_stop_notify, srv->context);
 	} else if (notify) {
 		notify_one(srv, cli, 0);
 	}
@@ -424,7 +416,7 @@ static void onoff_reset_notify(struct onoff_service *srv,
 	} else {
 		__ASSERT_NO_MSG(srv->refs == 0U);
 		srv->refs = 0U;
-		srv->flags &= SERVICE_CONFIG_FLAGS;
+		srv->flags &= ONOFF_SERVICE_CONFIG_FLAGS;
 	}
 
 	sys_slist_init(&srv->clients);
@@ -437,7 +429,7 @@ static void onoff_reset_notify(struct onoff_service *srv,
 int onoff_service_reset(struct onoff_service *srv,
 			struct onoff_client *cli)
 {
-	if (srv->reset == NULL) {
+	if (srv->transitions->reset == NULL) {
 		return -ENOTSUP;
 	}
 
@@ -474,7 +466,7 @@ out:
 	k_spin_unlock(&srv->lock, key);
 
 	if (reset) {
-		srv->reset(srv, onoff_reset_notify, srv->context);
+		srv->transitions->reset(srv, onoff_reset_notify, srv->context);
 	}
 
 	return rv;

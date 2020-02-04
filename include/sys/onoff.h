@@ -56,6 +56,12 @@ enum onoff_service_flags {
 	ONOFF_SERVICE_INTERNAL_BASE     = BIT(4),
 };
 
+/** @brief User configuration flags. */
+#define ONOFF_SERVICE_CONFIG_FLAGS   \
+	(ONOFF_SERVICE_START_SLEEPS  \
+	 | ONOFF_SERVICE_STOP_SLEEPS \
+	 | ONOFF_SERVICE_RESET_SLEEPS)
+
 /* Forward declaration */
 struct onoff_service;
 
@@ -103,6 +109,29 @@ typedef void (*onoff_service_transition_fn)(struct onoff_service *srv,
 					    onoff_service_notify_fn notify,
 					    void *context);
 
+/** @brief On-off service transition functions. */
+struct onoff_service_transitions {
+	/* The function used to (initiate a) transition from off to on.  This
+	 * must not be null. Include @ref ONOFF_SERVICE_START_SLEEPS as
+	 * appropriate in flags.
+	 */
+	onoff_service_transition_fn start;
+
+	/* The function used to (initiate a) transition from on to off.  This
+	 * must not be null.  Include @ref ONOFF_SERVICE_STOP_SLEEPS as
+	 * appropriate in flags.
+	 */
+	onoff_service_transition_fn stop;
+
+	/* The function used to clear errors and force the service to an off
+	 * state.  Pass null if the service cannot or need not be reset.
+	 * (Services where a transition operation can complete with an error
+	 * notification should support the reset operation.) Include
+	 * @ref ONOFF_SERVICE_RESET_SLEEPS as appropriate in flags.
+	 */
+	onoff_service_transition_fn reset;
+};
+
 /**
  * @brief State associated with an on-off service.
  *
@@ -118,16 +147,7 @@ struct onoff_service {
 	 */
 	sys_slist_t clients;
 
-	/* Function to invoke to transition the service to on. */
-	onoff_service_transition_fn start;
-
-	/* Function to invoke to transition the service to off. */
-	onoff_service_transition_fn stop;
-
-	/* Function to force the service state to reset, where
-	 * supported.
-	 */
-	onoff_service_transition_fn reset;
+	const struct onoff_service_transitions *transitions;
 
 	/* Context passed to transition functions. */
 	void *context;
@@ -145,14 +165,46 @@ struct onoff_service {
 	u16_t refs;
 };
 
-/** @internal */
-#define ONOFF_SERVICE_INITIALIZER(_start, _stop, _reset, _context, _flags) { \
-		.start = _start,					     \
-		.stop = _stop,						     \
-		.reset = _reset,					     \
-		.context = _context,					     \
-		.flags = _flags,					     \
+#define ONOFF_SERIVCE_TRANSITIONS_INITIALIZER(_start, _stop, _reset) {  \
+		.start = _start,					\
+		.stop = _stop,						\
+		.reset = _reset						\
 }
+
+/** @internal */
+#define ONOFF_SERVICE_INITIALIZER(_transitions, _context, _flags) { \
+		.transitions = _transitions,			    \
+		.context = _context,				    \
+		.flags = _flags,				    \
+}
+
+/** @brief Statically define and initialize an on-off service.
+ *
+ * @param _name service name.
+ *
+ * @param _start a function used to transition from off to on state.
+ *
+ * @param _stop a function used to transition from on to off state.
+ *
+ * @param _reset a function used to clear errors and force the service to an off
+ * state. Can be null.
+ *
+ * @param context Context passed to the transition functions.
+ *
+ * @param flags any or all of the flags mentioned above,
+ * e.g. @ref ONOFF_SERVICE_START_SLEEPS.  Use of other flags produces an
+ * error.
+ */
+#define ONOFF_SERVICE_DEFINE(_name, _start, _stop, _reset, _context, _flags)  \
+	BUILD_ASSERT_MSG(_start != NULL, "start function is required");	      \
+	BUILD_ASSERT_MSG(_stop != NULL, "stop function is required");	      \
+	BUILD_ASSERT_MSG((_flags & ONOFF_SERVICE_CONFIG_FLAGS) == _flags,     \
+			"Flags misused");				      \
+	static const struct onoff_service_transitions _name##_transitions =   \
+		ONOFF_SERIVCE_TRANSITIONS_INITIALIZER(_start, _stop, _reset); \
+	static struct onoff_service _name =				      \
+		ONOFF_SERVICE_INITIALIZER(&_name##_transitions,		      \
+		_context, _flags)
 
 /**
  * @brief Initialize an on-off service to off state.
@@ -165,19 +217,8 @@ struct onoff_service {
  *
  * @param srv the service definition object to be initialized.
  *
- * @param start the function used to (initiate a) transition from off
- * to on.  This must not be null.  Include @ref ONOFF_SERVICE_START_SLEEPS as
- * appropriate in flags.
- *
- * @param stop the function used to (initiate a) transition from on to
- * off.  This must not be null.  Include @ref ONOFF_SERVICE_STOP_SLEEPS
- * as appropriate in flags.
- *
- * @param reset the function used to clear errors and force the
- * service to an off state.  Pass null if the service cannot or need
- * not be reset.  (Services where a transition operation can complete
- * with an error notification should support the reset operation.)
- * Include @ref ONOFF_SERVICE_RESET_SLEEPS as appropriate in flags.
+ * @param transitions A structure with transition functions. Structure must be
+ * persistent as it is used by the service.
  *
  * @param context Context passed to the transition functions.
  *
@@ -189,9 +230,7 @@ struct onoff_service {
  * @retval -EINVAL if start, stop, or flags are invalid
  */
 int onoff_service_init(struct onoff_service *srv,
-		       onoff_service_transition_fn start,
-		       onoff_service_transition_fn stop,
-		       onoff_service_transition_fn reset,
+		       const struct onoff_service_transitions *transitions,
 		       void *context,
 		       u32_t flags);
 
