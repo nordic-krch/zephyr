@@ -36,6 +36,7 @@ synchronization.
    threads/workqueue.rst
    other/interrupts.rst
    other/polling.rst
+   other/async_notify.rst
    synchronization/semaphores.rst
    synchronization/mutexes.rst
    smp/smp.rst
