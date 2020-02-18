@@ -139,12 +139,6 @@ struct queued_operation_manager {
 
 	/* The operation that is being processed. */
 	struct queued_operation *current;
-
-	/* A flag indicating that the last operation has been
-	 * completed and the callback notification is being
-	 * executed.
-	 */
-	bool finalizing;
 };
 
 #define QUEUED_OPERATION_MANAGER_INITIALIZER(_vtable) {	\

@@ -7,6 +7,8 @@
 #include <kernel.h>
 #include <sys/queued_operation.h>
 
+#define INVALID_ADDR (void *)UINTPTR_MAX
+
 static inline int op_get_priority(const struct queued_operation *op)
 {
 	return (s8_t)(op->notify.flags >> QUEUED_OPERATION_PRIORITY_POS);
@@ -28,61 +30,40 @@ static inline int op_set_priority(struct queued_operation *op,
 	return 0;
 }
 
-static inline bool can_start(/*const*/ struct queued_operation_manager *mgr)
+static void select_next(struct queued_operation_manager *mgr)
 {
-	/* OK if not busy, not finalizing, and an op is available. */
-	return (mgr->current == NULL)
-	       && !mgr->finalizing
-	       && !sys_slist_is_empty(&mgr->operations);
-}
-
-static void select_next_and_unlock(struct queued_operation_manager *mgr,
-				   k_spinlock_key_t key)
-{
-	struct queued_operation *op = NULL;
-
-	/* Track whether the manager is idle, so we only send
-	 * notification of entry to idle once.
-	 */
-	bool in_idle = (mgr->current == NULL);
+	struct queued_operation *op;
 
 	do {
-		/* Can't select a new operation if one is active. */
-		if (mgr->current != NULL) {
-			break;
-		}
-
-		/* Can't select a new operation until the previous one
-		 * completes finalization, lest we pick something that
-		 * has too low a priority.
-		 */
-		if (mgr->finalizing) {
-			break;
-		}
+		k_spinlock_key_t key = k_spin_lock(&mgr->lock);
 
 		sys_snode_t *node = sys_slist_get(&mgr->operations);
 
-		if (node) {
-			op = CONTAINER_OF(node, struct queued_operation, node);
-			mgr->current = op;
-		} else {
-			op = NULL;
-		}
+		op = node ?
+			CONTAINER_OF(node, struct queued_operation, node) : NULL;
 
 		k_spin_unlock(&mgr->lock, key);
 
-		/* Only notify the manager if there's an operation, or
-		 * if it is to transition to idle.
+		mgr->vtable->process(mgr, op);
+
+		/* After calling process (and unlocking interrupts) something
+		 * might have been added to a queue. Need to check that and
+		 * repeat the loop (even if list was empty before).
 		 */
-		if ((op != NULL) || !in_idle) {
-			mgr->vtable->process(mgr, op);
-		}
-		in_idle = (op == NULL);
-
 		key = k_spin_lock(&mgr->lock);
-	} while (op != NULL);
+		if ((op == NULL) && sys_slist_is_empty(&mgr->operations)) {
+			mgr->current = NULL;
+		} else if (op) {
+			mgr->current = op;
+		} else {
+			/* op is NULL, but list got field in the meantime.
+			 * in that case manager stays in finalizing state and
+			 * loop will repeat.
+			 */
+		}
 
-	k_spin_unlock(&mgr->lock, key);
+		k_spin_unlock(&mgr->lock, key);	
+	} while (mgr->current == INVALID_ADDR);
 }
 
 int queued_operation_submit(struct queued_operation_manager *mgr,
@@ -119,6 +100,11 @@ int queued_operation_submit(struct queued_operation_manager *mgr,
 		return rv;
 	}
 
+	if (atomic_cas((atomic_t *)&mgr->current, (atomic_t)NULL, (atomic_t)op)) {
+		mgr->vtable->process(mgr, op);
+		return rv;
+	}
+
 	k_spinlock_key_t key = k_spin_lock(&mgr->lock);
 	sys_slist_t *list = &mgr->operations;
 	struct queued_operation *prev = NULL;
@@ -136,9 +122,8 @@ int queued_operation_submit(struct queued_operation_manager *mgr,
 	} else {
 		sys_slist_insert(list, &prev->node, &op->node);
 	}
-
-	select_next_and_unlock(mgr, key);
-
+	k_spin_unlock(&mgr->lock, key);
+	
 	return rv;
 }
 
@@ -157,29 +142,16 @@ void queued_operation_finalize(struct queued_operation_manager *mgr,
 			       struct queued_operation *op,
 			       int res)
 {
-	k_spinlock_key_t key = k_spin_lock(&mgr->lock);
 
 	__ASSERT_NO_MSG(mgr != NULL);
 	__ASSERT_NO_MSG(op != NULL);
 
-	if (mgr->current == op) {
-		mgr->finalizing = true;
-		mgr->current = NULL;
-	}
-
-	k_spin_unlock(&mgr->lock, key);
+	/* Set to invalid address to keep it busy. */
+	mgr->current = INVALID_ADDR;
 
 	finalize_and_notify(mgr, op, res);
 
-	key = k_spin_lock(&mgr->lock);
-
-	mgr->finalizing = false;
-
-	if (can_start(mgr)) {
-		select_next_and_unlock(mgr, key);
-	} else {
-		k_spin_unlock(&mgr->lock, key);
-	}
+	select_next(mgr);
 }
 
 int queued_operation_cancel(struct queued_operation_manager *mgr,
