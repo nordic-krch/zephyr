@@ -14,6 +14,7 @@
 
 #include <shell/shell.h>
 #include <shell/shell_dummy.h>
+#include <../subsys/shell/shell_utils.h>
 
 #define MAX_CMD_SYNTAX_LEN	(11)
 static char dynamic_cmd_buffer[][MAX_CMD_SYNTAX_LEN] = {
@@ -295,6 +296,23 @@ static void test_cmd_select(void)
 	test_shell_execute_cmd("on", -ENOEXEC);
 }
 
+static void test_shell_spaces_trim(void)
+{
+	char str1[] = "aabaaaa  c";
+	char exp1[] = "aabaaaa c";
+	char str2[] = "aab  aa   aa  c";
+	char exp2[] = "aab aa aa c";
+	int rv;
+
+	shell_spaces_trim(str1);
+	rv = strcmp(str1, exp1);
+	zassert_equal(rv, 0, "Unexepected value");
+
+	shell_spaces_trim(str2);
+	rv = strcmp(str2, exp2);
+	zassert_equal(rv, 0, "Unexepected value");
+}
+
 void test_main(void)
 {
 	ztest_test_suite(shell_test_suite,
@@ -306,7 +324,9 @@ void test_main(void)
 			ztest_unit_test(test_cmd_resize),
 			ztest_unit_test(test_shell_module),
 			ztest_unit_test(test_shell_wildcards_static),
-			ztest_unit_test(test_shell_wildcards_dynamic));
+			ztest_unit_test(test_shell_wildcards_dynamic),
+			ztest_unit_test(test_shell_spaces_trim)
+	);
 
 	ztest_run_test_suite(shell_test_suite);
 }
