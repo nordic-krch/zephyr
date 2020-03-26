@@ -117,6 +117,16 @@ void test_COND_CODE_0(void)
 #define SEVEN 7
 #define A_BUILD_ERROR (this would be a build error if you used || or &&)
 
+void test_COND_CODE_NZ(void)
+{
+	zassert_true(COND_CODE_NZ(ZERO, (BUILD_ERROR), (true)), "");
+	zassert_true(COND_CODE_NZ(0, (BUILD_ERROR), (true)), "");
+	zassert_true(COND_CODE_NZ(SEVEN, (true), (BUILD_ERROR)), "");
+	zassert_true(COND_CODE_NZ(7, (true), (BUILD_ERROR)), "");
+	// zassert_true(COND_CODE_NZ(-7, true, BUILD_ERROR), "");
+}
+
+
 void test_UTIL_OR(void)
 {
 	zassert_equal(UTIL_OR(SEVEN, A_BUILD_ERROR), 7, NULL);
