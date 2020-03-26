@@ -323,6 +323,9 @@ u8_t u8_to_dec(char *buf, u8_t buflen, u8_t value);
 #define Z_COND_CODE_1(_flag, _if_1_code, _else_code) \
 	__COND_CODE(_XXXX##_flag, _if_1_code, _else_code)
 
+#define COND_CODE_NZ(_flag, _if_nz_code, _else_code) \
+	COND_CODE_1(UTIL_BOOL(_flag), _if_nz_code, _else_code)
+
 /**
  * @brief Insert code if flag is defined and equals 1.
  *
