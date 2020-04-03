@@ -9,6 +9,9 @@ module = KERNEL
 module-str = kernel
 source "subsys/logging/Kconfig.template.log_config"
 
+config BARE_METAL
+	bool "Use bare metal application."
+
 config MULTITHREADING
 	bool "Multi-threading"
 	default y

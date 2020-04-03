@@ -66,8 +66,8 @@ SECTION_SUBSEC_FUNC(TEXT,_reset_section,__start)
 #if defined(CONFIG_ARMV6_M_ARMV8_M_BASELINE)
     cpsid i
 #elif defined(CONFIG_ARMV7_M_ARMV8_M_MAINLINE)
-    movs.n r0, #_EXC_IRQ_DEFAULT_PRIO
-    msr BASEPRI, r0
+ //   movs.n r0, #_EXC_IRQ_DEFAULT_PRIO
+ //   msr BASEPRI, r0
 #else
 #error Unknown ARM architecture
 #endif
@@ -84,6 +84,7 @@ SECTION_SUBSEC_FUNC(TEXT,_reset_section,__start)
     bl memset
 #endif
 
+#if 0
     /*
      * Set PSP and use it to boot without using MSP, so that it
      * gets set to z_interrupt_stacks during initialization.
@@ -102,7 +103,7 @@ SECTION_SUBSEC_FUNC(TEXT,_reset_section,__start)
      * after the ISB instruction execute using the new stack pointer.
      */
     isb
-
+#endif
     /*
      * 'bl' jumps the furthest of the branch instructions that are
      * supported on all platforms. So it is used when jumping to z_arm_prep_c

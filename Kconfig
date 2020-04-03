@@ -3,6 +3,12 @@
 # Copyright (c) 2014-2015 Wind River Systems, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-mainmenu "Zephyr Kernel Configuration"
+mainmenu "Application Configuration"
+
+source "modules/Kconfig.nordic"
+
+menu "Hic Sunt Leones"
 
 source "Kconfig.zephyr"
+
+endmenu

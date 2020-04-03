@@ -2,7 +2,11 @@
 
 zephyr_library()
 
-zephyr_library_sources(
+zephyr_library_sources_ifdef(CONFIG_BARE_METAL
+  reset.S
+)
+
+zephyr_library_sources_ifndef(CONFIG_BARE_METAL
   vector_table.S
   reset.S
   fault.c

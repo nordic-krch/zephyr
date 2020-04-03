@@ -10,7 +10,6 @@
  *
  * This module contains routines that are used to initialize the kernel.
  */
-
 #include <zephyr.h>
 #include <offsets_short.h>
 #include <kernel.h>
@@ -34,6 +33,7 @@
 #include <tracing/tracing.h>
 #include <stdbool.h>
 #include <debug/gcov.h>
+
 
 #define IDLE_THREAD_NAME	"idle"
 #define LOG_LEVEL CONFIG_KERNEL_LOG_LEVEL

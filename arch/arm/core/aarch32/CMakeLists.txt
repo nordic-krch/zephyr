@@ -6,7 +6,11 @@ if (CONFIG_COVERAGE)
   toolchain_cc_coverage()
 endif ()
 
-zephyr_library_sources(
+zephyr_library_sources_ifdef(CONFIG_BARE_METAL
+  prep_c.c
+)
+
+zephyr_library_sources_ifndef(CONFIG_BARE_METAL
   exc_exit.S
   swap.c
   swap_helper.S

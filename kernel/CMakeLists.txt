@@ -2,6 +2,21 @@
 
 # kernel is a normal CMake library and not a zephyr_library because it
 # should not be --whole-archive'd
+
+if(CONFIG_BARE_METAL)
+add_library(kernel bare_metal_init.c)
+
+target_include_directories(kernel PRIVATE
+  ${ZEPHYR_BASE}/include
+  ${ZEPHYR_BASE}/kernel/include
+  ${ZEPHYR_BASE}/arch/${ARCH}/include
+  )
+
+add_dependencies(kernel zephyr_generated_headers)
+
+target_link_libraries(kernel zephyr_interface)
+
+else()
 add_library(kernel
   device.c
   errno.c
@@ -61,3 +76,5 @@ target_include_directories(kernel PRIVATE
 add_dependencies(kernel zephyr_generated_headers)
 
 target_link_libraries(kernel zephyr_interface)
+
+endif() #BARE_METAL

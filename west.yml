@@ -21,6 +21,8 @@ manifest:
   remotes:
     - name: upstream
       url-base: https://github.com/zephyrproject-rtos
+    - name: krch
+      url-base: https://github.com/nordic-krch
 
   #
   # Please add items below based on alphabetical order
@@ -53,8 +55,9 @@ manifest:
       revision: a12d92816a53a521d79cefcf5c38b9dc8a4fed6e
       path: modules/hal/cypress
     - name: hal_nordic
-      revision: f6d5eca68e07551d6a36359b67600f9e98736839
+      revision: f0c2ec9adfc4937b248ce5f0cf44b84835d19ec8
       path: modules/hal/nordic
+      remote: krch
     - name: hal_openisa
       revision: 3b54187649cc9b37161d49918f1ad28ff7c7f830
       path: modules/hal/openisa
