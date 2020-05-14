@@ -551,8 +551,9 @@ static inline int uart_rx_buf_rsp(struct device *dev, u8_t *buf, size_t len)
 /**
  * @brief Disable RX
  *
- * UART_RX_BUF_RELEASED event will be generated for every buffer scheduled,
- * after that UART_RX_DISABLED event will be generated.
+ * UART_RX_RDY will be generated for data received followed by
+ * UART_RX_BUF_RELEASED event for every buffer scheduled, after that
+ * UART_RX_DISABLED event will be generated.
  *
  * @param dev UART device structure.
  *
@@ -569,7 +570,29 @@ static inline int z_impl_uart_rx_disable(struct device *dev)
 	return api->rx_disable(dev);
 }
 
-#endif
+static inline const char *uart_evt_to_str(enum uart_event_type type)
+{
+	switch (type) {
+	case UART_TX_DONE:
+		return "UART_TX_DONE";
+	case UART_TX_ABORTED:
+		return "UART_TX_ABORTED";
+	case UART_RX_RDY:
+		return "UART_RX_RDY";
+	case UART_RX_BUF_REQUEST:
+		return "UART_RX_BUF_REQUEST";
+	case UART_RX_BUF_RELEASED:
+		return "UART_RX_BUF_RELEASED";
+	case UART_RX_DISABLED:
+		return "UART_RX_DISABLED";
+	case UART_RX_STOPPED:
+		return "UART_RX_STOPPED";
+	default:
+		return "UNKNOWN";
+	}
+}
+
+#endif /* CONFIG_UART_ASYNC_API */
 
 /**
  * @brief Check whether an error was detected.
