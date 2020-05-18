@@ -13,13 +13,30 @@ choice BT_HCI_BUS_TYPE
 
 config BT_H4
 	bool "H:4 UART"
-	select UART_INTERRUPT_DRIVEN
 	select BT_UART
 	select BT_RECV_IS_RX_THREAD
 	depends on SERIAL
 	help
 	  Bluetooth H:4 UART driver. Requires hardware flow control
 	  lines to be available.
+
+if BT_H4
+
+choice
+	prompt "UART API"
+	default BT_H4_UART_INTERRUPT_DRIVEN
+
+config BT_H4_UART_INTERRUPT_DRIVEN
+	bool "Interrupt (UART_INTERRUPT_DRIVEN)"
+	select UART_INTERRUPT_DRIVEN
+
+config BT_H4_UART_ASYNC
+	bool "Interrupt (UART_ASYNC_API)"
+	select UART_ASYNC_API
+
+endchoice
+
+endif # BT_H4
 
 config BT_H5
 	bool "H:5 UART [EXPERIMENTAL]"

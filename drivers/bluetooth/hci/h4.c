@@ -33,9 +33,19 @@
 #define H4_ACL  0x02
 #define H4_SCO  0x03
 #define H4_EVT  0x04
+#define H4_INV  0xff
 
+#define UART_RX_BUF_SIZE 16
+#define UART_RX_BUF_COUNT 4
+
+#define TX_TIMEOUT_MS 1000
 static K_THREAD_STACK_DEFINE(rx_thread_stack, CONFIG_BT_RX_STACK_SIZE);
 static struct k_thread rx_thread_data;
+
+/* Used when UART ASYNC api is used. */
+static u8_t *rx_pool_buf[UART_RX_BUF_SIZE*UART_RX_BUF_COUNT];
+static struct k_mem_slab rx_pool;
+
 
 static struct {
 	struct net_buf *buf;
@@ -69,10 +79,28 @@ static struct {
 
 static struct device *h4_dev;
 
-static inline void h4_get_type(void)
+static inline int rx_read(void *context, u8_t *dst, int req_len)
+{
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
+	return uart_fifo_read((struct device *)context, dst, req_len);
+#else
+	struct uart_event_rx *rx_buf = context;
+	size_t len = MIN(req_len, rx_buf->len);
+
+	if (dst) {
+		memcpy(dst, &rx_buf->buf[rx_buf->offset], len);
+	}
+	rx_buf->len -= len;
+	rx_buf->offset += len;
+
+	return len;
+#endif
+}
+
+static inline void h4_get_type(void *context)
 {
 	/* Get packet type */
-	if (uart_fifo_read(h4_dev, &rx.type, 1) != 1) {
+	if (rx_read(context, &rx.type, 1) != 1) {
 		BT_WARN("Unable to read H:4 packet type");
 		rx.type = H4_NONE;
 		return;
@@ -93,13 +121,12 @@ static inline void h4_get_type(void)
 	}
 }
 
-static inline void get_acl_hdr(void)
+static inline void get_acl_hdr(void *context)
 {
 	struct bt_hci_acl_hdr *hdr = &rx.acl;
 	int to_read = sizeof(*hdr) - rx.remaining;
 
-	rx.remaining -= uart_fifo_read(h4_dev, (u8_t *)hdr + to_read,
-				       rx.remaining);
+	rx.remaining -= rx_read(context, (u8_t *)hdr + to_read, rx.remaining);
 	if (!rx.remaining) {
 		rx.remaining = sys_le16_to_cpu(hdr->len);
 		BT_DBG("Got ACL header. Payload %u bytes", rx.remaining);
@@ -107,13 +134,12 @@ static inline void get_acl_hdr(void)
 	}
 }
 
-static inline void get_evt_hdr(void)
+static inline void get_evt_hdr(void *context)
 {
 	struct bt_hci_evt_hdr *hdr = &rx.evt;
 	int to_read = rx.hdr_len - rx.remaining;
 
-	rx.remaining -= uart_fifo_read(h4_dev, (u8_t *)hdr + to_read,
-				       rx.remaining);
+	rx.remaining -= rx_read(context, (u8_t *)hdr + to_read, rx.remaining);
 	if (rx.hdr_len == sizeof(*hdr) && rx.remaining < sizeof(*hdr)) {
 		switch (rx.evt.evt) {
 		case BT_HCI_EVT_LE_META_EVENT:
@@ -198,12 +224,16 @@ static void rx_thread(void *p1, void *p2, void *p3)
 		}
 
 		/* Let the ISR continue receiving new packets */
-		uart_irq_rx_enable(h4_dev);
-
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
+			uart_irq_rx_enable(h4_dev);
+#else /* CONFIG_BT_H4_UART_INTERRUPT_DRIVEN*/
+			//BT_ERR("Not supported.");
+#endif
 		buf = net_buf_get(&rx.fifo, K_FOREVER);
 		do {
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
 			uart_irq_rx_enable(h4_dev);
-
+#endif
 			BT_DBG("Calling bt_recv(%p)", buf);
 			bt_recv(buf);
 
@@ -213,7 +243,9 @@ static void rx_thread(void *p1, void *p2, void *p3)
 			 */
 			k_yield();
 
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
 			uart_irq_rx_disable(h4_dev);
+#endif
 			buf = net_buf_get(&rx.fifo, K_NO_WAIT);
 		} while (buf);
 	}
@@ -223,10 +255,10 @@ static size_t h4_discard(struct device *uart, size_t len)
 {
 	u8_t buf[33];
 
-	return uart_fifo_read(uart, buf, MIN(len, sizeof(buf)));
+	return rx_read(uart, buf, MIN(len, sizeof(buf)));
 }
 
-static inline void read_payload(void)
+static inline void read_payload(void *context)
 {
 	struct net_buf *buf;
 	bool prio;
@@ -243,7 +275,11 @@ static inline void read_payload(void)
 			}
 
 			BT_WARN("Failed to allocate, deferring to rx_thread");
-			uart_irq_rx_disable(h4_dev);
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
+			uart_irq_rx_disable(context);
+#else
+			BT_ERR("Not supported.");
+#endif
 			return;
 		}
 
@@ -259,7 +295,7 @@ static inline void read_payload(void)
 		copy_hdr(rx.buf);
 	}
 
-	read = uart_fifo_read(h4_dev, net_buf_tail(rx.buf), rx.remaining);
+	read = rx_read(context, net_buf_tail(rx.buf), rx.remaining);
 	net_buf_add(rx.buf, read);
 	rx.remaining -= read;
 
@@ -293,17 +329,17 @@ static inline void read_payload(void)
 	}
 }
 
-static inline void read_header(void)
+static inline void read_header(void *context)
 {
 	switch (rx.type) {
 	case H4_NONE:
-		h4_get_type();
+		h4_get_type(context);
 		return;
 	case H4_EVT:
-		get_evt_hdr();
+		get_evt_hdr(context);
 		break;
 	case H4_ACL:
-		get_acl_hdr();
+		get_acl_hdr(context);
 		break;
 	default:
 		CODE_UNREACHABLE;
@@ -320,6 +356,27 @@ static inline void read_header(void)
 		}
 	}
 }
+
+static inline void process_rx(void *context)
+{
+	BT_DBG("remaining %u discard %u have_hdr %u rx.buf %p len %u",
+	       rx.remaining, rx.discard, rx.have_hdr, rx.buf,
+	       rx.buf ? rx.buf->len : 0);
+
+	if (rx.discard) {
+		LOG_WRN("discard: %d bytes", rx.discard);
+		rx.discard -= h4_discard(context, rx.discard);
+		return;
+	}
+
+	if (rx.have_hdr) {
+		read_payload(context);
+	} else {
+		read_header(context);
+	}
+}
+
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
 
 static inline void process_tx(void)
 {
@@ -361,31 +418,12 @@ static inline void process_tx(void)
 	if (tx.buf->len) {
 		return;
 	}
-
 done:
 	tx.type = H4_NONE;
 	net_buf_unref(tx.buf);
 	tx.buf = net_buf_get(&tx.fifo, K_NO_WAIT);
 	if (!tx.buf) {
 		uart_irq_tx_disable(h4_dev);
-	}
-}
-
-static inline void process_rx(void)
-{
-	BT_DBG("remaining %u discard %u have_hdr %u rx.buf %p len %u",
-	       rx.remaining, rx.discard, rx.have_hdr, rx.buf,
-	       rx.buf ? rx.buf->len : 0);
-
-	if (rx.discard) {
-		rx.discard -= h4_discard(h4_dev, rx.discard);
-		return;
-	}
-
-	if (rx.have_hdr) {
-		read_payload();
-	} else {
-		read_header();
 	}
 }
 
@@ -399,17 +437,147 @@ static void bt_uart_isr(struct device *unused)
 		}
 
 		if (uart_irq_rx_ready(h4_dev)) {
-			process_rx();
+			process_rx(h4_dev);
 		}
 	}
 }
+
+#else /* CONFIG_BT_H4_UART_ASYNC */
+/* returns true if packet completed. */
+static int process_tx(void)
+{
+	int err;
+
+	if (!tx.type) {
+		switch (bt_buf_get_type(tx.buf)) {
+		case BT_BUF_ACL_OUT:
+			tx.type = H4_ACL;
+			break;
+		case BT_BUF_CMD:
+			tx.type = H4_CMD;
+			break;
+		default:
+			BT_ERR("Unknown buffer type");
+			return -EINVAL;
+		}
+		err = uart_tx(h4_dev, &tx.type, 1, TX_TIMEOUT_MS);
+		if ((err < 0) && (err != -EBUSY)) {
+			BT_WARN("Unable to send (err: %d)", err);
+			return -EINVAL;
+		} else {
+			return 0;
+		}
+	}
+
+	err = uart_tx(h4_dev, tx.buf->data, tx.buf->len, TX_TIMEOUT_MS);
+	if ((err < 0) && (err != -EBUSY)) {
+		BT_WARN("Unable to send (err: %d)", err);
+	}
+
+	return err;
+}
+
+static void tx_complete(size_t len)
+{
+	if (tx.type != H4_INV) {
+		tx.type = H4_INV;
+		return;
+	}
+
+	net_buf_pull(tx.buf, len);
+	if (tx.buf->len == 0) {
+		tx.type = H4_NONE;
+		net_buf_unref(tx.buf);
+		tx.buf = net_buf_get(&tx.fifo, K_NO_WAIT);
+	}
+}
+
+static int rx_enable(void)
+{
+	int err;
+	u8_t *buf;
+
+	k_mem_slab_init(&rx_pool, rx_pool_buf,
+			UART_RX_BUF_SIZE, UART_RX_BUF_COUNT);
+
+	err = k_mem_slab_alloc(&rx_pool, (void **)&buf, K_NO_WAIT);
+	__ASSERT_NO_MSG(err == 0);
+	err = uart_rx_enable(h4_dev, buf, UART_RX_BUF_SIZE, 1);
+	if (err < 0) {
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static void uart_async_callback(struct uart_event *evt, void *user_data)
+{
+	int err;
+
+	switch (evt->type) {
+		case UART_TX_DONE:
+			tx_complete(evt->data.tx.len);
+			if (tx.buf) {
+				process_tx();
+			}
+			break;
+		case UART_RX_RDY:
+			LOG_HEXDUMP_DBG(
+				&evt->data.rx.buf[evt->data.rx.offset],
+				evt->data.rx.len, "rx:");
+			do {
+				process_rx(&evt->data.rx);
+			} while (evt->data.rx.len);
+			break;
+		case UART_RX_BUF_REQUEST:
+		{
+			u8_t *buf;
+			err = k_mem_slab_alloc(&rx_pool, (void **)&buf,
+						K_NO_WAIT);
+			if (err < 0) {
+				BT_ERR("Failed to allocate new RX buffer");
+			} else {
+				err = uart_rx_buf_rsp(h4_dev, buf,
+						UART_RX_BUF_SIZE);
+				__ASSERT_NO_MSG(err == 0);
+			}
+			break;
+		}
+		case UART_RX_BUF_RELEASED:
+		{
+			k_mem_slab_free(&rx_pool,
+					(void **)&evt->data.rx_buf.buf);
+			break;
+		}
+		case UART_RX_STOPPED:
+			BT_DBG("RX error occured, reason: %d",
+				evt->data.rx_stop.reason);
+			break;
+		case UART_RX_DISABLED:
+			BT_WARN("Unexpected disable (rx error?). Reenabling");
+			err = rx_enable();
+			__ASSERT(!err, "Failed to enable RX (err: %d)", err);
+			break;
+		default:
+			BT_ERR("Unexpected UART event: %d", evt->type);
+			break;
+	}
+}
+#endif /* CONFIG_BT_H4_UART_ASYNC */
 
 static int h4_send(struct net_buf *buf)
 {
 	BT_DBG("buf %p type %u len %u", buf, bt_buf_get_type(buf), buf->len);
 
 	net_buf_put(&tx.fifo, buf);
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
 	uart_irq_tx_enable(h4_dev);
+#else
+	if (atomic_ptr_cas((atomic_ptr_t *)&tx.buf, NULL, buf)) {
+		tx.buf = net_buf_get(&tx.fifo, K_NO_WAIT);
+		process_tx();
+	}
+#endif
 
 	return 0;
 }
@@ -422,7 +590,9 @@ static int h4_send(struct net_buf *buf)
   */
 int __weak bt_hci_transport_setup(struct device *dev)
 {
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
 	h4_discard(h4_dev, 32);
+#endif
 	return 0;
 }
 
@@ -432,15 +602,28 @@ static int h4_open(void)
 
 	BT_DBG("");
 
+#ifdef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
 	uart_irq_rx_disable(h4_dev);
 	uart_irq_tx_disable(h4_dev);
-
+	uart_irq_callback_set(h4_dev, bt_uart_isr);
+#else
+	uart_callback_set(h4_dev, uart_async_callback, NULL);
+#endif
 	ret = bt_hci_transport_setup(h4_dev);
 	if (ret < 0) {
 		return -EIO;
 	}
 
-	uart_irq_callback_set(h4_dev, bt_uart_isr);
+	/* wait until it stabilizes */
+	k_msleep(80);
+
+#ifndef CONFIG_BT_H4_UART_INTERRUPT_DRIVEN
+	ret = rx_enable();
+	if (ret < 0) {
+		return -EIO;
+	}
+#endif
+
 
 	k_thread_create(&rx_thread_data, rx_thread_stack,
 			K_THREAD_STACK_SIZEOF(rx_thread_stack),
