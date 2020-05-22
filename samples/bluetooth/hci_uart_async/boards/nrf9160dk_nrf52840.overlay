@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+&uart1 {
+	compatible = "nordic,nrf-uarte";
+	current-speed = <115200>;
+	status = "okay";
+	tx-pin = <17>;
+	rx-pin = <20>;
+	/delete-property/ rts-pin;
+	/delete-property/ cts-pin;
+};

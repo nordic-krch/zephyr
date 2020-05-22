@@ -217,7 +217,7 @@ static inline void process_rx(void *context)
 			/* Put buffer into TX queue, thread will dequeue */
 			net_buf_put(&tx_queue, rx.buf);
 			rx.buf = NULL;
-			reset_rx();			
+			reset_rx();
 		}
 	} else {
 		read_header(context);
@@ -226,14 +226,17 @@ static inline void process_rx(void *context)
 			net_buf_put(&tx_queue, rx.buf);
 			rx.buf = NULL;
 			reset_rx();
-		}			
+		}
 	}
 }
 
 static void tx_complete(void)
 {
-	net_buf_unref(tx_buf);
+	if (tx_buf) {
+		net_buf_unref(tx_buf);
+	}
 	tx_buf = NULL;
+
 	k_sem_give(&tx_sem);
 }
 
@@ -250,7 +253,7 @@ static void start_rx(void)
 #include <hal/nrf_gpio.h>
 static void uart_async_callback(struct uart_event *evt, void *user_data)
 {
-	
+
 	int err;
 
 	switch (evt->type) {
@@ -484,9 +487,11 @@ void main(void)
 	/* Enable the raw interface, this will in turn open the HCI driver */
 	bt_enable_raw(&rx_queue);
 
+	/* TODO temporary stabilization sleep. */
+	k_msleep(10);
+
 	if (IS_ENABLED(CONFIG_BT_WAIT_NOP)) {
 		/* Issue a Command Complete with NOP */
-		int i;
 
 		const struct {
 			const u8_t h4;
@@ -504,10 +509,14 @@ void main(void)
 			},
 		};
 
-		for (i = 0; i < sizeof(cc_evt); i++) {
-			uart_poll_out(hci_uart_dev,
-				      *(((const u8_t *)&cc_evt)+i));
+		LOG_DBG("Attempt to send NOP command");
+		err = uart_tx(hci_uart_dev, (u8_t *)&cc_evt,
+			      sizeof(cc_evt), SYS_FOREVER_MS);
+		if (err < 0) {
+			LOG_ERR("Failed to send (err: %d)", err);
 		}
+		err = k_sem_take(&tx_sem, K_FOREVER);
+		__ASSERT_NO_MSG(err == 0);
 	}
 
 

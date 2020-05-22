@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-/*
-
+/* disable logger/console uart */
 &uart0 {
-	/delete-property/ rx-pin;
+	status = "disabled";
+};
+
+
+&uart1 {
 	/delete-property/ rts-pin;
 	/delete-property/ cts-pin;
 };
-*/
