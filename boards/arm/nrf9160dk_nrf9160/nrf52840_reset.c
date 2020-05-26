@@ -16,12 +16,15 @@
 BUILD_ASSERT(RESET_PIN > 16 && RESET_PIN < 24,
 	     "Selected pin is not connected to nRF52840");
 
+#include <logging/log.h>
+LOG_MODULE_REGISTER(nrf52_reset);
+
 int bt_hci_transport_setup(struct device *h4)
 {
 	int err;
-	char c;
 	struct device *port;
 
+	LOG_INF("reset");
 	port = device_get_binding(DT_LABEL(DT_NODELABEL(gpio0)));
 	if (!port) {
 		return -EIO;
@@ -43,6 +46,7 @@ int bt_hci_transport_setup(struct device *h4)
 		return err;
 	}
 
+
 	/* Wait for the nRF52840 peripheral to stop sending data.
 	 *
 	 * It is critical (!) to wait here, so that all bytes
@@ -50,10 +54,13 @@ int bt_hci_transport_setup(struct device *h4)
 	 */
 	k_sleep(K_MSEC(10));
 
+#if CONFIG_BT_H4_UART_INTERRUPT
+	char c;
 	/* Drain bytes */
 	while (uart_fifo_read(h4, &c, 1)) {
 		continue;
 	}
+#endif
 
 	/* We are ready, let the nRF52840 run to main */
 	err = gpio_pin_set(port, RESET_PIN, 0);
