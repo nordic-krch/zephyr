@@ -13,8 +13,8 @@
 /* Must be a pin from 17 to 23.
  * Only those can be connected to the nRF52840.
  */
-BUILD_ASSERT(RESET_PIN > 16 && RESET_PIN < 24,
-	     "Selected pin is not connected to nRF52840");
+/*BUILD_ASSERT(RESET_PIN > 16 && RESET_PIN < 24,
+	     "Selected pin is not connected to nRF52840");*/
 
 #include <logging/log.h>
 LOG_MODULE_REGISTER(nrf52_reset);
