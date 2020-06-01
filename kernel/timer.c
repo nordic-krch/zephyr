@@ -129,7 +129,7 @@ void z_impl_k_timer_start(struct k_timer *timer, k_timeout_t duration,
 	if (period.ticks != 0 && Z_TICK_ABS(period.ticks) < 0) {
 		period.ticks = MAX(period.ticks - 1, 1);
 	}
-	if (Z_TICK_ABS(duration.ticks) < 0) {
+	if (Z_TICK_ABS(duration.ticks) < K_TICKS_FOREVER) {
 		duration.ticks = MAX(duration.ticks - 1, 0);
 	}
 #endif
