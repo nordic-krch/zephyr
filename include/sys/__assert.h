@@ -8,6 +8,7 @@
 #define ZEPHYR_INCLUDE_SYS___ASSERT_H_
 
 #include <stdbool.h>
+#include <logging/log.h>
 
 #ifdef CONFIG_ASSERT
 #ifndef __ASSERT_ON
@@ -21,7 +22,16 @@
 #endif
 
 #if defined(CONFIG_ASSERT_VERBOSE)
-#define __ASSERT_PRINT(fmt, ...) printk(fmt, ##__VA_ARGS__)
+#define __ASSERT_PRINT(fmt, ...) \
+	do { \
+		if (IS_ENABLED(CONFIG_LOG)) { \
+			LOG_MODULE_DECLARE(os); \
+			LOG_ERR(fmt, ##__VA_ARGS__); \
+		} else {\
+			printk(fmt, ##__VA_ARGS__); \
+		} \
+	} while (0)
+
 #else /* CONFIG_ASSERT_VERBOSE */
 #define __ASSERT_PRINT(fmt, ...)
 #endif /* CONFIG_ASSERT_VERBOSE */
