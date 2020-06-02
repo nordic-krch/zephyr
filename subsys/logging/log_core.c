@@ -1157,6 +1157,7 @@ static void log_process_thread_func(void *dummy1, void *dummy2, void *dummy3)
 		if (log_process(false) == false) {
 			k_sem_take(&log_process_thread_sem, K_FOREVER);
 		}
+		k_msleep(20);
 	}
 }
 

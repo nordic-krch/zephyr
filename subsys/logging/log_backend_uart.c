@@ -19,6 +19,7 @@ static int char_out(u8_t *data, size_t length, void *ctx)
 
 	for (size_t i = 0; i < length; i++) {
 		uart_poll_out(dev, data[i]);
+		k_busy_wait(50);
 	}
 
 	return length;
