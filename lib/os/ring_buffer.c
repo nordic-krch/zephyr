@@ -47,6 +47,8 @@ int ring_buf_item_put(struct ring_buf *buf, uint16_t type, uint8_t value,
 			}
 			buf->tail = (buf->tail + size32 + 1) % buf->size;
 		}
+
+		buf->any = true;
 		rc = 0U;
 	} else {
 		buf->misc.item_mode.dropped_put_count++;
@@ -91,6 +93,10 @@ int ring_buf_item_get(struct ring_buf *buf, uint16_t *type, uint8_t *value,
 		buf->head = (buf->head + header->length + 1) % buf->size;
 	}
 
+	if (buf->head == buf->tail) {
+		buf->any = false;
+	}
+
 	return 0;
 }
 
@@ -110,19 +116,26 @@ uint32_t ring_buf_put_claim(struct ring_buf *buf, uint8_t **data, uint32_t size)
 {
 	uint32_t space, trail_size, allocated;
 
-	space = z_ring_buf_custom_space_get(buf->size, buf->head,
-					    buf->misc.byte_mode.tmp_tail);
+	space = buf->tmp_put_any ?
+		z_ring_buf_custom_space_get(buf->size, buf->head,
+					    buf->misc.byte_mode.tmp_tail) :
+		ring_buf_capacity_get(buf);
 
 	/* Limit requested size to available size. */
 	size = MIN(size, space);
+	if (size) {
+		buf->tmp_put_any = true;
+	}
+
 	trail_size = buf->size - buf->misc.byte_mode.tmp_tail;
 
 	/* Limit allocated size to trail size. */
 	allocated = MIN(trail_size, size);
-
 	*data = &buf->buf.buf8[buf->misc.byte_mode.tmp_tail];
+
 	buf->misc.byte_mode.tmp_tail =
 		wrap(buf->misc.byte_mode.tmp_tail + allocated, buf->size);
+
 
 	return allocated;
 }
@@ -131,6 +144,11 @@ int ring_buf_put_finish(struct ring_buf *buf, uint32_t size)
 {
 	if (size > ring_buf_space_get(buf)) {
 		return -EINVAL;
+	}
+
+	if (size) {
+		buf->any = true;
+		buf->tmp_get_any = true;
 	}
 
 	buf->tail = wrap(buf->tail + size, buf->size);
@@ -164,10 +182,12 @@ uint32_t ring_buf_get_claim(struct ring_buf *buf, uint8_t **data, uint32_t size)
 {
 	uint32_t space, granted_size, trail_size;
 
-	space = (buf->size - 1) -
+	space = buf->tmp_get_any ?
+		buf->size -
 		z_ring_buf_custom_space_get(buf->size,
 					    buf->misc.byte_mode.tmp_head,
-					    buf->tail);
+					    buf->tail) : 0;
+
 	trail_size = buf->size - buf->misc.byte_mode.tmp_head;
 
 	/* Limit requested size to available size. */
@@ -180,15 +200,22 @@ uint32_t ring_buf_get_claim(struct ring_buf *buf, uint8_t **data, uint32_t size)
 	buf->misc.byte_mode.tmp_head =
 		wrap(buf->misc.byte_mode.tmp_head + granted_size, buf->size);
 
+	if (buf->misc.byte_mode.tmp_head == buf->tail) {
+		buf->tmp_get_any = false;
+	}
+
 	return granted_size;
 }
 
 int ring_buf_get_finish(struct ring_buf *buf, uint32_t size)
 {
-	uint32_t allocated = (buf->size - 1) - ring_buf_space_get(buf);
+	uint32_t allocated = buf->size - ring_buf_space_get(buf);
 
 	if (size > allocated) {
 		return -EINVAL;
+	} else if (size == allocated) {
+		buf->any = false;
+		buf->tmp_put_any = false;
 	}
 
 	buf->head = wrap(buf->head + size, buf->size);
