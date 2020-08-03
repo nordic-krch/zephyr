@@ -203,7 +203,7 @@ static void lfclk_start(void)
 		anomaly_132_workaround();
 	}
 
-	nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_LFCLKSTART);
+	nrfx_clock_lfclk_start();
 }
 
 static void lfclk_stop(void)
@@ -212,8 +212,7 @@ static void lfclk_stop(void)
 		z_nrf_clock_calibration_lfclk_stopped();
 	}
 
-	nrf_clock_event_clear(NRF_CLOCK, NRF_CLOCK_EVENT_LFCLKSTARTED);
-	nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_LFCLKSTOP);
+	nrfx_clock_lfclk_stop();
 }
 
 static void hfclk_start(void)
@@ -222,7 +221,7 @@ static void hfclk_start(void)
 		hf_start_tstamp = k_uptime_get();
 	}
 
-	nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_HFCLKSTART);
+	nrfx_clock_hfclk_start();
 }
 
 static void hfclk_stop(void)
@@ -231,8 +230,7 @@ static void hfclk_stop(void)
 		hf_stop_tstamp = k_uptime_get();
 	}
 
-	nrf_clock_event_clear(NRF_CLOCK, NRF_CLOCK_EVENT_HFCLKSTARTED);
-	nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_HFCLKSTOP);
+	nrfx_clock_hfclk_stop();
 }
 
 static uint32_t *get_hf_flags(void)
@@ -251,8 +249,7 @@ static void generic_hfclk_start(void)
 
 	hfclk_users |= HF_USER_GENERIC;
 	if (hfclk_users & HF_USER_BT) {
-		(void)nrf_clock_is_running(NRF_CLOCK, NRF_CLOCK_DOMAIN_HFCLK,
-					   &type);
+		(void)nrfx_clock_is_running(NRF_CLOCK_DOMAIN_HFCLK, &type);
 		if (type == NRF_CLOCK_HFCLK_HIGH_ACCURACY) {
 			already_started = true;
 			/* Set on state in case clock interrupt comes and we
@@ -434,8 +431,7 @@ static void lfclk_spinwait(nrf_clock_lfclk_t t)
 	nrf_clock_domain_t d = NRF_CLOCK_DOMAIN_LFCLK;
 	nrf_clock_lfclk_t type;
 
-	while (!(nrf_clock_is_running(NRF_CLOCK, d, (void *)&type)
-		 && (type == t))) {
+	while (!(nrfx_clock_is_running(d, (void *)&type) && (type == t))) {
 		/* empty */
 	}
 }
@@ -632,8 +628,7 @@ static int cmd_status(const struct shell *shell, size_t argc, char **argv)
 {
 	nrf_clock_hfclk_t hfclk_src;
 	bool hf_status;
-	bool lf_status =
-		nrf_clock_is_running(NRF_CLOCK, NRF_CLOCK_DOMAIN_LFCLK, NULL);
+	bool lf_status = nrfx_clock_is_running(NRF_CLOCK_DOMAIN_LFCLK, NULL);
 	struct onoff_manager *hf_mgr =
 				get_onoff_manager(DEVICE_GET(clock_nrf),
 						  CLOCK_CONTROL_NRF_TYPE_HFCLK);
@@ -644,8 +639,7 @@ static int cmd_status(const struct shell *shell, size_t argc, char **argv)
 	int key = irq_lock();
 	uint64_t now = k_uptime_get();
 
-	(void)nrf_clock_is_running(NRF_CLOCK, NRF_CLOCK_DOMAIN_HFCLK,
-					(void *)&hfclk_src);
+	(void)nrfx_clock_is_running(NRF_CLOCK_DOMAIN_HFCLK, (void *)&hfclk_src);
 	hf_status = (hfclk_src == NRF_CLOCK_HFCLK_HIGH_ACCURACY);
 
 	abs_start = hf_start_tstamp;
