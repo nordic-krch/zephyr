@@ -36,4 +36,8 @@ config LOG_PROCESS_THREAD
 
 endif # LOG
 
+config SOC_NRF52832
+	bool
+	default y
+
 endif # BOARD_NRF52_BSIM
