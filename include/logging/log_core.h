@@ -7,6 +7,7 @@
 #define ZEPHYR_INCLUDE_LOGGING_LOG_CORE_H_
 
 #include <logging/log_msg.h>
+#include <logging/log_core2.h>
 #include <logging/log_instance.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -428,6 +429,17 @@ enum log_strdup_action {
 	LOG_STRDUP_CHECK_EXEC/**< Duplicate RAM strings, if not dupl. before.*/
 };
 
+#define Z_LOG2_PRINTK(...) do { \
+	int _mode; \
+	if (0) {\
+		log_printf_arg_checker(__VA_ARGS__); \
+	} \
+	Z_LOG_MSG2_CREATE(!IS_ENABLED(CONFIG_USERSPACE), _mode, 0, \
+			  CONFIG_LOG_DOMAIN_ID, NULL, \
+			  LOG_LEVEL_INTERNAL_RAW_STRING, NULL, 0, __VA_ARGS__);\
+	(void)_mode; \
+} while (0)
+
 /** @brief Get name of the log source.
  *
  * @param source_id Source ID.
@@ -672,6 +684,9 @@ void log_dropped(void);
 void __printf_like(2, 3) log_from_user(struct log_msg_ids src_level,
 				       const char *fmt, ...);
 
+/* Internal function used by log_from_user(). */
+__syscall void z_log_string_from_user(uint32_t src_level_val, const char *str);
+
 /**
  * @brief Create mask with occurences of a string format specifiers (%s).
  *
@@ -684,9 +699,6 @@ void __printf_like(2, 3) log_from_user(struct log_msg_ids src_level,
  * @return Mask with %s format specifiers found.
  */
 uint32_t z_log_get_s_mask(const char *str, uint32_t nargs);
-
-/* Internal function used by log_from_user(). */
-__syscall void z_log_string_from_user(uint32_t src_level_val, const char *str);
 
 /** @brief Log binary data (displayed as hexdump) from user mode context.
  *

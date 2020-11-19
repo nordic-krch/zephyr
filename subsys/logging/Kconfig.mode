@@ -9,6 +9,10 @@ choice
 config LOG_DEFERRED
 	bool "Deferred logging"
 
+config LOG2
+	bool "Deferred logging v2"
+	select MPSC_PBUF
+
 config LOG_SYNC
 	bool "Synchronous"
 	help

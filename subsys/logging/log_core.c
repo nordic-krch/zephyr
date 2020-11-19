@@ -9,6 +9,8 @@
 #include <logging/log_backend.h>
 #include <logging/log_ctrl.h>
 #include <logging/log_output.h>
+#include <logging/log_core2.h>
+#include <sys/mpsc_pbuf.h>
 #include <sys/printk.h>
 #include <init.h>
 #include <sys/__assert.h>
@@ -36,11 +38,15 @@ LOG_MODULE_REGISTER(log);
 #endif
 
 #ifndef CONFIG_LOG_STRDUP_MAX_STRING
-#define CONFIG_LOG_STRDUP_MAX_STRING 0
+#define CONFIG_LOG_STRDUP_MAX_STRING 1
 #endif
 
 #ifndef CONFIG_LOG_STRDUP_BUF_COUNT
 #define CONFIG_LOG_STRDUP_BUF_COUNT 0
+#endif
+
+#ifndef CONFIG_LOG_BLOCK_IN_THREAD_TIMEOUT_MS
+#define CONFIG_LOG_BLOCK_IN_THREAD_TIMEOUT_MS 0
 #endif
 
 struct log_strdup_buf {
@@ -71,8 +77,24 @@ static uint32_t log_strdup_longest;
 static struct k_timer log_process_thread_timer;
 
 static uint32_t dummy_timestamp(void);
-static timestamp_get_t timestamp_func = dummy_timestamp;
+log_timestamp_get_t log_timestamp_func = dummy_timestamp;
 
+struct mpsc_pbuf_buffer log_buffer;
+static uint32_t buf32[CONFIG_LOG_BUFFER_SIZE / sizeof(uint32_t)];
+
+static void notify_drop(struct mpsc_pbuf_buffer *buffer,
+			union mpsc_pbuf_generic *item)
+{
+	/* empty for now */
+}
+
+static const struct mpsc_pbuf_buffer_config mpsc_config = {
+	.buf = buf32,
+	.size = ARRAY_SIZE(buf32),
+	.notify_drop = notify_drop,
+	.get_len = log_msg2_generic_get_len,
+	.flags = 0
+};
 
 bool log_is_strdup(const void *buf);
 
@@ -188,7 +210,7 @@ static inline void msg_finalize(struct log_msg *msg,
 	unsigned int key;
 
 	msg->hdr.ids = src_level;
-	msg->hdr.timestamp = timestamp_func();
+	msg->hdr.timestamp = log_timestamp_func();
 
 	atomic_inc(&buffered_cnt);
 
@@ -388,7 +410,7 @@ void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap,
 	} else if (IS_ENABLED(CONFIG_LOG_IMMEDIATE) &&
 	    (!IS_ENABLED(CONFIG_LOG_FRONTEND))) {
 		struct log_backend const *backend;
-		uint32_t timestamp = timestamp_func();
+		uint32_t timestamp = log_timestamp_func();
 
 		for (int i = 0; i < log_backend_count_get(); i++) {
 			backend = log_backend_get(i);
@@ -453,7 +475,7 @@ void log_hexdump_sync(struct log_msg_ids src_level, const char *metadata,
 				     src_level);
 	} else {
 		struct log_backend const *backend;
-		uint32_t timestamp = timestamp_func();
+		uint32_t timestamp = log_timestamp_func();
 
 		for (int i = 0; i < log_backend_count_get(); i++) {
 			backend = log_backend_get(i);
@@ -471,7 +493,7 @@ static uint32_t k_cycle_get_32_wrapper(void)
 {
 	/*
 	 * The k_cycle_get_32() is a define which cannot be referenced
-	 * by timestamp_func. Instead, this wrapper is used.
+	 * by log_timestamp_func. Instead, this wrapper is used.
 	 */
 	return k_cycle_get_32();
 }
@@ -491,10 +513,10 @@ void log_core_init(void)
 
 	/* Set default timestamp. */
 	if (sys_clock_hw_cycles_per_sec() > 1000000) {
-		timestamp_func = k_uptime_get_32;
+		log_timestamp_func = k_uptime_get_32;
 		freq = 1000;
 	} else {
-		timestamp_func = k_cycle_get_32_wrapper;
+		log_timestamp_func = k_cycle_get_32_wrapper;
 		freq = sys_clock_hw_cycles_per_sec();
 	}
 
@@ -572,13 +594,13 @@ void log_thread_set(k_tid_t process_tid)
 	}
 }
 
-int log_set_timestamp_func(timestamp_get_t timestamp_getter, uint32_t freq)
+int log_set_timestamp_func(log_timestamp_get_t timestamp_getter, uint32_t freq)
 {
 	if (!timestamp_getter) {
 		return -EINVAL;
 	}
 
-	timestamp_func = timestamp_getter;
+	log_timestamp_func = timestamp_getter;
 	log_output_timestamp_freq_set(freq);
 
 	return 0;
@@ -1169,6 +1191,70 @@ void log_hexdump_from_user(struct log_msg_ids src_level, const char *metadata,
 	__ASSERT_NO_MSG(false);
 }
 #endif /* !defined(CONFIG_USERSPACE) */
+
+void z_log_msg2_init(void)
+{
+	mpsc_pbuf_init(&log_buffer, &mpsc_config);
+}
+
+static uint32_t log_diff_timestamp(void)
+{
+	extern log_timestamp_get_t log_timestamp_func;
+
+	return log_timestamp_func();
+}
+
+void z_log_msg2_put_trace(struct log_msg2_trace trace)
+{
+	union log_msg2_generic generic = {
+		.trace = trace
+	};
+
+	trace.hdr.timestamp = IS_ENABLED(CONFIG_LOG_TRACE_SHORT_TIMESTAMP) ?
+				log_diff_timestamp() : log_timestamp_func();
+	mpsc_pbuf_put_word(&log_buffer, generic.buf);
+}
+
+void z_log_msg2_put_trace_ptr(struct log_msg2_trace trace, void *data)
+{
+	union log_msg2_generic generic = {
+		.trace = trace
+	};
+
+	trace.hdr.timestamp = IS_ENABLED(CONFIG_LOG_TRACE_SHORT_TIMESTAMP) ?
+				log_diff_timestamp() : log_timestamp_func();
+	mpsc_pbuf_put_word_ext(&log_buffer, generic.buf, data);
+}
+
+struct log_msg2 *z_log_msg2_alloc(uint32_t wlen)
+{
+	return (struct log_msg2 *)mpsc_pbuf_alloc(&log_buffer, wlen,
+				K_MSEC(CONFIG_LOG_BLOCK_IN_THREAD_TIMEOUT_MS));
+}
+
+void z_log_msg2_commit(struct log_msg2 *msg)
+{
+	msg->hdr.timestamp = log_timestamp_func();
+	mpsc_pbuf_commit(&log_buffer, (union mpsc_pbuf_generic *)msg);
+
+	z_log_msg_post_finalize();
+}
+
+union log_msg2_generic *z_log_msg2_claim(void)
+{
+	return (union log_msg2_generic *)mpsc_pbuf_claim(&log_buffer);
+}
+
+void z_log_msg2_free(union log_msg2_generic *msg)
+{
+	mpsc_pbuf_free(&log_buffer, (union mpsc_pbuf_generic *)msg);
+}
+
+
+bool z_log_msg2_pending(void)
+{
+	return mpsc_pbuf_is_pending(&log_buffer);
+}
 
 static void log_process_thread_timer_expiry_fn(struct k_timer *timer)
 {

@@ -1,3 +1,4 @@
+
 /*
  * Copyright (c) 2018 Nordic Semiconductor ASA
  *
@@ -9,6 +10,7 @@
 #include <sys/atomic.h>
 #include <sys/util.h>
 #include <string.h>
+#include <logging/log_msg2.h>
 
 #ifdef __cplusplus
 extern "C" {

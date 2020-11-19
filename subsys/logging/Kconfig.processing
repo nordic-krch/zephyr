@@ -135,6 +135,14 @@ config LOG_STRDUP_POOL_PROFILING
 
 endif # LOG_DEFERRED
 
+if LOG2
+
+config LOG_SPEED
+	bool "Prefer performance over size"
+	help
+	  If enabled, logging may take more code size to get faster logging.
+endif # LOG2
+
 endif # !LOG_MINIMAL
 
 endmenu
