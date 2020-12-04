@@ -118,6 +118,16 @@ static int out_func(int c, void *ctx)
 	return 0;
 }
 
+static int cr_out_func(int c, void *ctx)
+{
+	out_func(c, ctx);
+	if (c == '\n') {
+		out_func((int)'\r', ctx);
+	}
+
+	return 0;
+}
+
 static int print_formatted(const struct log_output *log_output,
 			   const char *fmt, ...)
 {
@@ -428,6 +438,23 @@ static void hexdump_print(struct log_msg *msg,
 	} while (true);
 }
 
+static void log_msg2_hexdump(const struct log_output *output,
+			     uint8_t *data, uint32_t len,
+			     int prefix_offset, uint32_t flags)
+{
+	size_t length;
+
+	do {
+		length = MIN(len, HEXDUMP_BYTES_IN_LINE);
+
+		hexdump_line_print(output, data, length,
+				   prefix_offset, flags);
+		data += length;
+		len -= length;
+	} while (len);
+}
+
+
 static void raw_string_print(struct log_msg *msg,
 			     const struct log_output *log_output)
 {
@@ -546,6 +573,59 @@ void log_output_msg_process(const struct log_output *log_output,
 	}
 
 	log_output_flush(log_output);
+}
+
+void log_output_msg2_process(const struct log_output *output,
+			     struct log_msg2 *msg, uint32_t flags)
+{
+	log_timestamp_t timestamp = log_msg2_get_timestamp(msg);
+	uint8_t level = log_msg2_get_level(msg);
+	bool raw_string = (level == LOG_LEVEL_INTERNAL_RAW_STRING);
+	uint32_t prefix_offset;
+
+	if (IS_ENABLED(CONFIG_LOG_MIPI_SYST_ENABLE) &&
+	    flags & LOG_OUTPUT_FLAG_FORMAT_SYST) {
+		__ASSERT_NO_MSG(0);
+		/* todo not supported
+		 * log_output_msg_syst_process(output, msg, flags);
+		 */
+		return;
+	}
+
+	if (!raw_string) {
+		void *source = log_msg2_get_source(msg);
+		uint8_t domain_id = log_msg2_get_domain(msg);
+		uint16_t source_id = IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ?
+		   log_dynamic_source_id(source) : log_const_source_id(source);
+
+		prefix_offset = prefix_print(output, flags, 0, timestamp,
+					 level, domain_id, source_id);
+	} else {
+		prefix_offset = 0;
+	}
+
+	size_t len;
+	uint8_t *data = log_msg2_get_package(msg, &len);
+
+	if (len) {
+		int err = cbpprintf(raw_string ? cr_out_func :  out_func,
+				    (void *)output,
+				    CBPRINTF_PACKAGE_FMT_NO_INLINE, data);
+
+		(void)err;
+		__ASSERT_NO_MSG(err >= 0);
+	}
+
+	data = log_msg2_get_data(msg, &len);
+	if (len) {
+		log_msg2_hexdump(output, data, len, prefix_offset, flags);
+	}
+
+	if (!raw_string) {
+		postfix_print(output, flags, level);
+	}
+
+	log_output_flush(output);
 }
 
 static bool ends_with_newline(const char *fmt)
