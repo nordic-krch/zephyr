@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <toolchain.h>
+#include <sys/cbprintf_internal.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +41,45 @@ extern "C" {
  * cbprintf().
  */
 typedef int (*cbprintf_cb)(/* int c, void *ctx */);
+
+/** @brief Determine if string must be packaged in run time.
+ *
+ * Static packaging can be applied if size and of the package can be determined
+ * at compile time. In general, package size can be determined at compile time
+ * if there are no string arguments which might be copied into package body if
+ * they are considered transient.
+ *
+ * @param skip number of read only string arguments in the parameter list. It
+ * shall be non-zero if there are known read only string arguments present
+ * in the string (e.g. function name).
+ * @param ... String with arguments.
+ *
+ * @retval positive value if string must be packaged in run time.
+ * @retval 0 string can be statically packaged.
+ */
+#define CBPRINTF_MUST_RUNTIME_PACKAGE(skip, .../* fmt, ... */) \
+	Z_CBPRINTF_MUST_RUNTIME_PACKAGE(skip, __VA_ARGS__)
+
+/** @brief Statically package string.
+ *
+ * Build string package based on formatted string. Macro produces same package
+ * as if @ref cbprintf_package was used.
+ *
+ * @param packaged pointer to where the packaged data can be stored.  Pass a
+ * null pointer to store nothing but still calculate the total space required.
+ * The data stored here is relocatable, that is it can be moved to another
+ * contiguous block of memory.
+
+ * @param len on input this must be set to the number of bytes available at @p
+ * packaged.  If @p packaged is NULL the input value is ignored.  On output
+ * the referenced value will be updated to the number of bytes required to
+ * completely store the packed information.  The @p len parameter must not be
+ * null.
+ *
+ * @param ... formatted string with arguments.
+ */
+#define CBPRINTF_STATIC_PACKAGE(packaged, len, ... /* fmt, ... */) \
+	Z_CBPRINTF_STATIC_PACKAGE(packaged, len, __VA_ARGS__)
 
 /** @brief Capture state required to output formatted data later.
  *
