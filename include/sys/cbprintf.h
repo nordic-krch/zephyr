@@ -54,7 +54,7 @@ typedef int (*cbprintf_cb)(/* int c, void *ctx */);
  * in the string (e.g. function name).
  * @param ... String with arguments.
  *
- * @retval positive value if string must be packaged in run time.
+ * @retval 1 if string must be packaged in run time.
  * @retval 0 string can be statically packaged.
  */
 #define CBPRINTF_MUST_RUNTIME_PACKAGE(skip, .../* fmt, ... */) \

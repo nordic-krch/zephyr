@@ -53,13 +53,14 @@ extern "C" {
  *
  * @param ... String with arguments (fmt, ...).
  *
- * @retval positive if string must be packaged at runtime.
+ * @retval 1 if string must be packaged at runtime.
  * @retval 0 if string can be statically packaged.
  */
 #define Z_CBPRINTF_MUST_RUNTIME_PACKAGE(skip, ...) \
 	COND_CODE_0(NUM_VA_ARGS_LESS_1(__VA_ARGS__), \
 			(0), \
-			(Z_CBPRINTF_HAS_PCHAR_ARGS_(__VA_ARGS__) - skip))
+			((Z_CBPRINTF_HAS_PCHAR_ARGS_(__VA_ARGS__) - skip) > 0 ?\
+			 1 : 0))
 
 /** @brief Get storage size for given argument.
  *
@@ -133,18 +134,11 @@ extern "C" {
 /** @brief Packaging of an argument of a non-special type. */
 #define Z_CBPRINTF_PACK_GENERIC(buf, x) do { \
 	__auto_type _x = x; \
-	int *_dummy; \
-	volatile int *_vdummy; \
-	const int *_cdummy; \
-	volatile const int *_vcdummy; \
-	*(__typeof( \
-		_Generic(_x, \
-			void *: _dummy, \
-			volatile void *: _vdummy, \
-			const void *: _cdummy, \
-			volatile const void *: _vcdummy, \
-			default: _x) \
-		+ 0)*)buf = _x; \
+	if (sizeof(_x) > sizeof(uintptr_t)) { \
+		memcpy(buf, (void *)&_x, sizeof(_x)); \
+	} else { \
+		*(uintptr_t *)buf = (uintptr_t)_x; \
+	} \
 } while (0)
 
 /** @brief Macro for packaging single argument.
