@@ -42,6 +42,18 @@ tests:
   utilities.prf.m32v208: # PACKAGED %n
     extra_args: M64_MODE=0 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x208
 
+  utilities.prf.m32v400: # STATIC_PACKAGED REDUCED
+    extra_args: M64_MODE=0 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x400
+
+  utilities.prf.m32v401: # STATIC_PACKAGED FULL
+    extra_args: M64_MODE=0 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x401
+
+  utilities.prf.m32v407: # STATIC_PACKAGED FULL + FP + FP_A
+    extra_args: M64_MODE=0 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x407
+
+  utilities.prf.m32v408: # STATIC_PACKAGED %n
+    extra_args: M64_MODE=0 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x408
+
   utilities.prf.m64v00: # m64
     extra_args: M64_MODE=1 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x00
 
@@ -74,3 +86,15 @@ tests:
 
   utilities.prf.m64v208: # PACKAGED %n
     extra_args: M64_MODE=1 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x208
+
+  utilities.prf.m64v400: # STATIC_PACKAGED REDUCED
+    extra_args: M64_MODE=1 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x400
+
+  utilities.prf.m64v401: # STATIC_PACKAGED FULL
+    extra_args: M64_MODE=1 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x401
+
+  utilities.prf.m64v407: # STATIC_PACKAGED FULL + FP + FP_A
+    extra_args: M64_MODE=1 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x407
+
+  utilities.prf.m64v408: # STATIC_PACKAGED %n
+    extra_args: M64_MODE=1 EXTRA_CPPFLAGS=-DVIA_TWISTER=0x408
