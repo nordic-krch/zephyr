@@ -71,7 +71,7 @@ typedef int (*cbprintf_cb)(/* int c, void *ctx */);
  * contiguous block of memory.
 
  * @param len on input this must be set to the number of bytes available at @p
- * packaged.  If @p packaged is NULL the input value is ignored.  On output
+ * packaged. If @p packaged is NULL the input value is ignored.  On output
  * the referenced value will be updated to the number of bytes required to
  * completely store the packed information.  The @p len parameter must not be
  * null.
@@ -80,6 +80,42 @@ typedef int (*cbprintf_cb)(/* int c, void *ctx */);
  */
 #define CBPRINTF_STATIC_PACKAGE(packaged, len, ... /* fmt, ... */) \
 	Z_CBPRINTF_STATIC_PACKAGE(packaged, len, __VA_ARGS__)
+
+/** @brief Initiate compile time string package size calculation.
+ *
+ * Sizeof cannot be used directly on arguments due to how strings are treated
+ * (sizeof("string") is equal to string length instead of size of a pointer).
+ * It is handled by creating automatic variable (__auto_type) and in second
+ * stage package size is calculated from those temporary variables.
+ *
+ * Usage:
+ *
+ *     CBPRINTF_STATIC_PACKAGE_SIZE_TOKEN(_temp, "string %d %d", 10, 100);
+ *     static const size_t size =
+ *         CBPRINTF_STATIC_PACKAGE_SIZE(_temp, "string %d %d", 10, 100);
+ *
+ * @param token Token which is used to name temporary variables. Variable names
+ * are declared using concatenation of the token and variable index.
+ *
+ * @param ... String with arguments.
+ */
+#define CBPRINTF_STATIC_PACKAGE_SIZE_TOKEN(token, ... /* fmt, ... */) \
+	Z_CBPRINTF_STATIC_PACKAGE_SIZE_TOKEN(token, __VA_ARGS__)
+
+/** @brief Calculate package size at compile time.
+ *
+ * See @ref CBPRINTF_STATIC_PACKAGE_SIZE_TOKEN for details.
+ *
+ * @param token Same value as provided to
+ * @ref CBPRINTF_STATIC_PACKAGE_SIZE_TOKEN
+ *
+ * @param ... String with arguments.
+ *
+ * @return Calculated package size. As it is determined at compile time it can
+ * be assigned to a const variable.
+ */
+#define CBPRINTF_STATIC_PACKAGE_SIZE(token, ... /* fmt, ... */) \
+	Z_CBPRINTF_STATIC_PACKAGE_SIZE(token, __VA_ARGS__)
 
 /** @brief Capture state required to output formatted data later.
  *
