@@ -70,15 +70,15 @@ static uint32_t buf32[512];
 
 static struct mpsc_pbuf_buffer_config cfg = {
 	.buf = buf32,
-	.size = ARRAY_SIZE(buf32),
 	.notify_drop = drop,
 	.get_len = get_len
 };
 
-static void init(struct mpsc_pbuf_buffer *buffer, bool overflow)
+static void init(struct mpsc_pbuf_buffer *buffer, bool overflow, bool pow2)
 {
 	drop_cnt = 0;
 	cfg.flags = overflow ? MPSC_PBUF_MODE_OVERFLOW : 0;
+	cfg.size = ARRAY_SIZE(buf32) - (pow2 ? 0 : 1);
 	mpsc_pbuf_init(buffer, &cfg);
 
 #if CONFIG_SOC_SERIES_NRF52X
@@ -97,11 +97,11 @@ static inline uint32_t get_cyc(void)
 #endif
 }
 
-void test_item_put_no_overflow(void)
+void _test_item_put_circulate(bool overflow, bool pow2)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, overflow, pow2);
 
 	int repeat = buffer.size*2;
 	union test_item test_1word = {.data = {.valid = 1, .len = 1 }};
@@ -122,11 +122,19 @@ void test_item_put_no_overflow(void)
 	zassert_equal(mpsc_pbuf_claim(&buffer), NULL, NULL);
 }
 
+void test_item_put_circulate(void)
+{
+	_test_item_put_circulate(true, true);
+	_test_item_put_circulate(true, false);
+	_test_item_put_circulate(false, true);
+	_test_item_put_circulate(false, false);
+}
+
 void test_item_put_saturate(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	int repeat = buffer.size;
 	union test_item test_1word = {.data = {.valid = 1, .len = 1 }};
@@ -157,11 +165,18 @@ void test_item_put_saturate(void)
 	zassert_equal(mpsc_pbuf_claim(&buffer), NULL, NULL);
 }
 
-void test_benchmark_item_put(void)
+void print_config(const char *functionality, bool overflow, bool pow2)
+{
+	PRINT("\nBenchmarking %s:\n", functionality);
+	PRINT("\t- %s\n", pow2 ? "pow2 size" : "uneven size");
+	PRINT("\t- %s\n", overflow ? "overwrite when full" : "saturate");
+}
+
+void _test_benchmark_item_put(bool overflow, bool pow2)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, true);
+	init(&buffer, overflow, pow2);
 
 	int repeat = buffer.size - 1;
 	union test_item test_1word = {.data = {.valid = 1, .len = 1 }};
@@ -173,6 +188,7 @@ void test_benchmark_item_put(void)
 	}
 
 	t = get_cyc() - t;
+	print_config("single word put", overflow, pow2);
 	PRINT("single word put time: %d cycles\n", t/repeat);
 
 	t = get_cyc();
@@ -191,11 +207,19 @@ void test_benchmark_item_put(void)
 	zassert_equal(mpsc_pbuf_claim(&buffer), NULL, NULL);
 }
 
+void test_benchmark_item_put(void)
+{
+	_test_benchmark_item_put(true, true);
+	_test_benchmark_item_put(true, false);
+	_test_benchmark_item_put(false, true);
+	_test_benchmark_item_put(false, false);
+}
+
 void test_item_put_ext_no_overflow(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	int repeat = buffer.size * 2;
 	union test_item test_ext_item = {
@@ -227,7 +251,7 @@ void test_item_put_ext_saturate(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	int repeat = buffer.size / PUT_EXT_LEN ;
 	union test_item test_ext_item = {
@@ -271,7 +295,7 @@ void test_benchmark_item_put_ext(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	int repeat = (buffer.size - 1) / PUT_EXT_LEN;
 	union test_item test_ext_item = {
@@ -312,7 +336,7 @@ void test_benchmark_item_put_data(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	int repeat = (buffer.size - 1) / PUT_EXT_LEN;
 	union test_item test_ext_item = {
@@ -356,7 +380,7 @@ void test_item_alloc_commit(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	struct test_data_var *packet;
 	uint32_t len = 5;
@@ -426,7 +450,7 @@ void test_item_alloc_commit_saturate(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	saturate_buffer_uneven(&buffer, 5);
 
@@ -452,7 +476,7 @@ void test_item_alloc_preemption(void)
 {
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, false);
+	init(&buffer, false, true);
 
 	struct test_data_var *p0;
 	struct test_data_var *p1;
@@ -505,7 +529,7 @@ void test_overflow(void)
 	uint32_t len0, len1;
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, true);
+	init(&buffer, true, true);
 	uint32_t packet_cnt = saturate_buffer_uneven(&buffer, fill_len);
 
 	exp_dropped_data[0] = 0;
@@ -562,7 +586,7 @@ void test_overflow_while_claimed(void)
 	struct test_data_var *p1;
 	struct mpsc_pbuf_buffer buffer;
 
-	init(&buffer, true);
+	init(&buffer, true, true);
 
 	uint32_t fill_len = 5;
 	uint32_t len = 6;
@@ -609,7 +633,7 @@ void test_main(void)
 	ztest_test_suite(test_log_buffer,
 		ztest_unit_test(test_benchmark_item_put),
 		ztest_unit_test(test_item_put_saturate),
-		ztest_unit_test(test_item_put_no_overflow),
+		ztest_unit_test(test_item_put_circulate),
 		ztest_unit_test(test_item_put_ext_no_overflow),
 		ztest_unit_test(test_item_put_ext_saturate),
 		ztest_unit_test(test_benchmark_item_put_ext),

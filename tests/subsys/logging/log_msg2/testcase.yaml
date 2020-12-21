@@ -1,0 +1,3 @@
+tests:
+  logging.log_msg2:
+    tags: log_msg2 logging
