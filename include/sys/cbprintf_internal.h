@@ -61,14 +61,6 @@ extern "C" {
 			(0), \
 			(Z_CBPRINTF_HAS_PCHAR_ARGS_(__VA_ARGS__) - skip))
 
-/* Union used for storing an argument. */
-union z_cbprintf_types {
-	double d;
-	long double ld;
-	uint32_t u[sizeof(double)/sizeof(uint32_t)];
-	uint8_t u8[sizeof(double)];
-};
-
 /** @brief Get storage size for given argument.
  *
  * Floats are promoted to double so they use size of double, others int storage
@@ -98,45 +90,82 @@ union z_cbprintf_types {
  */
 #define Z_CBPRINTF_ARG_WSIZE(x) (Z_CBPRINTF_ARG_SIZE(x) / sizeof(int))
 
-/** @brief Promote float to double.
- *
- * @param t storage union.
- *
- * @param x float argument.
- */
-#define Z_CBPRINTF_FLOAT_PACK(t, x) \
-	do { \
-		t.d = _Generic((x), float: x, default: 0.0); \
-	} while (0)
-
-/** @brief Pack argument into the buffer.
- *
- * Packing includes promoting floats to double.
- *
- * @param _buf destination buffer.
- *
- * @param x argument to pack.
- */
-#define Z_CBPRINTF_PACK(_buf, x) do { \
-	union z_cbprintf_types _t; \
-	__auto_type _x = x; \
-	_Generic((x),\
-		float: ({Z_CBPRINTF_FLOAT_PACK(_t, x);}),\
-		volatile float: ({Z_CBPRINTF_FLOAT_PACK(_t, x);}),\
-		const float: ({Z_CBPRINTF_FLOAT_PACK(_t, x);}),\
-		const volatile float: ({Z_CBPRINTF_FLOAT_PACK(_t, x);}),\
-		default: ({ \
-			  *(__typeof__(_x) *)(&_t) = (x); \
-			  })\
-	);\
-	/* If string is packed then add 1 byte header fixed to 0 */ \
-	int offset = _Generic(_x, const char *: 1, char *: 1, default: 0); \
-	*(uint8_t *)_buf = 0; \
-	int *_wbuf = (int *)&(((uint8_t *)_buf)[offset]); \
-	for (int i = 0; i < Z_CBPRINTF_ARG_WSIZE(_x); i++) {\
-		((int *)(_wbuf))[i] = _t.u[i]; \
-	} \
+/** @brief Packaging of a void pointer. */
+#define Z_CBPRINTF_PACK_VOID_PTR(buf, x) do { \
+	const void *_p = (void *)_Generic((x), \
+				void *: x, \
+				volatile void *: x, \
+				const void *: x, \
+				const volatile void *: x, \
+				default: NULL); \
+	*(const void **)buf = _p;\
 } while (0)
+
+/** @brief Packaging of a float. */
+#define Z_CBPRINTF_PACK_FLOAT(buf, x) do { \
+	double _x = _Generic((x), \
+			float: (x), \
+			default: 0.0); \
+	*(double *)buf = _x; \
+} while (0)
+
+/** @brief packaging of variables smaller than integer size. */
+#define Z_CBPRINTF_PACK_SHORT(buf, x) do { \
+	int _x = _Generic((x), \
+			char: (x), \
+			signed char: (x), \
+			short: (x), \
+			default: 0); \
+	*(int *)buf = _x; \
+} while (0)
+
+/** @brief Packaging of char pointer. */
+#define Z_CBPRINTF_PACK_CHAR_PTR(buf, x) do { \
+	uint8_t *_buf = buf; \
+	const char *_x = _Generic((x), \
+			char *: (x), \
+			const char *: (x), \
+			default: NULL); \
+	_buf[0] = 0x00; \
+	*(const char **)&_buf[1] = _x; \
+} while (0)
+
+/** @brief Packaging of an argument of a non-special type. */
+#define Z_CBPRINTF_PACK_GENERIC(buf, x) do { \
+	__auto_type _x = x; \
+	int *_dummy; \
+	volatile int *_vdummy; \
+	const int *_cdummy; \
+	volatile const int *_vcdummy; \
+	*(__typeof( \
+		_Generic(_x, \
+			void *: _dummy, \
+			volatile void *: _vdummy, \
+			const void *: _cdummy, \
+			volatile const void *: _vcdummy, \
+			default: _x) \
+		+ 0)*)buf = _x; \
+} while (0)
+
+/** @brief Macro for packaging single argument.
+ *
+ * Macro handles special cases:
+ * - promotions of arguments smaller than int
+ * - promotion of float
+ * - char * packaging which is prefixed with null byte.
+ * - special treatment of void * which would generate warning on arithmetic
+ *   operation ((void *)ptr + 0).
+ */
+#define Z_CBPRINTF_PACK(buf, x) \
+	_Generic ((x), \
+		char: ({ Z_CBPRINTF_PACK_SHORT(buf, x);}), \
+		signed char: ({ Z_CBPRINTF_PACK_SHORT(buf, x);}), \
+		short: ({ Z_CBPRINTF_PACK_SHORT(buf, x);}), \
+		void *: ({Z_CBPRINTF_PACK_VOID_PTR(buf, x);}), \
+		float: ({Z_CBPRINTF_PACK_FLOAT(buf, x);}), \
+		char *: ({Z_CBPRINTF_PACK_CHAR_PTR(buf, x);}), \
+		const char *: ({Z_CBPRINTF_PACK_CHAR_PTR(buf, x);}), \
+		default: ({Z_CBPRINTF_PACK_GENERIC(buf, x);}))
 
 /** @brief Safely package arguments to a buffer.
  *
@@ -177,6 +206,8 @@ union z_cbprintf_types {
  * @param buf buffer. If null then only length is calculated.
  *
  * @param len buffer capacity on input, package size on output.
+ *
+ * @param ... String with variable list of arguments.
  */
 #define Z_CBPRINTF_STATIC_PACKAGE(buf, len, ... /* fmt, ... */) \
 	do { \
@@ -191,8 +222,20 @@ union z_cbprintf_types {
 		len = __package_len; \
 	} while (0)
 
+/** @brief Declare and initilize automatic variable.
+ *
+ * Unique name is achieved using token and index.
+ */
 #define Z_CBPRINTF_AUTO_VAR(idx, v, token) __auto_type token##idx = v
 
+/** @brief Create local variables of the same type as the one provided in as
+ *	   variable argument list.
+ *
+ * Local variables are used to handle special case when string literal is
+ * provided. Sizeof for a string literal returns size of the string and not
+ * the size of the pointer. Autotype variable from string literal is of char *
+ * type.
+ */
 #define Z_CBPRINTF_STATIC_PACKAGE_SIZE_TOKEN(token, ...) \
 	COND_CODE_0(NUM_VA_ARGS_LESS_1(__VA_ARGS__), (), \
 		(FOR_EACH_IDX_FIXED_ARG(Z_CBPRINTF_AUTO_VAR, (;), token, \
@@ -201,6 +244,7 @@ union z_cbprintf_types {
 #define Z_CBPRINTF_TOKEN_ARG_SIZE(idx, v, token) \
 	Z_CBPRINTF_ARG_SIZE(token##idx)
 
+/** @brief Calculate package size. 0 is retuned if only null pointer is given.*/
 #define Z_CBPRINTF_STATIC_PACKAGE_SIZE(token, ...) \
 	COND_CODE_0(NUM_VA_ARGS_LESS_1(__VA_ARGS__), \
 		(GET_ARG_N(1, __VA_ARGS__) == NULL ? \
