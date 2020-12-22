@@ -39,6 +39,14 @@ static void put(const struct log_backend *const backend,
 	log_backend_std_put(&log_output_uart, flag, msg);
 }
 
+static void process(const struct log_backend *const backend,
+		union log_msg2_generic *msg)
+{
+	uint32_t flags = log_backend_std_get_flags();
+
+	log_output_msg2_process(&log_output_uart, &msg->log, flags);
+}
+
 static void log_backend_uart_init(void)
 {
 	uart_dev = device_get_binding(CONFIG_UART_CONSOLE_ON_DEV_NAME);
@@ -80,7 +88,10 @@ static void sync_hexdump(const struct log_backend *const backend,
 }
 
 const struct log_backend_api log_backend_uart_api = {
-	.put = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? NULL : put,
+	.process = IS_ENABLED(CONFIG_LOG2) &&
+		   !IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? process : NULL,
+	.put = !IS_ENABLED(CONFIG_LOG2) &&
+		!IS_ENABLED(CONFIG_LOG_IMMEDIATE) ? put: NULL,
 	.put_sync_string = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ?
 			sync_string : NULL,
 	.put_sync_hexdump = IS_ENABLED(CONFIG_LOG_IMMEDIATE) ?
