@@ -274,6 +274,9 @@ static inline char z_log_minimal_level_to_char(int level)
 		return '?';
 	}
 }
+
+#define Z_LOG_INST(_inst) COND_CODE_1(CONFIG_LOG, (_inst), NULL)
+
 /*****************************************************************************/
 /****************** Macros for standard logging ******************************/
 /*****************************************************************************/
@@ -292,8 +295,14 @@ static inline char z_log_minimal_level_to_char(int level)
 	if (!LOG_CHECK_CTX_LVL_FILTER(is_user_context, _level, filters)) { \
 		break; \
 	} \
-	\
-	Z_LOG_INTERNAL(is_user_context,	_level, _source, __VA_ARGS__);\
+	if (IS_ENABLED(CONFIG_LOG2)) { \
+		int mode; \
+		Z_LOG_MSG2_CREATE(!IS_ENABLED(CONFIG_USERSPACE), mode, \
+				  CONFIG_LOG_DOMAIN_ID, _source, _level, NULL,\
+				  0, __VA_ARGS__); \
+	} else { \
+		Z_LOG_INTERNAL(is_user_context,	_level, _source, __VA_ARGS__);\
+	} \
 	if (false) { \
 		/* Arguments checker present but never evaluated.*/ \
 		/* Placed here to ensure that __VA_ARGS__ are*/ \
@@ -309,7 +318,8 @@ static inline char z_log_minimal_level_to_char(int level)
 	      (void *)__log_current_const_data, \
 	      __VA_ARGS__)
 
-#define Z_LOG_INSTANCE(_level, _inst, ...) Z_LOG2(_level, _inst, __VA_ARGS__)
+#define Z_LOG_INSTANCE(_level, _inst, ...) \
+	Z_LOG2(_level, Z_LOG_INST(_inst), __VA_ARGS__)
 
 
 /*****************************************************************************/
@@ -333,8 +343,17 @@ static inline char z_log_minimal_level_to_char(int level)
 	if (!LOG_CHECK_CTX_LVL_FILTER(is_user_context, _level, filters)) { \
 		break; \
 	} \
+	if (IS_ENABLED(CONFIG_LOG2)) { \
+		int mode; \
+		Z_LOG_MSG2_CREATE(!IS_ENABLED(CONFIG_USERSPACE), mode, \
+				  CONFIG_LOG_DOMAIN_ID, _source, _level, \
+				  _data, _len, \
+				  COND_CODE_0(NUM_VA_ARGS_LESS_1(__VA_ARGS__), \
+					  ("%s", __VA_ARGS__), (__VA_ARGS__)));\
+		break; \
+	} \
 	uint16_t src_id = \
-	   	IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ? \
+		IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ? \
 		LOG_DYNAMIC_ID_GET(_source) : LOG_CONST_ID_GET(_source);\
 	struct log_msg_ids src_level = { \
 		.level = _level, \
@@ -358,7 +377,7 @@ static inline char z_log_minimal_level_to_char(int level)
 		      _data, _length, __VA_ARGS__)
 
 #define Z_LOG_HEXDUMP_INSTANCE(_level, _inst, _data, _length, _str) \
-	Z_LOG_HEXDUMP2(_level, _inst, _data, _length, _str)
+	Z_LOG_HEXDUMP2(_level, Z_LOG_INST(_inst), _data, _length, _str)
 
 /*****************************************************************************/
 /****************** Filtering macros *****************************************/
@@ -618,6 +637,21 @@ void log_hexdump_sync(struct log_msg_ids src_level, const char *metadata,
  */
 void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap,
 		 enum log_strdup_action strdup_action);
+
+/**
+ * @brief Writes a generic log message to the logging v2.
+ *
+ * @note This function is intended to be used when porting other log systems.
+ *
+ * @param level          Log level..
+ * @param fmt            String to format.
+ * @param ap             Poiner to arguments list.
+ */
+static inline void log2_generic(uint8_t level, const char *fmt, va_list ap)
+{
+	z_log_msg2_runtime_vcreate(CONFIG_LOG_DOMAIN_ID, NULL, level,
+				   NULL, 0, fmt, ap);
+}
 
 /**
  * @brief Returns number of arguments visible from format string.
