@@ -6,6 +6,7 @@
 
 #include <shell/shell.h>
 #include <logging/log_ctrl.h>
+#include <logging/log_backend_ctrl.h>
 #include <logging/log.h>
 #include <string.h>
 

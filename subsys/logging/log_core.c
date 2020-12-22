@@ -9,6 +9,7 @@
 #include <logging/log_backend.h>
 #include <logging/log_ctrl.h>
 #include <logging/log_output.h>
+#include <logging/log_msg2.h>
 #include <logging/log_core2.h>
 #include <sys/mpsc_pbuf.h>
 #include <sys/printk.h>
@@ -52,6 +53,11 @@ LOG_MODULE_REGISTER(log);
 struct log_strdup_buf {
 	atomic_t refcount;
 	char buf[CONFIG_LOG_STRDUP_MAX_STRING + 1]; /* for termination */
+};
+
+union log_msgs {
+	struct log_msg *msg;
+	union log_msg2_generic *msg2;
 };
 
 #define LOG_STRDUP_POOL_BUFFER_SIZE \
@@ -340,7 +346,7 @@ void log_hexdump(const char *str, const void *data, uint32_t length,
 	}
 }
 
-void log_printk(const char *fmt, va_list ap)
+void z_log_printk(const char *fmt, va_list ap)
 {
 	if (IS_ENABLED(CONFIG_LOG_PRINTK)) {
 		union {
@@ -498,6 +504,13 @@ static uint32_t k_cycle_get_32_wrapper(void)
 	return k_cycle_get_32();
 }
 
+log_timestamp_t default_get_timestamp(void)
+{
+	return IS_ENABLED(CONFIG_LOG_TIMESTAMP_64BIT) ?
+		z_tick_get() : k_cycle_get_32();
+}
+
+
 void log_core_init(void)
 {
 	uint32_t freq;
@@ -509,6 +522,14 @@ void log_core_init(void)
 		k_mem_slab_init(&log_strdup_pool, log_strdup_pool_buf,
 					sizeof(struct log_strdup_buf),
 					CONFIG_LOG_STRDUP_BUF_COUNT);
+	}
+
+	if (IS_ENABLED(CONFIG_LOG2)) {
+		log_set_timestamp_func(default_get_timestamp,
+			IS_ENABLED(CONFIG_LOG_TIMESTAMP_64BIT) ?
+				CONFIG_SYS_CLOCK_TICKS_PER_SEC :
+			sys_clock_hw_cycles_per_sec());
+		z_log_msg2_init();
 	}
 
 	/* Set default timestamp. */
@@ -645,45 +666,60 @@ void z_vrfy_log_panic(void)
 #endif
 
 static bool msg_filter_check(struct log_backend const *backend,
-			     struct log_msg *msg)
+			     union log_msgs msg)
 {
-	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING)) {
+	if (IS_ENABLED(CONFIG_LOG2) && !z_log_item_is_msg(msg.msg2)) {
+		return true;
+	} else if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING)) {
 		uint32_t backend_level;
-		uint32_t msg_level;
+		uint8_t level = IS_ENABLED(CONFIG_LOG2) ?
+				log_msg2_get_level(&msg.msg2->log) :
+				log_msg_level_get(msg.msg);
+		uint8_t domain = IS_ENABLED(CONFIG_LOG2) ?
+			log_msg2_get_domain(&msg.msg2->log) :
+			log_msg_domain_id_get(msg.msg);
+		uint16_t source = IS_ENABLED(CONFIG_LOG2) ?
+		    log_const_source_id(log_msg2_get_source(&msg.msg2->log)) :
+			log_msg_source_id_get(msg.msg);
 
-		backend_level = log_filter_get(backend,
-					       log_msg_domain_id_get(msg),
-					       log_msg_source_id_get(msg),
-					       true /*enum RUNTIME, COMPILETIME*/);
-		msg_level = log_msg_level_get(msg);
+		backend_level = log_filter_get(backend, domain, source, true);
 
-		return (msg_level <= backend_level);
+		return (level <= backend_level);
 	} else {
 		return true;
 	}
 }
 
-static void msg_process(struct log_msg *msg, bool bypass)
+static void msg_process(union log_msgs msg, bool bypass)
 {
 	struct log_backend const *backend;
 
 	if (!bypass) {
-		if (IS_ENABLED(CONFIG_LOG_DETECT_MISSED_STRDUP) &&
+		if (!IS_ENABLED(CONFIG_LOG2) &&
+		    IS_ENABLED(CONFIG_LOG_DETECT_MISSED_STRDUP) &&
 		    !panic_mode) {
-			detect_missed_strdup(msg);
+			detect_missed_strdup(msg.msg);
 		}
 
 		for (int i = 0; i < log_backend_count_get(); i++) {
 			backend = log_backend_get(i);
-
 			if (log_backend_is_active(backend) &&
 			    msg_filter_check(backend, msg)) {
-				log_backend_put(backend, msg);
+				if (IS_ENABLED(CONFIG_LOG2)) {
+					log_backend_msg2_process(backend,
+								 msg.msg2);
+				} else {
+					log_backend_put(backend, msg.msg);
+				}
 			}
 		}
 	}
 
-	log_msg_put(msg);
+	if (IS_ENABLED(CONFIG_LOG2)) {
+		z_log_msg2_free(msg.msg2);
+	} else {
+		log_msg_put(msg.msg);
+	}
 }
 
 void dropped_notify(void)
@@ -699,19 +735,43 @@ void dropped_notify(void)
 	}
 }
 
+union log_msgs get_msg(void)
+{
+	union log_msgs msg;
+
+	if (IS_ENABLED(CONFIG_LOG2)) {
+		msg.msg2 = z_log_msg2_claim();
+
+		return msg;
+	}
+
+	int key = irq_lock();
+
+	msg.msg = log_list_head_get(&list);
+	irq_unlock(key);
+
+	return msg;
+}
+
+static bool next_pending(void)
+{
+	if (IS_ENABLED(CONFIG_LOG2)) {
+		return z_log_msg2_pending();
+	}
+
+	return (log_list_head_peek(&list) != NULL);
+}
+
 bool z_impl_log_process(bool bypass)
 {
-	struct log_msg *msg;
+	union log_msgs msg;
 
 	if (!backend_attached && !bypass) {
 		return false;
 	}
-	unsigned int key = irq_lock();
 
-	msg = log_list_head_get(&list);
-	irq_unlock(key);
-
-	if (msg != NULL) {
+	msg = get_msg();
+	if (msg.msg) {
 		atomic_dec(&buffered_cnt);
 		msg_process(msg, bypass);
 	}
@@ -720,7 +780,7 @@ bool z_impl_log_process(bool bypass)
 		dropped_notify();
 	}
 
-	return (log_list_head_peek(&list) != NULL);
+	return next_pending();
 }
 
 #ifdef CONFIG_USERSPACE
@@ -903,7 +963,7 @@ uint32_t log_filter_get(struct log_backend const *const backend,
 	}
 }
 
-char *log_strdup(const char *str)
+char *z_log_strdup(const char *str)
 {
 	struct log_strdup_buf *dup;
 	int err;

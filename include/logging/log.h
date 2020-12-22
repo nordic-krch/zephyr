@@ -241,7 +241,6 @@ extern "C" {
 #define LOG_INST_HEXDUMP_DBG(_log_inst, _data, _length, _str)	\
 	Z_LOG_HEXDUMP_INSTANCE(LOG_LEVEL_DBG, _log_inst, _data, _length, _str)
 
-#ifndef CONFIG_LOG_MINIMAL
 /**
  * @brief Writes an formatted string to the log.
  *
@@ -253,8 +252,16 @@ extern "C" {
  * @param fmt Formatted string to output.
  * @param ap  Variable parameters.
  */
-void log_printk(const char *fmt, va_list ap);
+void z_log_printk(const char *fmt, va_list ap);
+static inline void log_printk(const char *fmt, va_list ap)
+{
+	if (IS_ENABLED(CONFIG_LOG_MINIMAL)) {
+		vprintk(fmt, ap);
+		return;
+	}
 
+	z_log_printk(fmt, ap);
+}
 /** @brief Copy transient string to a buffer from internal, logger pool.
  *
  * Function should be used when transient string is intended to be logged.
@@ -272,18 +279,15 @@ void log_printk(const char *fmt, va_list ap);
  *	   a buffer from the pool (see CONFIG_LOG_STRDUP_MAX_STRING). In
  *	   some configurations, the original string pointer is returned.
  */
-char *log_strdup(const char *str);
-#else
-static inline void log_printk(const char *fmt, va_list ap)
-{
-	vprintk(fmt, ap);
-}
-
+char *z_log_strdup(const char *str);
 static inline char *log_strdup(const char *str)
 {
-	return (char *)str;
+	if (IS_ENABLED(CONFIG_LOG_MINIMAL) || IS_ENABLED(CONFIG_LOG2)) {
+		return (char *)str;
+	}
+
+	return z_log_strdup(str);
 }
-#endif /* CONFIG_LOG_MINIMAL */
 
 #ifdef __cplusplus
 }
