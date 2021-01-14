@@ -1,0 +1,3 @@
+tests:
+  lib.mpsc_pbuf:
+    tags: mpsc_pbuf
