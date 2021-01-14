@@ -429,4 +429,3 @@ bool mpsc_pbuf_is_pending(struct mpsc_pbuf_buffer *buffer)
 
 	return a ? true : false;
 }
-
