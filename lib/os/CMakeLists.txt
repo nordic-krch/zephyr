@@ -33,3 +33,5 @@ zephyr_sources_ifdef(CONFIG_RING_BUFFER ring_buffer.c)
 zephyr_sources_ifdef(CONFIG_ASSERT assert.c)
 
 zephyr_sources_ifdef(CONFIG_USERSPACE mutex.c)
+
+zephyr_sources_ifdef(CONFIG_MPSC_PBUF mpsc_pbuf.c)
