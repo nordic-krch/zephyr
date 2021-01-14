@@ -1,0 +1,13 @@
+config LOG_CORE2
+	bool
+	select RING_BUFFER
+	default y
+
+config LOG_BUFFER_SIZE
+	int
+	default 512
+
+config LOG_MODE_OVERFLOW
+	bool "Overflow"
+
+source "Kconfig.zephyr"
