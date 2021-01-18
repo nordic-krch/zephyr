@@ -44,6 +44,9 @@ config TRACING_SYSTEMVIEW
 	select SEGGER_SYSTEMVIEW
 	select THREAD_MONITOR
 
+config TRACING_LOG
+	bool "Tracing to logging subsystem"
+
 config TRACING_CTF
 	bool "Tracing via Common Trace Format support"
 	select TRACING_CORE

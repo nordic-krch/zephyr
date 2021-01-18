@@ -38,6 +38,11 @@ zephyr_sources_ifdef(
   )
 endif()
 
+zephyr_sources_ifdef(
+  CONFIG_TRACING_LOG
+  tracing_log.c
+  )
+
 zephyr_include_directories_ifdef(
   CONFIG_TRACING
   ${ZEPHYR_BASE}/kernel/include

@@ -31,6 +31,9 @@
 #elif defined CONFIG_TRACING_TEST
 #include "tracing_test.h"
 
+#elif defined CONFIG_TRACING_LOG
+#include "tracing_log.h"
+
 #else
 
 /**
