@@ -15,6 +15,13 @@ config TRACING
 	  Enable system tracing. This requires a backend such as SEGGER
 	  Systemview to be enabled as well.
 
+config SEGGER_SYSTEMVIEW
+	bool "Segger SystemView support"
+	select CONSOLE
+	select RTT_CONSOLE
+	select USE_SEGGER_RTT
+	select THREAD_MONITOR
+
 if TRACING
 
 config TRACING_CORE
@@ -32,11 +39,9 @@ config TRACING_NONE
 	help
 	  None of the available tracing formats is selected.
 
-config SEGGER_SYSTEMVIEW
+config TRACING_SYSTEMVIEW
 	bool "Segger SystemView support"
-	select CONSOLE
-	select RTT_CONSOLE
-	select USE_SEGGER_RTT
+	select SEGGER_SYSTEMVIEW
 	select THREAD_MONITOR
 
 config TRACING_CTF

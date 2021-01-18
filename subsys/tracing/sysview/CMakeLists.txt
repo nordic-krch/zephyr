@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 zephyr_sources_ifdef(
-  CONFIG_SEGGER_SYSTEMVIEW
+  CONFIG_TRACING_SYSTEMVIEW
   sysview_config.c
   sysview.c
   )

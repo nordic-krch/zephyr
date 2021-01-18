@@ -19,7 +19,7 @@
 #define SYS_TRACE_ID_SEMA_TAKE               (6u + SYS_TRACE_ID_OFFSET)
 #define SYS_TRACE_ID_SLEEP                   (7u + SYS_TRACE_ID_OFFSET)
 
-#ifdef CONFIG_SEGGER_SYSTEMVIEW
+#ifdef CONFIG_TRACING_SYSTEMVIEW
 #include "tracing_sysview.h"
 
 #elif defined CONFIG_TRACING_CPU_STATS
