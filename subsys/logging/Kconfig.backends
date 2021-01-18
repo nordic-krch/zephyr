@@ -267,4 +267,8 @@ config LOG_BACKEND_ADSP
 	  Enable backend for the host trace protocol of the Intel ADSP
 	  family of audio processors
 
+config LOG_BACKEND_SYSVIEW
+	select SEGGER_SYSTEMVIEW
+	bool "Segger sysview backend"
+
 endmenu

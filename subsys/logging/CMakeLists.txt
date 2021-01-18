@@ -71,6 +71,16 @@ if(NOT CONFIG_LOG_MINIMAL)
     log_backend_spinel.c
   )
 
+  zephyr_sources_ifdef(
+    CONFIG_LOG_BACKEND_SYSVIEW
+    log_backend_sysview.c
+  )
+
+  zephyr_include_directories_ifdef(
+    CONFIG_LOG_BACKEND_SYSVIEW
+    ${ZEPHYR_BASE}/kernel/include
+    ${ARCH_DIR}/${ARCH}/include
+)
 else()
   zephyr_sources(log_minimal.c)
 endif()
