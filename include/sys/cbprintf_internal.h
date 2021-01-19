@@ -209,7 +209,8 @@ extern "C" {
 		size_t __package_max = (buf != NULL) ? len : SIZE_MAX; \
 		size_t __package_len = 0; \
 		Z_CBPRINTF_PACK_ARG(__package_buf, __package_len, \
-				    __package_max, GET_ARG_N(1, __VA_ARGS__));\
+				    __package_max, \
+				    (uint8_t *)GET_ARG_N(1, __VA_ARGS__));\
 		COND_CODE_0(NUM_VA_ARGS_LESS_1(__VA_ARGS__), (), \
 			(FOR_EACH(Z_CBPRINTF_LOOP_PACK_ARG, (;), \
 				  GET_ARGS_LESS_N(1,__VA_ARGS__));)) \
@@ -242,8 +243,8 @@ extern "C" {
 #define Z_CBPRINTF_STATIC_PACKAGE_SIZE(token, ...) \
 	COND_CODE_0(NUM_VA_ARGS_LESS_1(__VA_ARGS__), \
 		(GET_ARG_N(1, __VA_ARGS__) == NULL ? \
-			 		0 : 1 + sizeof(const char *)), \
-		(1 + sizeof(const char *) + \
+					0 : sizeof(const char *)), \
+		(sizeof(const char *) + \
 		 FOR_EACH_IDX_FIXED_ARG(Z_CBPRINTF_TOKEN_ARG_SIZE, \
 					(+), token, \
 					GET_ARGS_LESS_N(1,__VA_ARGS__))))

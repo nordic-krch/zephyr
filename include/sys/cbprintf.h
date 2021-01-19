@@ -23,6 +23,14 @@ extern "C" {
  * @{
  */
 
+/**@defgroup CBPRINTF_PACKAGE_FLAGS packaging flags.
+ * @{ */
+
+/** @brief Indicate that format string is packaged as pointer. */
+#define CBPRINTF_PACKAGE_FMT_NO_INLINE BIT(0)
+
+/**@} */
+
 /** @brief Signature for a cbprintf callback function.
  *
  * This function expects two parameters:
@@ -63,7 +71,7 @@ typedef int (*cbprintf_cb)(/* int c, void *ctx */);
 /** @brief Statically package string.
  *
  * Build string package based on formatted string. Macro produces same package
- * as if @ref cbprintf_package was used.
+ * as if @ref cbprintf_package was used with CBPRINTF_PACKAGE_FMT_NO_INLINE set.
  *
  * @param packaged pointer to where the packaged data can be stored.  Pass a
  * null pointer to store nothing but still calculate the total space required.
@@ -76,7 +84,7 @@ typedef int (*cbprintf_cb)(/* int c, void *ctx */);
  * completely store the packed information.  The @p len parameter must not be
  * null.
  *
- * @param ... formatted string with arguments.
+ * @param ... formatted string with arguments. Format string must be constant.
  */
 #define CBPRINTF_STATIC_PACKAGE(packaged, len, ... /* fmt, ... */) \
 	Z_CBPRINTF_STATIC_PACKAGE(packaged, len, __VA_ARGS__)
@@ -142,6 +150,8 @@ typedef int (*cbprintf_cb)(/* int c, void *ctx */);
  * completely store the packed information.  The @p len parameter must not be
  * null.
  *
+ * @param flags Flags. See @ref CBPRINTF_PACKAGE_FLAGS.
+ *
  * @param format a standard ISO C format string with characters and conversion
  * specifications.
  *
@@ -154,9 +164,10 @@ typedef int (*cbprintf_cb)(/* int c, void *ctx */);
  * @retval -ENOSPC if @p packaged was not null and the space required to store
  * exceed the input value of @p *len.
  */
-__printf_like(3, 4)
+__printf_like(4, 5)
 int cbprintf_package(uint8_t *packaged,
 		     size_t *len,
+		     uint32_t flags,
 		     const char *format,
 		     ...);
 
@@ -185,6 +196,8 @@ int cbprintf_package(uint8_t *packaged,
  * completely store the packed information.  The @p len parameter must not be
  * null.
  *
+ * @param flags Flags. See @ref CBPRINTF_PACKAGE_FLAGS.
+ *
  * @param format a standard ISO C format string with characters and conversion
  * specifications.
  *
@@ -199,6 +212,7 @@ int cbprintf_package(uint8_t *packaged,
  */
 int cbvprintf_package(uint8_t *packaged,
 		      size_t *len,
+		      uint32_t flags,
 		      const char *format,
 		      va_list ap);
 
@@ -209,6 +223,8 @@ int cbvprintf_package(uint8_t *packaged,
  *
  * @param ctx context provided when invoking out
  *
+ * @param flags Flags. See @ref CBPRINTF_PACKAGE_FLAGS.
+ *
  * @param packaged the data required to generate the formatted output, as
  * captured by cbprintf_package() or cbvprintf_package().
  *
@@ -217,6 +233,7 @@ int cbvprintf_package(uint8_t *packaged,
  */
 int cbpprintf(cbprintf_cb out,
 	      void *ctx,
+	      uint32_t flags,
 	      const uint8_t *packaged);
 
 /** @brief *printf-like output through a callback.
