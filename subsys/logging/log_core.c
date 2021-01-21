@@ -210,24 +210,11 @@ static void detect_missed_strdup(struct log_msg *msg)
 #undef ERR_MSG
 }
 
-static inline void msg_finalize(struct log_msg *msg,
-				struct log_msg_ids src_level)
+void z_log_msg_post_finalize(void)
 {
-	unsigned int key;
-
-	msg->hdr.ids = src_level;
-	msg->hdr.timestamp = log_timestamp_func();
-
 	atomic_inc(&buffered_cnt);
-
-	key = irq_lock();
-
-	log_list_add_tail(&list, msg);
-
-	irq_unlock(key);
-
 	if (panic_mode) {
-		key = irq_lock();
+		int key = irq_lock();
 		(void)log_process(false);
 		irq_unlock(key);
 	} else if (proc_tid != NULL && buffered_cnt == 1) {
@@ -241,6 +228,23 @@ static inline void msg_finalize(struct log_msg *msg,
 		}
 	} else {
 	}
+}
+
+static inline void msg_finalize(struct log_msg *msg,
+				struct log_msg_ids src_level)
+{
+	unsigned int key;
+
+	msg->hdr.ids = src_level;
+	msg->hdr.timestamp = log_timestamp_func();
+
+	key = irq_lock();
+
+	log_list_add_tail(&list, msg);
+
+	irq_unlock(key);
+
+	z_log_msg_post_finalize();
 }
 
 void log_0(const char *str, struct log_msg_ids src_level)
