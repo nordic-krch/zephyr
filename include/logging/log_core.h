@@ -14,7 +14,6 @@
 #include <stdarg.h>
 #include <syscall.h>
 #include <sys/util.h>
-#include <sys/printk.h>
 
 #define LOG_LEVEL_NONE 0U
 #define LOG_LEVEL_ERR  1U
@@ -233,12 +232,14 @@ extern "C" {
 /******************************************************************************/
 /****************** Defiinitions used by minimal logging **********************/
 /******************************************************************************/
-void log_minimal_hexdump_print(int level, const void *data, size_t size);
+void z_log_minimal_hexdump_print(int level, const void *data, size_t size);
+void z_log_minimal_printk(const char *fmt, ...);
 
-#define Z_LOG_TO_PRINTK(_level, fmt, ...) do {				     \
-		printk("%c: " fmt "\n", z_log_minimal_level_to_char(_level), \
-			##__VA_ARGS__);					     \
-	} while (false)
+#define Z_LOG_MINIMAL_TO_PRINTK(_level, fmt, ...) do { \
+	z_log_minimal_printk("%c: " fmt "\n", \
+			     z_log_minimal_level_to_char(_level), \
+			     ##__VA_ARGS__); \
+} while (false)
 
 static inline char z_log_minimal_level_to_char(int level)
 {
@@ -264,7 +265,7 @@ static inline char z_log_minimal_level_to_char(int level)
 			bool is_user_context = _is_user_context();	       \
 									       \
 			if (IS_ENABLED(CONFIG_LOG_MINIMAL)) {		       \
-				Z_LOG_TO_PRINTK(_level, __VA_ARGS__);	       \
+				Z_LOG_MINIMAL_TO_PRINTK(_level, __VA_ARGS__);  \
 			} else if (LOG_CHECK_CTX_LVL_FILTER(is_user_context, \
 					_level, _filter)) {  \
 				struct log_msg_ids src_level = {	       \
@@ -337,8 +338,8 @@ static inline char z_log_minimal_level_to_char(int level)
 			bool is_user_context = _is_user_context();	       \
 									       \
 			if (IS_ENABLED(CONFIG_LOG_MINIMAL)) {		       \
-				Z_LOG_TO_PRINTK(_level, "%s", _str);	       \
-				log_minimal_hexdump_print(_level,	       \
+				Z_LOG_MINIMAL_TO_PRINTK(_level, "%s", _str);   \
+				z_log_minimal_hexdump_print(_level,	       \
 							  (const char *)_data, \
 							  _length);	       \
 			} else if (LOG_CHECK_CTX_LVL_FILTER(is_user_context,\
@@ -771,11 +772,7 @@ __syscall void z_log_hexdump_from_user(uint32_t src_level_val,
 			bool is_user_context = _is_user_context();	       \
 									       \
 			if (IS_ENABLED(CONFIG_LOG_MINIMAL)) {		       \
-				if (IS_ENABLED(CONFIG_LOG_PRINTK)) {	       \
-					log_printk(_str, _valist);	       \
-				} else {				       \
-					vprintk(_str, _valist);		       \
-				}					       \
+				z_log_minimal_vprintk(_str, _valist);	       \
 			} else if (LOG_CHECK_CTX_LVL_FILTER(is_user_context, \
 					_level, _filter)) {  \
 				struct log_msg_ids src_level = {	       \

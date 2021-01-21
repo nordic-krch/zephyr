@@ -255,11 +255,6 @@ extern "C" {
 void z_log_printk(const char *fmt, va_list ap);
 static inline void log_printk(const char *fmt, va_list ap)
 {
-	if (IS_ENABLED(CONFIG_LOG_MINIMAL)) {
-		vprintk(fmt, ap);
-		return;
-	}
-
 	z_log_printk(fmt, ap);
 }
 /** @brief Copy transient string to a buffer from internal, logger pool.
