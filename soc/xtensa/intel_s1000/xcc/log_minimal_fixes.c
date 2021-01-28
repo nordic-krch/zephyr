@@ -90,7 +90,7 @@ uint32_t log_get_strdup_longest_string(void)
 	return 0;
 }
 
-void log_dropped(void)
+void z_log_dropped(void)
 {
 }
 
