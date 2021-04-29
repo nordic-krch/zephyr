@@ -19,6 +19,7 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <toolchain.h>
+#include <tracing/tracing_pre_kernel.h>
 
 #ifdef CONFIG_THREAD_RUNTIME_STATS_USE_TIMING_FUNCTIONS
 #include <timing/timing.h>
@@ -5633,6 +5634,7 @@ int k_thread_runtime_stats_all_get(k_thread_runtime_stats_t *stats);
 
 #include <tracing/tracing.h>
 #include <syscalls/kernel.h>
+#include <tracing/tracing_post_kernel.h>
 
 #endif /* !_ASMLANGUAGE */
 
