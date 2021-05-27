@@ -58,6 +58,7 @@ zephyr_library_sources_ifdef(CONFIG_SOC_NRF5340_CPUNET ${MDK_DIR}/system_nrf5340
 zephyr_library_sources_ifdef(CONFIG_SOC_NRF9160        ${MDK_DIR}/system_nrf9160.c)
 
 zephyr_library_sources(nrfx_glue.c)
+zephyr_library_sources(${NRFX_DIR}/helpers/nrfx_flag32_allocator.c)
 
 zephyr_library_sources_ifdef(CONFIG_NRFX_PRS     ${SRC_DIR}/prs/nrfx_prs.c)
 
