@@ -17,6 +17,12 @@ properties:
     "#gpio-cells":
       const: 2
 
+    sense_edge_mask:
+      required: false
+      type: int
+      description: |
+        Mask of pins that use GPIO sense for edge detection
+
     port:
       type: int
       required: true
