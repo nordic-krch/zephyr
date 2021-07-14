@@ -53,7 +53,7 @@ extern "C" {
 #define printk(...) Z_LOG_PRINTK(__VA_ARGS__)
 static inline __printf_like(1, 0) void vprintk(const char *fmt, va_list ap)
 {
-	z_log_msg2_runtime_vcreate(CONFIG_LOG_DOMAIN_ID, NULL,
+	z_log_msg2_runtime_vcreate(Z_LOG_LOCAL_DOMAIN_ID, NULL,
 				   LOG_LEVEL_INTERNAL_RAW_STRING, NULL, 0,
 				   fmt, ap);
 }

@@ -258,12 +258,17 @@ static int ids_print(const struct log_output *output, bool level_on,
 		total += print_formatted(output, "<%s> ", severity[level]);
 	}
 
-	if (source_id >= 0) {
+	if (domain_id != Z_LOG_LOCAL_DOMAIN_ID) {
 		total += print_formatted(output,
-				(func_on &&
-				((1 << level) & LOG_FUNCTION_PREFIX_MASK)) ?
-				"%s." : "%s: ",
-				log_source_name_get(domain_id, source_id));
+					"%s/", log_domain_name_get(domain_id));
+	}
+
+	if (source_id >= 0) {
+		const char *name;
+		bool func_prefix = func_on && ((1 << level) & LOG_FUNCTION_PREFIX_MASK);
+
+		name = log_source_name_get(domain_id, source_id);
+		total += print_formatted(output, func_prefix ? "%s." : "%s: ", name);
 	}
 
 	return total;
@@ -528,7 +533,6 @@ static uint32_t prefix_print(const struct log_output *output,
 
 	length += ids_print(output, level_on, func_on,
 			domain_id, source_id, level);
-
 
 	return length;
 }

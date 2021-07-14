@@ -30,9 +30,8 @@ extern "C" {
 #define CONFIG_LOG_MAX_LEVEL 0U
 #endif
 
-#if !defined(CONFIG_LOG) || defined(CONFIG_LOG_MINIMAL)
-#define CONFIG_LOG_DOMAIN_ID 0U
-#endif
+/* Id of local domain. */
+#define Z_LOG_LOCAL_DOMAIN_ID 0
 
 #define LOG_FUNCTION_PREFIX_MASK \
 	(((uint32_t)IS_ENABLED(CONFIG_LOG_FUNC_NAME_PREFIX_ERR) << \
@@ -210,7 +209,7 @@ extern "C" {
 		LOG_DYNAMIC_ID_GET(_dsource) : LOG_CONST_ID_GET(_source); \
 	struct log_msg_ids src_level = { \
 		.level = _level, \
-		.domain_id = CONFIG_LOG_DOMAIN_ID, \
+		.domain_id = Z_LOG_LOCAL_DOMAIN_ID, \
 		.source_id = src_id \
 	}; \
 	Z_LOG_INTERNAL2(is_user_context, src_level, \
@@ -313,7 +312,7 @@ static inline char z_log_minimal_level_to_char(int level)
 		void *_src = IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ? \
 			(void *)_dsource : (void *)_source; \
 		Z_LOG_MSG2_CREATE(UTIL_NOT(IS_ENABLED(CONFIG_USERSPACE)), _mode, \
-				  CONFIG_LOG_DOMAIN_ID, _src, _level, NULL,\
+				  Z_LOG_LOCAL_DOMAIN_ID, _src, _level, NULL,\
 				  0, __VA_ARGS__); \
 	} else { \
 		Z_LOG_INTERNAL(is_user_context,	_level, \
@@ -365,7 +364,7 @@ static inline char z_log_minimal_level_to_char(int level)
 		void *_src = IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ? \
 			(void *)_dsource : (void *)_source; \
 		Z_LOG_MSG2_CREATE(UTIL_NOT(IS_ENABLED(CONFIG_USERSPACE)), mode, \
-				  CONFIG_LOG_DOMAIN_ID, _src, _level, \
+				  Z_LOG_LOCAL_DOMAIN_ID, _src, _level, \
 				  _data, _len, \
 				COND_CODE_0(NUM_VA_ARGS_LESS_1(_, ##__VA_ARGS__), \
 					(), \
@@ -378,7 +377,7 @@ static inline char z_log_minimal_level_to_char(int level)
 		LOG_DYNAMIC_ID_GET(_dsource) : LOG_CONST_ID_GET(_source);\
 	struct log_msg_ids src_level = { \
 		.level = _level, \
-		.domain_id = CONFIG_LOG_DOMAIN_ID, \
+		.domain_id = Z_LOG_LOCAL_DOMAIN_ID, \
 		.source_id = src_id, \
 	}; \
 	if (is_user_context) { \
@@ -477,7 +476,7 @@ enum log_strdup_action {
 		z_log_printf_arg_checker(__VA_ARGS__); \
 	} \
 	Z_LOG_MSG2_CREATE(!IS_ENABLED(CONFIG_USERSPACE), _mode, \
-			  CONFIG_LOG_DOMAIN_ID, NULL, \
+			  Z_LOG_LOCAL_DOMAIN_ID, NULL, \
 			  LOG_LEVEL_INTERNAL_RAW_STRING, NULL, 0, __VA_ARGS__);\
 } while (0)
 
@@ -494,13 +493,11 @@ static inline const char *log_name_get(uint32_t source_id)
 
 /** @brief Get compiled level of the log source.
  *
+ * @param domain_id Domain ID.
  * @param source_id Source ID.
  * @return Level.
  */
-static inline uint8_t log_compiled_level_get(uint32_t source_id)
-{
-	return __log_const_start[source_id].level;
-}
+uint8_t log_compiled_level_get(uint8_t domain_id, uint32_t source_id);
 
 /** @brief Get index of the log source based on the address of the constant data
  *         associated with the source.
@@ -516,11 +513,19 @@ static inline uint32_t log_const_source_id(
 			sizeof(struct log_source_const_data);
 }
 
-/** @brief Get number of registered sources. */
-static inline uint32_t log_sources_count(void)
-{
-	return log_const_source_id(__log_const_end);
-}
+/** @brief Get number of registered sources.
+ *
+ * @param domain_id Absolute domain ID.
+ *
+ * @return Number of log sources in the given domain.
+ */
+uint16_t log_sources_count(uint8_t domain_id);
+
+/** @brief Get number of domains.
+ *
+ * @return Number of domains.
+ */
+uint8_t log_domains_count(void);
 
 extern struct log_source_dynamic_data __log_dynamic_start[];
 extern struct log_source_dynamic_data __log_dynamic_end[];
@@ -536,13 +541,23 @@ extern struct log_source_dynamic_data __log_dynamic_end[];
 
 /** @brief Get pointer to the filter set of the log source.
  *
+ * @param domain_id Domain ID.
  * @param source_id Source ID.
  *
  * @return Pointer to the filter set.
  */
-static inline uint32_t *log_dynamic_filters_get(uint32_t source_id)
+uint32_t *log_dynamic_filters_get(uint8_t domain_id, uint32_t source_id);
+
+/** @brief Check if domain is local.
+ *
+ * @param domain_id Domain ID.
+ *
+ * @return True if domain is local.
+ */
+static inline bool z_log_is_local_domain(uint8_t domain_id)
 {
-	return &__log_dynamic_start[source_id].filters;
+	return !IS_ENABLED(CONFIG_LOG_MULTIDOMAIN) ||
+			(domain_id == Z_LOG_LOCAL_DOMAIN_ID);
 }
 
 /** @brief Get index of the log source based on the address of the dynamic data
@@ -560,6 +575,9 @@ static inline uint32_t log_dynamic_source_id(struct log_source_dynamic_data *dat
 
 /* Initialize runtime filters */
 void z_log_runtime_filters_init(void);
+
+void z_log_links_initiate(void);
+uint32_t z_log_links_activate(uint32_t active_mask);
 
 /* Notify log_core that a backend was enabled. */
 void z_log_notify_backend_enabled(void);
@@ -678,7 +696,7 @@ void log_generic(struct log_msg_ids src_level, const char *fmt, va_list ap,
  */
 static inline void log2_generic(uint8_t level, const char *fmt, va_list ap)
 {
-	z_log_msg2_runtime_vcreate(CONFIG_LOG_DOMAIN_ID, NULL, level,
+	z_log_msg2_runtime_vcreate(Z_LOG_LOCAL_DOMAIN_ID, NULL, level,
 				   NULL, 0, fmt, ap);
 }
 
@@ -828,7 +846,7 @@ __syscall void z_log_hexdump_from_user(uint32_t src_level_val,
 		break; \
 	} \
 	if (IS_ENABLED(CONFIG_LOG2)) { \
-		z_log_msg2_runtime_vcreate(CONFIG_LOG_DOMAIN_ID, _source, \
+		z_log_msg2_runtime_vcreate(Z_LOG_LOCAL_DOMAIN_ID, _source, \
 					   _level, NULL, 0, _str, _valist); \
 		break; \
 	} \
@@ -837,7 +855,7 @@ __syscall void z_log_hexdump_from_user(uint32_t src_level_val,
 		LOG_DYNAMIC_ID_GET(_dsource) : LOG_CONST_ID_GET(_source);\
 	struct log_msg_ids src_level = { \
 		.level = _level, \
-		.domain_id = CONFIG_LOG_DOMAIN_ID, \
+		.domain_id = Z_LOG_LOCAL_DOMAIN_ID, \
 		.source_id = _id \
 	}; \
 	__LOG_INTERNAL_VA(is_user_context, \

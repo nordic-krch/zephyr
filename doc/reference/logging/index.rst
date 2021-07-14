@@ -173,8 +173,6 @@ using log_strdup().
 :kconfig:`CONFIG_LOG_STRDUP_BUF_COUNT`: Number of buffers in the pool used by
 log_strdup().
 
-:kconfig:`CONFIG_LOG_DOMAIN_ID`: Domain ID. Valid in multi-domain systems.
-
 :kconfig:`CONFIG_LOG_FRONTEND`: Redirect logs to a custom frontend.
 
 :kconfig:`CONFIG_LOG_TIMESTAMP_64BIT`: 64 bit timestamp.

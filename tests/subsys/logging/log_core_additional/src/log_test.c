@@ -50,7 +50,7 @@ static void put(struct log_backend const *const backend, struct log_msg *msg)
 	struct backend_cb *cb = (struct backend_cb *)backend->cb->ctx;
 
 	if (cb->check_domain_id) {
-		zassert_equal(log_msg_domain_id_get(msg), CONFIG_LOG_DOMAIN_ID,
+		zassert_equal(log_msg_domain_id_get(msg), Z_LOG_LOCAL_DOMAIN_ID,
 				"Unexpected domain id");
 	}
 
@@ -158,7 +158,7 @@ static bool log_test_process(bool bypass)
  * @brief Support multi-processor systems
  *
  * @details Logging system identify domain/processor by domain_id which is now
- *          statically configured by CONFIG_LOG_DOMAIN_ID
+ *          statically configured by Z_LOG_LOCAL_DOMAIN_ID
  *
  * @addtogroup logging
  */
@@ -398,7 +398,7 @@ static void call_log_generic(uint32_t source_id, const char *fmt, ...)
 {
 	struct log_msg_ids src_level = {
 		.level = LOG_LEVEL_INF,
-		.domain_id = CONFIG_LOG_DOMAIN_ID,
+		.domain_id = Z_LOG_LOCAL_DOMAIN_ID,
 		.source_id = source_id,
 	};
 

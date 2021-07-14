@@ -11,6 +11,7 @@
 #include <logging/log_output.h>
 #include <logging/log_msg2.h>
 #include <logging/log_core2.h>
+#include <logging/log_link.h>
 #include <sys/mpsc_pbuf.h>
 #include <sys/printk.h>
 #include <sys_clock.h>
@@ -202,7 +203,7 @@ static void detect_missed_strdup(struct log_msg *msg)
 		if (!is_rodata(str) && !log_is_strdup(str) &&
 			(str != log_strdup_fail_msg)) {
 			const char *src_name =
-				log_source_name_get(CONFIG_LOG_DOMAIN_ID,
+				log_source_name_get(Z_LOG_LOCAL_DOMAIN_ID,
 						    log_msg_source_id_get(msg));
 
 			if (IS_ENABLED(CONFIG_ASSERT)) {
@@ -538,21 +539,16 @@ static log_timestamp_t default_lf_get_timestamp(void)
 
 void log_core_init(void)
 {
-	uint32_t freq;
-
 	panic_mode = false;
 	dropped_cnt = 0;
 
 	/* Set default timestamp. */
 	if (sys_clock_hw_cycles_per_sec() > 1000000) {
-		timestamp_func = default_lf_get_timestamp;
-		freq = 1000U;
+		log_set_timestamp_func(default_lf_get_timestamp, 1000U);
 	} else {
-		timestamp_func = default_get_timestamp;
-		freq = sys_clock_hw_cycles_per_sec();
+		log_set_timestamp_func(default_get_timestamp,
+				       sys_clock_hw_cycles_per_sec());
 	}
-
-	log_output_timestamp_freq_set(freq);
 
 	if (IS_ENABLED(CONFIG_LOG2)) {
 		log_set_timestamp_func(default_get_timestamp,
@@ -581,12 +577,16 @@ void log_init(void)
 	__ASSERT_NO_MSG(log_backend_count_get() < LOG_FILTERS_NUM_OF_SLOTS);
 	int i;
 
+	if (atomic_inc(&initialized) != 0) {
+		return;
+	}
+
 	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
 		log_frontend_init();
 	}
 
-	if (atomic_inc(&initialized) != 0) {
-		return;
+	if (IS_ENABLED(CONFIG_LOG_MULTIDOMAIN)) {
+		z_log_links_initiate();
 	}
 
 	/* Assign ids to backends. */
@@ -970,14 +970,14 @@ void z_vrfy_z_log_string_from_user(uint32_t src_level_val, const char *str)
 		(IS_ENABLED(CONFIG_LOG_PRINTK) || (level >= LOG_LEVEL_ERR)) &&
 		(level <= LOG_LEVEL_DBG),
 		"Invalid log level"));
-	Z_OOPS(Z_SYSCALL_VERIFY_MSG(domain_id == CONFIG_LOG_DOMAIN_ID,
+	Z_OOPS(Z_SYSCALL_VERIFY_MSG(domain_id == Z_LOG_LOCAL_DOMAIN_ID,
 		"Invalid log domain_id"));
-	Z_OOPS(Z_SYSCALL_VERIFY_MSG(source_id < log_sources_count(),
+	Z_OOPS(Z_SYSCALL_VERIFY_MSG(source_id < log_sources_count(domain_id),
 		"Invalid log source id"));
 
 	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) &&
 	    (level != LOG_LEVEL_INTERNAL_RAW_STRING) &&
-	    (level > LOG_FILTER_SLOT_GET(log_dynamic_filters_get(source_id),
+	    (level > LOG_FILTER_SLOT_GET(get_dynamic_filter(domain_id, source_id),
 					LOG_FILTER_AGGR_SLOT_IDX))) {
 		/* Skip filtered out messages. */
 		return;
@@ -1065,16 +1065,18 @@ void z_vrfy_z_log_hexdump_from_user(uint32_t src_level_val, const char *metadata
 		(src_level_union.structure.level >= LOG_LEVEL_ERR),
 		"Invalid log level"));
 	Z_OOPS(Z_SYSCALL_VERIFY_MSG(
-		src_level_union.structure.domain_id == CONFIG_LOG_DOMAIN_ID,
+		src_level_union.structure.domain_id == Z_LOG_LOCAL_DOMAIN_ID,
 		"Invalid log domain_id"));
 	Z_OOPS(Z_SYSCALL_VERIFY_MSG(
-		src_level_union.structure.source_id < log_sources_count(),
+		src_level_union.structure.source_id <
+		log_sources_count(src_level_union.structure.domain_id),
 		"Invalid log source id"));
 
 	if (IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) &&
 	    (src_level_union.structure.level > LOG_FILTER_SLOT_GET(
-	     log_dynamic_filters_get(src_level_union.structure.source_id),
-	     LOG_FILTER_AGGR_SLOT_IDX))) {
+			get_dynamic_filter(src_level_union.structure.domain_id,
+					   src_level_union.structure.source_id),
+			LOG_FILTER_AGGR_SLOT_IDX))) {
 		/* Skip filtered out messages. */
 		return;
 	}
@@ -1201,10 +1203,8 @@ struct log_msg2 *z_log_msg2_alloc(uint32_t wlen)
 				K_MSEC(CONFIG_LOG_BLOCK_IN_THREAD_TIMEOUT_MS));
 }
 
-void z_log_msg2_commit(struct log_msg2 *msg)
+static void msg_commit(struct log_msg2 *msg)
 {
-	msg->hdr.timestamp = timestamp_func();
-
 	if (IS_ENABLED(CONFIG_LOG2_MODE_IMMEDIATE)) {
 		union log_msgs msgs = {
 			.msg2 = (union log_msg2_generic *)msg
@@ -1220,6 +1220,12 @@ void z_log_msg2_commit(struct log_msg2 *msg)
 	if (IS_ENABLED(CONFIG_LOG2_MODE_DEFERRED)) {
 		z_log_msg_post_finalize();
 	}
+}
+
+void z_log_msg2_commit(struct log_msg2 *msg)
+{
+	msg->hdr.timestamp = timestamp_func();
+	msg_commit(msg);
 }
 
 union log_msg2_generic *z_log_msg2_claim(void)
@@ -1238,6 +1244,24 @@ bool z_log_msg2_pending(void)
 	return mpsc_pbuf_is_pending(&log_buffer);
 }
 
+void z_log_msg_enqueue(const struct log_link *link, const void *data, size_t len)
+{
+	struct log_msg2 *log_msg = (struct log_msg2 *)data;
+	size_t wlen = ceiling_fraction(ROUND_UP(len, Z_LOG_MSG2_ALIGNMENT), sizeof(int));
+	struct log_msg2 * local_msg = z_log_msg2_alloc(wlen);
+	uint32_t freq = link->ctrl_blk->timestamp_freq;
+	uint32_t offset = link->ctrl_blk->timestamp_offset;
+
+	if (!local_msg) {
+		dropped_cnt++;
+		return;
+	}
+
+	log_msg->hdr.desc.domain += link->ctrl_blk->domain_offset;
+	memcpy((void *)local_msg, data, len);
+	msg_commit(local_msg);
+}
+
 static void log_process_thread_timer_expiry_fn(struct k_timer *timer)
 {
 	k_sem_give(&log_process_thread_sem);
@@ -1246,11 +1270,17 @@ static void log_process_thread_timer_expiry_fn(struct k_timer *timer)
 static void log_process_thread_func(void *dummy1, void *dummy2, void *dummy3)
 {
 	__ASSERT_NO_MSG(log_backend_count_get() > 0);
+	uint32_t links_active_mask = 0xFFFFFFFF;
 
 	log_init();
 	thread_set(k_current_get());
 
 	while (true) {
+		/* Keep trying to activate links until all links are active. */
+		if (IS_ENABLED(CONFIG_LOG_MULTIDOMAIN) && links_active_mask) {
+			links_active_mask = z_log_links_activate(links_active_mask);
+		}
+
 		if (log_process(false) == false) {
 			k_sem_take(&log_process_thread_sem, K_FOREVER);
 		}

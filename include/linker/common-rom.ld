@@ -192,8 +192,17 @@
 		KEEP(*("._log_backend.*"));
 		__log_backends_end = .;
 	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
-
+	
+	
+	SECTION_DATA_PROLOGUE(log_links_sections,,)
+	{
+		__log_links_start = .;
+		KEEP(*("._log_link.*"));
+		__log_links_end = .;
+	} GROUP_ROM_LINK_IN(RAMABLE_REGION, ROMABLE_REGION)
+	
 	ITERABLE_SECTION_ROM(shell, 4)
+
 
 	SECTION_DATA_PROLOGUE(shell_root_cmds_sections,,)
 	{

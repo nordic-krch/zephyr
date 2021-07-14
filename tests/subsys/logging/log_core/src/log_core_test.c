@@ -139,9 +139,10 @@ static uint32_t timestamp_get(void)
 static int16_t log_source_id_get(const char *name)
 {
 
-	for (int16_t i = 0; i < log_src_cnt_get(CONFIG_LOG_DOMAIN_ID); i++) {
-		if (strcmp(log_source_name_get(CONFIG_LOG_DOMAIN_ID, i), name)
-		    == 0) {
+	for (int16_t i = 0; i < log_src_cnt_get(Z_LOG_LOCAL_DOMAIN_ID); i++) {
+		const char *source_name = log_source_name_get(Z_LOG_LOCAL_DOMAIN_ID, i);
+
+		if (strcmp(source_name , name) == 0) {
 			return i;
 		}
 	}

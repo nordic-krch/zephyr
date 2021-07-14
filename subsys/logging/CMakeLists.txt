@@ -6,6 +6,7 @@ if(NOT CONFIG_LOG_MINIMAL)
     log_list.c
     log_core.c
     log_mgmt.c
+    log_cache.c
     log_msg.c
     log_output.c
   )

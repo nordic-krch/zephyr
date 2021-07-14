@@ -3,6 +3,7 @@
 
 choice LOG_MODE
 	prompt "Mode"
+	default LOG2_MODE_DEFERRED if LOG_MULTIDOMAIN
 	default LOG_MODE_DEFERRED
 
 config LOG_MODE_DEFERRED
@@ -75,3 +76,7 @@ config LOG_MINIMAL
 	bool
 	imply PRINTK
 	default y if LOG_MODE_MINIMAL
+
+config LOG_MULTIDOMAIN
+	bool "Enable multi-domain logger"
+	select LOG_TIMESTAMP_64BIT
