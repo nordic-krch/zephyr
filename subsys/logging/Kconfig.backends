@@ -373,6 +373,13 @@ config LOG_BACKEND_REMOTE
 	bool
 	select LOG_TIMESTAMP_64BIT
 
+config LOG_BACKEND_IPC_SERVICE
+	bool "Enable IPC backend"
+	select LOG_BACKEND_REMOTE
+	select IPM
+	select IPC_SERVICE
+	select OPENAMP
+
 config LOG_LINK_REMOTE
 	bool
 

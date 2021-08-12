@@ -84,6 +84,10 @@ if(NOT CONFIG_LOG_MINIMAL)
   )
 
   zephyr_sources_ifdef(
+    CONFIG_LOG_BACKEND_IPC_SERVICE
+    log_backend_ipc_service.c
+  )
+  zephyr_sources_ifdef(
     CONFIG_LOG_LINK_REMOTE
     log_link_remote.c
   )
