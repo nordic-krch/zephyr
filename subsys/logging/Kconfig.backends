@@ -383,4 +383,11 @@ config LOG_BACKEND_IPC_SERVICE
 config LOG_LINK_REMOTE
 	bool
 
+config LOG_LINK_IPC_SERVICE
+	bool "Enable IPC link"
+	depends on LOG_MULTIDOMAIN
+	select LOG_LINK_REMOTE
+	select IPM
+	select IPC_SERVICE
+	select OPENAMP
 endmenu

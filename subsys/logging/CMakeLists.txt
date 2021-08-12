@@ -92,6 +92,11 @@ if(NOT CONFIG_LOG_MINIMAL)
     log_link_remote.c
   )
 
+  zephyr_sources_ifdef(
+    CONFIG_LOG_LINK_IPC_SERVICE
+    log_link_ipc_service.c
+  )
+
   if(CONFIG_LOG_DICTIONARY_SUPPORT)
     zephyr_sources(log_output_dict.c)
   endif()
