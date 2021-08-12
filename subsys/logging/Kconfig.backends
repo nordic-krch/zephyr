@@ -369,4 +369,11 @@ config LOG_BACKEND_FS_FILES_LIMIT
 
 endif # LOG_BACKEND_FS
 
+config LOG_BACKEND_REMOTE
+	bool
+	select LOG_TIMESTAMP_64BIT
+
+config LOG_LINK_REMOTE
+	bool
+
 endmenu

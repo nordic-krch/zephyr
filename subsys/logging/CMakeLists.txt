@@ -78,6 +78,16 @@ if(NOT CONFIG_LOG_MINIMAL)
     log_backend_spinel.c
   )
 
+  zephyr_sources_ifdef(
+    CONFIG_LOG_BACKEND_REMOTE
+    log_backend_remote.c
+  )
+
+  zephyr_sources_ifdef(
+    CONFIG_LOG_LINK_REMOTE
+    log_link_remote.c
+  )
+
   if(CONFIG_LOG_DICTIONARY_SUPPORT)
     zephyr_sources(log_output_dict.c)
   endif()
