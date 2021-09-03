@@ -600,13 +600,20 @@ void log_output_msg2_process(const struct log_output *output,
 	}
 
 	if (!raw_string) {
-		void *source = (void *)log_msg2_get_source(msg);
 		uint8_t domain_id = log_msg2_get_domain(msg);
-		int16_t source_id = source ?
-			(IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ?
-				log_dynamic_source_id(source) :
-				log_const_source_id(source)) :
-			-1;
+		int16_t source_id;
+
+	        if (IS_ENABLED(CONFIG_LOG_MULTIDOMAIN) && domain_id != Z_LOG_LOCAL_DOMAIN_ID) {
+			/* Remote domain is converting source pointer to ID */
+			source_id = (int16_t)(uintptr_t)log_msg2_get_source(msg);
+		} else {
+			void *source = (void *)log_msg2_get_source(msg);
+			source_id = source ?
+				(IS_ENABLED(CONFIG_LOG_RUNTIME_FILTERING) ?
+					log_dynamic_source_id(source) :
+					log_const_source_id(source)) :
+				-1;
+		}
 
 		prefix_offset = prefix_print(output, flags, 0, timestamp,
 					 level, domain_id, source_id);
