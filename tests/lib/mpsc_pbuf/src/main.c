@@ -71,6 +71,7 @@ static void drop(const struct mpsc_pbuf_buffer *buffer, const union mpsc_pbuf_ge
 		int err = memcmp(packet->data, &exp_dropped_data[drop_cnt],
 				 sizeof(uint32_t));
 
+
 		zassert_equal(err, 0, NULL);
 	}
 
@@ -1077,6 +1078,99 @@ void test_pending_alloc(void)
 	k_thread_priority_set(k_current_get(), prio);
 }
 
+static void check_packet(struct mpsc_pbuf_buffer *buffer, char exp_c)
+{
+	union test_item claimed_item;
+	const union mpsc_pbuf_generic *claimed;
+
+	claimed = mpsc_pbuf_claim(buffer);
+	zassert_true(claimed, NULL);
+	claimed_item.item = *claimed;
+	zassert_equal(claimed_item.data.data, exp_c, NULL);
+
+	mpsc_pbuf_free(buffer, claimed);
+}
+
+void test_put_while_claim(void)
+{
+	struct mpsc_pbuf_buffer buffer;
+	uint32_t buffer_storage[4];
+	const union mpsc_pbuf_generic *claimed;
+	struct mpsc_pbuf_buffer_config buffer_config = {
+		.buf = buffer_storage,
+		.size = 4,
+		.notify_drop = drop,
+		.get_wlen = get_wlen,
+		.flags = MPSC_PBUF_SIZE_POW2 | MPSC_PBUF_MODE_OVERWRITE
+	};
+	union test_item claimed_item;
+	union test_item item = {
+		.data = {
+			.valid = 1,
+			.busy = 0,
+			.len = 1,
+			.data = (uint32_t)'a'
+		}
+	};
+
+	drop_cnt = 0;
+	mpsc_pbuf_init(&buffer, &buffer_config);
+	/* Expect buffer = {} */
+
+	for (int i = 0; i < buffer.size; ++i) {
+		mpsc_pbuf_put_word(&buffer, item.item);
+		item.data.data++;
+	}
+
+	/* Expect buffer = {a, b, c, d}. Adding new word will drop 'a'. */
+	exp_dropped_data[exp_drop_cnt] = (uint32_t)'a';
+	exp_dropped_len[exp_drop_cnt] = 1;
+	exp_drop_cnt++;
+
+	item.data.data = 'e';
+	mpsc_pbuf_put_word(&buffer, item.item);
+	zassert_equal(drop_cnt, exp_drop_cnt, NULL);
+	/* Expect buffer = {e, b, c, d} */
+
+	claimed = mpsc_pbuf_claim(&buffer);
+	zassert_true(claimed, NULL);
+	claimed_item.item = *claimed;
+	zassert_equal(claimed_item.data.data, (uint32_t)'b', NULL);
+
+	/* Expect buffer = {e, B, c, d}. Adding new will drop 'c'. */
+	exp_dropped_data[exp_drop_cnt] = (int)'c';
+	exp_dropped_len[exp_drop_cnt] = 1;
+	exp_drop_cnt++;
+
+	item.data.data = 'f';
+	mpsc_pbuf_put_word(&buffer, item.item);
+	zassert_equal(drop_cnt, exp_drop_cnt, NULL);
+	/* Expect buffer = {e, B, f, d}, Adding new will drop 'd'. */
+
+	exp_dropped_data[exp_drop_cnt] = (int)'d';
+	exp_dropped_len[exp_drop_cnt] = 1;
+	exp_drop_cnt++;
+	item.data.data = 'g';
+	mpsc_pbuf_put_word(&buffer, item.item);
+	zassert_equal(drop_cnt, exp_drop_cnt, NULL);
+	/* Expect buffer = {e, B, f, g} */
+
+	mpsc_pbuf_free(&buffer, claimed);
+	/* Expect buffer = {e -, f, g} */
+
+	check_packet(&buffer, 'e');
+	/* Expect buffer = {-, -, f, g} */
+
+	check_packet(&buffer, 'f');
+	/* Expect buffer = {-, -, -, g} */
+
+	check_packet(&buffer, 'g');
+	/* Expect buffer = {-, -, -, -} */
+
+	claimed = mpsc_pbuf_claim(&buffer);
+	zassert_equal(claimed, NULL, NULL);
+}
+
 /*test case main entry*/
 void test_main(void)
 {
@@ -1099,7 +1193,8 @@ void test_main(void)
 		ztest_unit_test(test_overwrite_while_claimed),
 		ztest_unit_test(test_overwrite_while_claimed2),
 		ztest_unit_test(test_overwrite_consistency),
-		ztest_unit_test(test_pending_alloc)
+		ztest_unit_test(test_pending_alloc),
+		ztest_unit_test(test_put_while_claim)
 		);
 	ztest_run_test_suite(test_log_buffer);
 }
