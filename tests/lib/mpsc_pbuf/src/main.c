@@ -1171,6 +1171,10 @@ void test_put_while_claim(void)
 	zassert_equal(claimed, NULL, NULL);
 }
 
+extern void test_stress_preemptions_low_consumer(void);
+extern void test_stress_preemptions_mid_consumer(void);
+extern void test_stress_preemptions_high_consumer(void);
+
 /*test case main entry*/
 void test_main(void)
 {
@@ -1194,7 +1198,10 @@ void test_main(void)
 		ztest_unit_test(test_overwrite_while_claimed2),
 		ztest_unit_test(test_overwrite_consistency),
 		ztest_unit_test(test_pending_alloc),
-		ztest_unit_test(test_put_while_claim)
+		ztest_unit_test(test_put_while_claim),
+		ztest_unit_test(test_stress_preemptions_low_consumer),
+		ztest_unit_test(test_stress_preemptions_mid_consumer),
+		ztest_unit_test(test_stress_preemptions_high_consumer)
 		);
 	ztest_run_test_suite(test_log_buffer);
 }
