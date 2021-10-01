@@ -97,6 +97,12 @@ config UART_WIDE_DATA
 	  This is up to the driver to implement the necessary functions
 	  to properly support this.
 
+config UART_ASYNC_TO_INT_DRIVEN_API
+	bool "Enable Asynchronous to Interrupt driven adaptation layer"
+	help
+	  When enabled device which implements only asynchronous API can be used
+	  with interrupt driven API implemented by the generic adaptation layer.
+
 comment "Serial Drivers"
 
 source "drivers/serial/Kconfig.b91"
