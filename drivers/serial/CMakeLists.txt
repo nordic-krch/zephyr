@@ -55,3 +55,5 @@ if(CONFIG_UART_NATIVE_POSIX)
 endif()
 
 zephyr_library_sources_ifdef(CONFIG_SERIAL_TEST		serial_test.c)
+
+zephyr_library_sources_ifdef(CONFIG_UART_ASYNC_TO_INT_DRIVEN_API uart_async_to_irq.c)

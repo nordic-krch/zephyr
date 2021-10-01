@@ -47,6 +47,7 @@ config UART_0_ENHANCED_POLL_OUT
 config UART_0_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 0"
 	depends on UART_INTERRUPT_DRIVEN
+	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 0.
@@ -119,6 +120,7 @@ if UART_1_NRF_UARTE
 config UART_1_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 1"
 	depends on UART_INTERRUPT_DRIVEN
+	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 1.
@@ -196,6 +198,7 @@ if UART_2_NRF_UARTE
 config UART_2_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 2"
 	depends on UART_INTERRUPT_DRIVEN
+	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 2.
@@ -272,6 +275,7 @@ if UART_3_NRF_UARTE
 config UART_3_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 3"
 	depends on UART_INTERRUPT_DRIVEN
+	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 3.
