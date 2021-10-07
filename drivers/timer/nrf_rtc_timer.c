@@ -35,6 +35,8 @@ BUILD_ASSERT(CHAN_COUNT <= RTC_CH_COUNT, "Not enough compare channels");
 
 static struct k_spinlock lock;
 
+static uint32_t overflow_cnt;
+static uint64_t anchor;
 static uint32_t last_count;
 
 struct z_nrf_rtc_timer_chan_data {
@@ -226,6 +228,30 @@ void z_nrf_rtc_timer_compare_set(int32_t chan, uint32_t cc_value,
 	z_nrf_rtc_timer_compare_int_unlock(chan, key);
 }
 
+uint64_t z_nrf_rtc_timer_read64(void)
+{
+	uint64_t val = (overflow_cnt << 24);
+
+	__DMB();
+
+	val += counter();
+
+	/* New value can be smaller than anchor only if there is unhandled overflow */
+	if (val < anchor) {
+		val += COUNTER_SPAN;
+	}
+
+	return val;
+}
+
+static inline void anchor_update(uint32_t cc_value)
+{
+	/* Update anchor when far from overflow */
+	if ((cc_value >= (COUNTER_SPAN / 4)) && (cc_value < (3 * COUNTER_SPAN / 4))) {
+		anchor = (overflow_cnt << 24) + cc_value;
+	}
+}
+
 static void sys_clock_timeout_handler(int32_t chan,
 				      uint32_t cc_value,
 				      void *user_data)
@@ -257,6 +283,11 @@ static void sys_clock_timeout_handler(int32_t chan,
 void rtc_nrf_isr(const void *arg)
 {
 	ARG_UNUSED(arg);
+
+	if (nrf_rtc_event_check(RTC, NRF_RTC_EVENT_OVERFLOW)) {
+		 nrf_rtc_event_clear(RTC, NRF_RTC_EVENT_OVERFLOW);
+		 overflow_cnt++;
+	}
 
 	for (int32_t chan = 0; chan < CHAN_COUNT; chan++) {
 		if (nrf_rtc_int_enable_check(RTC, RTC_CHANNEL_INT_MASK(chan)) &&
@@ -333,6 +364,7 @@ int sys_clock_driver_init(const struct device *dev)
 		    rtc_nrf_isr, 0, 0);
 	irq_enable(RTC_IRQn);
 
+	nrf_rtc_int_enable(RTC, NRF_RTC_INT_OVERFLOW_MASK);
 	nrf_rtc_task_trigger(RTC, NRF_RTC_TASK_CLEAR);
 	nrf_rtc_task_trigger(RTC, NRF_RTC_TASK_START);
 
@@ -403,9 +435,5 @@ uint32_t sys_clock_elapsed(void)
 
 uint32_t sys_clock_cycle_get_32(void)
 {
-	k_spinlock_key_t key = k_spin_lock(&lock);
-	uint32_t ret = counter_sub(counter(), last_count) + last_count;
-
-	k_spin_unlock(&lock, key);
-	return ret;
+	return (uint32_t)z_nrf_rtc_timer_read64();
 }
