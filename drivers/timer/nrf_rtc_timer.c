@@ -33,10 +33,12 @@ BUILD_ASSERT(CHAN_COUNT <= RTC_CH_COUNT, "Not enough compare channels");
 #define MAX_TICKS ((COUNTER_HALF_SPAN - CYC_PER_TICK) / CYC_PER_TICK)
 #define MAX_CYCLES (MAX_TICKS * CYC_PER_TICK)
 
-static struct k_spinlock lock;
+#define ANCHOR_RANGE_START (COUNTER_SPAN / 8)
+#define ANCHOR_RANGE_END (7 * COUNTER_SPAN / 8)
 
 static uint32_t overflow_cnt;
-static uint64_t anchor;
+static atomic_t anchor_mutex;
+static volatile uint64_t anchor;
 static uint32_t last_count;
 
 struct z_nrf_rtc_timer_chan_data {
@@ -79,11 +81,6 @@ static void event_disable(int32_t chan)
 }
 
 static uint32_t counter(void)
-{
-	return nrf_rtc_counter_get(RTC);
-}
-
-uint32_t z_nrf_rtc_timer_read(void)
 {
 	return nrf_rtc_counter_get(RTC);
 }
@@ -228,7 +225,7 @@ void z_nrf_rtc_timer_compare_set(int32_t chan, uint32_t cc_value,
 	z_nrf_rtc_timer_compare_int_unlock(chan, key);
 }
 
-uint64_t z_nrf_rtc_timer_read64(void)
+uint64_t z_nrf_rtc_timer_read(void)
 {
 	uint64_t val = (overflow_cnt << 24);
 
@@ -236,20 +233,46 @@ uint64_t z_nrf_rtc_timer_read64(void)
 
 	val += counter();
 
-	/* New value can be smaller than anchor only if there is unhandled overflow */
-	if (val < anchor) {
-		val += COUNTER_SPAN;
+	if (atomic_get(&anchor_mutex) == 0) {
+		/* New value can be smaller than anchor only if there is unhandled overflow */
+		/* Protect against being interrupted by anchor update with assumption that
+		 * 64 bit load and stores are not atomic.
+		 */
+		uint64_t tmp_anchor = anchor;
+
+		__DMB();
+
+		/* If anchor changed it means we are interrupted which means that it's far
+		 * from overflow so it is safe to assume that overflow_cnt.
+		 */
+		if (anchor == tmp_anchor && val < tmp_anchor) {
+			val += COUNTER_SPAN;
+		}
+	} else {
+		/* if we interrupted storing anchor we are far from overflow so no need
+		 * to compare against anchor.
+		 */
 	}
 
 	return val;
 }
 
-static inline void anchor_update(uint32_t cc_value)
+static inline bool in_anchor_range(uint32_t cc_value)
+{
+	return (cc_value >= ANCHOR_RANGE_START) && (cc_value < ANCHOR_RANGE_END);
+}
+
+static inline bool anchor_update(uint32_t cc_value)
 {
 	/* Update anchor when far from overflow */
-	if ((cc_value >= (COUNTER_SPAN / 4)) && (cc_value < (3 * COUNTER_SPAN / 4))) {
+	if (in_anchor_range(cc_value)) {
+		atomic_set(&anchor_mutex, 1);
 		anchor = (overflow_cnt << 24) + cc_value;
+		atomic_set(&anchor_mutex, 0);
+		return true;
 	}
+
+	return false;
 }
 
 static void sys_clock_timeout_handler(int32_t chan,
@@ -259,6 +282,8 @@ static void sys_clock_timeout_handler(int32_t chan,
 	uint32_t dticks = counter_sub(cc_value, last_count) / CYC_PER_TICK;
 
 	last_count += dticks * CYC_PER_TICK;
+
+	bool anchor_updated = anchor_update(cc_value);
 
 	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
 		/* protection is not needed because we are in the RTC interrupt
@@ -270,6 +295,18 @@ static void sys_clock_timeout_handler(int32_t chan,
 
 	sys_clock_announce(IS_ENABLED(CONFIG_TICKLESS_KERNEL) ?
 						dticks : (dticks > 0));
+
+	if (cc_value == get_comparator(chan)) {
+		/* New value was not set. Set something that can update anchor.
+		 * If anchor was updated we can enable same CC value to trigger
+		 * interrupt after full cycle. Else set event in anchor update
+		 * range. Since anchor was not updated we know that it's very
+		 * far from mid point so setting is done without any protection. */
+		if (!anchor_updated) {
+			set_comparator(chan, COUNTER_HALF_SPAN - 1);
+		}
+		event_enable(chan);
+	}
 }
 
 /* Note: this function has public linkage, and MUST have this
@@ -373,10 +410,10 @@ int sys_clock_driver_init(const struct device *dev)
 		alloc_mask = BIT_MASK(EXT_CHAN_COUNT) << 1;
 	}
 
-	if (!IS_ENABLED(CONFIG_TICKLESS_KERNEL)) {
-		compare_set(0, counter() + CYC_PER_TICK,
-			    sys_clock_timeout_handler, NULL);
-	}
+	uint32_t initial_timeout = IS_ENABLED(CONFIG_TICKLESS_KERNEL) ?
+				(COUNTER_HALF_SPAN - 1) : (counter() + CYC_PER_TICK);
+
+	compare_set(0, initial_timeout, sys_clock_timeout_handler, NULL);
 
 	z_nrf_clock_control_lf_on(mode);
 
