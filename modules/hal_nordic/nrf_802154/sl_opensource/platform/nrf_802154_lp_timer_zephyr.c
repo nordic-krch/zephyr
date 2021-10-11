@@ -20,10 +20,11 @@ static bool m_is_running;
 static int32_t m_rtc_channel;
 static bool m_in_critical_section;
 
-void rtc_irq_handler(int32_t id, uint32_t cc_value, void *user_data)
+void rtc_irq_handler(int32_t id, uint64_t expire_time, void *user_data)
 {
-	(void)cc_value;
+	(void)expire_time;
 	(void)user_data;
+
 	nrf_802154_sl_mcu_critical_state_t state;
 
 	assert(id == m_rtc_channel);
@@ -51,10 +52,10 @@ static void timer_start_at(uint32_t channel,
 			   uint32_t t0,
 			   uint32_t dt)
 {
-	uint32_t cc_value = NRF_802154_SL_US_TO_RTC_TICKS(t0 + dt);
+	uint64_t target_time = NRF_802154_SL_US_TO_RTC_TICKS(t0 + dt);
 	nrf_802154_sl_mcu_critical_state_t state;
 
-	z_nrf_rtc_timer_compare_set(m_rtc_channel, cc_value, rtc_irq_handler, NULL);
+	z_nrf_rtc_timer_set(m_rtc_channel, target_time, rtc_irq_handler, NULL);
 
 	nrf_802154_sl_mcu_critical_enter(state);
 
@@ -128,8 +129,7 @@ void nrf_802154_lp_timer_critical_section_exit(void)
 
 uint32_t nrf_802154_lp_timer_time_get(void)
 {
-	/* Please note that this function does not handle RTC overflow */
-	return NRF_802154_SL_RTC_TICKS_TO_US(z_nrf_rtc_timer_read());
+	return (uint32_t)NRF_802154_SL_RTC_TICKS_TO_US(z_nrf_rtc_timer_read());
 }
 
 uint32_t nrf_802154_lp_timer_granularity_get(void)
