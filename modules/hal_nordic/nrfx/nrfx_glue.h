@@ -107,6 +107,11 @@ extern "C" {
 /** @brief Macro for exiting from a critical section. */
 #define NRFX_CRITICAL_SECTION_EXIT()     irq_unlock(irq_lock_key); }
 
+/** @brief Macro for entering into a critical section. */
+#define NRFX_IRQ_LOCK()  irq_lock()
+
+/** @brief Macro for exiting from a critical section. */
+#define NRFX_IRQ_UNLOCK(key)     irq_unlock(key)
 //------------------------------------------------------------------------------
 
 /**
