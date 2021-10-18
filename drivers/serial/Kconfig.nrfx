@@ -10,6 +10,7 @@ menuconfig UART_NRFX
 	select SERIAL_SUPPORT_INTERRUPT
 	select SERIAL_SUPPORT_ASYNC
 	depends on SOC_FAMILY_NRF
+	select UART_ASYNC_TO_INT_DRIVEN_API if UART_INTERRUPT_DRIVEN
 	help
 	  Enable support for nrfx UART drivers for nRF MCU series.
 	  Peripherals with the same instance ID cannot be used together,
@@ -31,6 +32,8 @@ config UART_0_NRF_UART
 config UART_0_NRF_UARTE
 	def_bool $(dt_nodelabel_has_compat,uart0,$(DT_COMPAT_NORDIC_NRF_UARTE))
 	select NRF_UARTE_PERIPHERAL
+	select NRFX_UARTE
+	select NRFX_UARTE0
 	help
 	  Enable nRF UART with EasyDMA on port 0.
 
@@ -47,10 +50,31 @@ config UART_0_ENHANCED_POLL_OUT
 config UART_0_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 0"
 	depends on UART_INTERRUPT_DRIVEN
-	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 0.
+
+if UART_0_INTERRUPT_DRIVEN
+
+config UART_0_INT_DRIVEN_USE_EGU
+	bool "Use EGU interrupt for trampoline"
+	default y
+	select NRFX_EGU
+	help
+	  Interrupt driven API implementation requires trampoline to the interrupt
+	  context. EGU peripheral can be used for that but it requires one EGU
+	  instance dedicated for that. Alternatively, k_timer scheduled for
+	  shortest possible timeout is used. Using k_timer increases latency.
+
+config UART_0_INT_DRIVEN_EGU
+	int "EGU instance"
+	default 0
+	depends on UART_0_INT_DRIVEN_USE_EGU
+	help
+	  EGU instance used for trampoline required by adaption to interrupt driven
+	  API.
+
+endif # UART_0_INT_DRIVEN_USE_EGU
 
 config UART_0_ASYNC
 	bool "Enable Asynchronous API support on port 0"
@@ -112,6 +136,8 @@ endif # UART_0_NRF_UART || UART_0_NRF_UARTE
 config UART_1_NRF_UARTE
 	def_bool $(dt_nodelabel_has_compat,uart1,$(DT_COMPAT_NORDIC_NRF_UARTE))
 	select NRF_UARTE_PERIPHERAL
+	select NRFX_UARTE
+	select NRFX_UARTE1
 	help
 	  Enable nRF UART with EasyDMA on port 1.
 
@@ -120,10 +146,31 @@ if UART_1_NRF_UARTE
 config UART_1_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 1"
 	depends on UART_INTERRUPT_DRIVEN
-	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 1.
+
+if UART_1_INTERRUPT_DRIVEN
+
+config UART_1_INT_DRIVEN_USE_EGU
+	bool "Use EGU interrupt for trampoline"
+	default y
+	select NRFX_EGU
+	help
+	  Interrupt driven API implementation requires trampoline to the interrupt
+	  context. EGU peripheral can be used for that but it requires one EGU
+	  instance dedicated for that. Alternatively, k_timer scheduled for
+	  shortest possible timeout is used. Using k_timer increases latency.
+
+config UART_1_INT_DRIVEN_EGU
+	int "EGU instance"
+	default 1
+	depends on UART_1_INT_DRIVEN_USE_EGU
+	help
+	  EGU instance used for trampoline required by adaption to interrupt driven
+	  API.
+
+endif # UART_1_INT_DRIVEN_USE_EGU
 
 config UART_1_ASYNC
 	bool "Enable Asynchronous API support on port 1"
@@ -190,6 +237,8 @@ endif # UART_1_NRF_UARTE
 config UART_2_NRF_UARTE
 	def_bool $(dt_nodelabel_has_compat,uart2,$(DT_COMPAT_NORDIC_NRF_UARTE))
 	select NRF_UARTE_PERIPHERAL
+	select NRFX_UARTE
+	select NRFX_UARTE2
 	help
 	  Enable nRF UART with EasyDMA on port 2.
 
@@ -198,10 +247,31 @@ if UART_2_NRF_UARTE
 config UART_2_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 2"
 	depends on UART_INTERRUPT_DRIVEN
-	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 2.
+
+if UART_2_INTERRUPT_DRIVEN
+
+config UART_2_INT_DRIVEN_USE_EGU
+	bool "Use EGU interrupt for trampoline"
+	default y
+	select NRFX_EGU
+	help
+	  Interrupt driven API implementation requires trampoline to the interrupt
+	  context. EGU peripheral can be used for that but it requires one EGU
+	  instance dedicated for that. Alternatively, k_timer scheduled for
+	  shortest possible timeout is used. Using k_timer increases latency.
+
+config UART_2_INT_DRIVEN_EGU
+	int "EGU instance"
+	default 2
+	depends on UART_2_INT_DRIVEN_USE_EGU
+	help
+	  EGU instance used for trampoline required by adaption to interrupt driven
+	  API.
+
+endif # UART_2_INT_DRIVEN_USE_EGU
 
 config UART_2_ASYNC
 	bool "Enable Asynchronous API support on port 2"
@@ -267,6 +337,8 @@ endif # UART_2_NRF_UARTE
 config UART_3_NRF_UARTE
 	def_bool $(dt_nodelabel_has_compat,uart3,$(DT_COMPAT_NORDIC_NRF_UARTE))
 	select NRF_UARTE_PERIPHERAL
+	select NRFX_UARTE
+	select NRFX_UARTE3
 	help
 	  Enable nRF UART with EasyDMA on port 3.
 
@@ -275,10 +347,31 @@ if UART_3_NRF_UARTE
 config UART_3_INTERRUPT_DRIVEN
 	bool "Enable interrupt support on port 3"
 	depends on UART_INTERRUPT_DRIVEN
-	select UART_ASYNC_TO_INT_DRIVEN_API
 	default y
 	help
 	  This option enables UART interrupt support on port 3.
+
+if UART_3_INTERRUPT_DRIVEN
+
+config UART_3_INT_DRIVEN_USE_EGU
+	bool "Use EGU interrupt for trampoline"
+	default y
+	select NRFX_EGU
+	help
+	  Interrupt driven API implementation requires trampoline to the interrupt
+	  context. EGU peripheral can be used for that but it requires one EGU
+	  instance dedicated for that. Alternatively, k_timer scheduled for
+	  shortest possible timeout is used. Using k_timer increases latency.
+
+config UART_3_INT_DRIVEN_EGU
+	int "EGU instance"
+	default 3
+	depends on UART_3_INT_DRIVEN_USE_EGU
+	help
+	  EGU instance used for trampoline required by adaption to interrupt driven
+	  API.
+
+endif # UART_3_INT_DRIVEN_USE_EGU
 
 config UART_3_ASYNC
 	bool "Enable Asynchronous API support on port 3"
@@ -366,6 +459,35 @@ config NRFX_TIMER4
 	depends on UART_0_NRF_HW_ASYNC_TIMER = 4 || UART_1_NRF_HW_ASYNC_TIMER = 4 || \
 		   UART_3_NRF_HW_ASYNC_TIMER = 4 || UART_2_NRF_HW_ASYNC_TIMER = 4
 
+config NRFX_EGU0
+	default y
+	depends on UART_0_INT_DRIVEN_EGU = 0 || UART_1_INT_DRIVEN_EGU = 0 || \
+		   UART_2_INT_DRIVEN_EGU = 0 || UART_3_INT_DRIVEN_EGU = 0
+
+config NRFX_EGU1
+	default y
+	depends on UART_0_INT_DRIVEN_EGU = 1 || UART_1_INT_DRIVEN_EGU = 1 || \
+		   UART_2_INT_DRIVEN_EGU = 1 || UART_3_INT_DRIVEN_EGU = 1
+
+config NRFX_EGU2
+	default y
+	depends on UART_0_INT_DRIVEN_EGU = 2 || UART_1_INT_DRIVEN_EGU = 2 || \
+		   UART_2_INT_DRIVEN_EGU = 2 || UART_3_INT_DRIVEN_EGU = 2
+
+config NRFX_EGU3
+	default y
+	depends on UART_0_INT_DRIVEN_EGU = 3 || UART_1_INT_DRIVEN_EGU = 3 || \
+		   UART_2_INT_DRIVEN_EGU = 3 || UART_3_INT_DRIVEN_EGU = 3
+
+config NRFX_EGU4
+	default y
+	depends on UART_0_INT_DRIVEN_EGU = 4 || UART_1_INT_DRIVEN_EGU = 4 || \
+		   UART_2_INT_DRIVEN_EGU = 4 || UART_3_INT_DRIVEN_EGU = 4
+
+config NRFX_EGU5
+	default y
+	depends on UART_0_INT_DRIVEN_EGU = 5 || UART_1_INT_DRIVEN_EGU = 5 || \
+		   UART_2_INT_DRIVEN_EGU = 5 || UART_3_INT_DRIVEN_EGU = 5
 
 if UART_0_NRF_HW_ASYNC || UART_1_NRF_HW_ASYNC || UART_2_NRF_HW_ASYNC || UART_3_NRF_HW_ASYNC
 
