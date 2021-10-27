@@ -385,7 +385,7 @@ static void sys_clock_timeout_handler(int32_t chan,
 		/* protection is not needed because we are in the RTC interrupt
 		 * so it won't get preempted by the interrupt.
 		 */
-		compare_set(chan, last_count + CYC_PER_TICK,
+		z_nrf_rtc_timer_set(chan, last_count + CYC_PER_TICK,
 					  sys_clock_timeout_handler, NULL);
 	}
 
@@ -547,7 +547,7 @@ int sys_clock_driver_init(const struct device *dev)
 				(COUNTER_HALF_SPAN - 1) :
 				(counter() + CYC_PER_TICK);
 
-	compare_set(0, initial_timeout, sys_clock_timeout_handler, NULL);
+	z_nrf_rtc_timer_set(0, initial_timeout, sys_clock_timeout_handler, NULL);
 
 	z_nrf_clock_control_lf_on(mode);
 
@@ -593,7 +593,7 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 
 	uint64_t target_time = cyc + last_count;
 
-	compare_set(0, target_time, sys_clock_timeout_handler, NULL);
+	z_nrf_rtc_timer_set(0, target_time, sys_clock_timeout_handler, NULL);
 }
 
 uint32_t sys_clock_elapsed(void)
