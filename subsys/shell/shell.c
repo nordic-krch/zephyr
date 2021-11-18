@@ -1290,23 +1290,29 @@ static void kill_handler(const struct shell *shell)
 	k_thread_abort(k_current_get());
 }
 
-void shell_thread(void *shell_handle, void *arg_log_backend,
-		  void *arg_log_level)
+void shell_thread(void *shell_handle, void *transport_config,
+		  void *instance_config)
 {
 	struct shell *shell = shell_handle;
-	bool log_backend = (bool)arg_log_backend;
-	uint32_t log_level = POINTER_TO_UINT(arg_log_level);
+	union shell_instance_config_union config = {
+		.raw = instance_config
+	};
 	int err;
+
+	err = instance_init(shell, transport_config, config.config.backend_flags);
+	if (err != 0) {
+		return;
+	}
 
 	err = shell->iface->api->enable(shell->iface, false);
 	if (err != 0) {
 		return;
 	}
 
-	if (IS_ENABLED(CONFIG_SHELL_LOG_BACKEND) && log_backend
+	if (IS_ENABLED(CONFIG_SHELL_LOG_BACKEND) && config.config.log_enabled
 	    && !IS_ENABLED(CONFIG_SHELL_START_OBSCURED)) {
 		z_shell_log_backend_enable(shell->log_backend, (void *)shell,
-					   log_level);
+					   config.config.init_log_level);
 	}
 
 	/* Enable shell and print prompt. */
@@ -1352,20 +1358,23 @@ int shell_init(const struct shell *shell, const void *transport_config,
 	__ASSERT_NO_MSG(shell);
 	__ASSERT_NO_MSG(shell->ctx && shell->iface && shell->default_prompt);
 
+	union shell_instance_config_union instance_config = {
+		.config = {
+			.backend_flags = cfg_flags,
+			.log_enabled = log_backend,
+			.init_log_level = init_log_level
+		}
+	};
+
 	if (shell->ctx->tid) {
 		return -EALREADY;
 	}
 
-	int err = instance_init(shell, transport_config, cfg_flags);
-
-	if (err != 0) {
-		return err;
-	}
-
 	k_tid_t tid = k_thread_create(shell->thread,
 				  shell->stack, CONFIG_SHELL_STACK_SIZE,
-				  shell_thread, (void *)shell, (void *)log_backend,
-				  UINT_TO_POINTER(init_log_level),
+				  shell_thread,
+				  (void *)shell, (void *)transport_config,
+				  instance_config.raw,
 				  SHELL_THREAD_PRIORITY, 0, K_NO_WAIT);
 
 	shell->ctx->tid = tid;

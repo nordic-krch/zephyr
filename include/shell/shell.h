@@ -618,16 +618,36 @@ struct shell_stats {
  * @internal @brief Flags for shell backend configuration.
  */
 struct shell_backend_config_flags {
-	uint32_t insert_mode :1; /*!< Controls insert mode for text introduction */
-	uint32_t echo        :1; /*!< Controls shell echo */
-	uint32_t obscure     :1; /*!< If echo on, print asterisk instead */
-	uint32_t mode_delete :1; /*!< Operation mode of backspace key */
-	uint32_t use_colors  :1; /*!< Controls colored syntax */
-	uint32_t use_vt100   :1; /*!< Controls VT100 commands usage in shell */
+	uint16_t insert_mode :1; /*!< Controls insert mode for text introduction */
+	uint16_t echo        :1; /*!< Controls shell echo */
+	uint16_t obscure     :1; /*!< If echo on, print asterisk instead */
+	uint16_t mode_delete :1; /*!< Operation mode of backspace key */
+	uint16_t use_colors  :1; /*!< Controls colored syntax */
+	uint16_t use_vt100   :1; /*!< Controls VT100 commands usage in shell */
 };
 
-BUILD_ASSERT((sizeof(struct shell_backend_config_flags) == sizeof(uint32_t)),
+BUILD_ASSERT((sizeof(struct shell_backend_config_flags) <= sizeof(uint32_t)),
 	     "Structure must fit in 4 bytes");
+
+/**
+ * @internal @brief Structure with configuration passed to shell instance thread.
+ */
+struct shell_instance_config {
+	struct shell_backend_config_flags backend_flags;
+	uint8_t log_enabled: 1;
+	uint8_t init_log_level: 4;
+};
+
+BUILD_ASSERT((sizeof(struct shell_instance_config) <= sizeof(void *)),
+	     "Structure must fit in void *");
+
+/**
+ * @internal @brief Union used to handle casting structure to void *.
+ */
+union shell_instance_config_union {
+	struct shell_instance_config config;
+	void *raw;
+};
 
 /**
  * @internal @brief Default backend configuration.
