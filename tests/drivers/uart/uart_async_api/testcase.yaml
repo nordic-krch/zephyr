@@ -18,3 +18,13 @@ tests:
       - CONFIG_USE_SEGGER_RTT=y
       - CONFIG_UART_RTT=y
     build_only: true
+  drivers.uart.uart_async_api.nrf52_hw_rx_count:
+    tags: drivers
+    filter: CONFIG_UART_CONSOLE and CONFIG_SERIAL_SUPPORT_ASYNC
+    harness: ztest
+    harness_config:
+      fixture: gpio_loopback
+    extra_configs:
+      - CONFIG_UART_0_NRF_HW_ASYNC=y
+      - CONFIG_UART_0_NRF_HW_ASYNC_TIMER=2
+    platform_allow: nrf52840dk_nrf52840
