@@ -103,6 +103,10 @@ config UART_ASYNC_TO_INT_DRIVEN_API
 	  When enabled device which implements only asynchronous API can be used
 	  with interrupt driven API implemented by the generic adaptation layer.
 
+module = UART
+module-str = UART
+source "subsys/logging/Kconfig.template.log_config"
+
 comment "Serial Drivers"
 
 source "drivers/serial/Kconfig.b91"
