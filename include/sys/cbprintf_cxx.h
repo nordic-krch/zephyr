@@ -79,6 +79,13 @@ static inline size_t z_cbprintf_cxx_arg_size(T arg)
 	return sizeof(arg + 0);
 }
 
+static inline void z_cbprintf_bcpy(uint8_t *dst, uint8_t *src, size_t len)
+{
+	for (size_t i = 0; i < len; i++) {
+		dst[i] = src[i];
+	}
+}
+
 /* C++ version for storing arguments. */
 static inline void z_cbprintf_cxx_store_arg(uint8_t *dst, float arg)
 {
@@ -90,7 +97,13 @@ static inline void z_cbprintf_cxx_store_arg(uint8_t *dst, float arg)
 
 static inline void z_cbprintf_cxx_store_arg(uint8_t *dst, void *p)
 {
-	z_cbprintf_wcpy((int *)dst, (int *)&p, sizeof(p) / sizeof(int));
+	/* Adding print fixes wcpy. Without bcpy is required */
+	printk("%p\n", &p);
+	if (0) {
+		z_cbprintf_bcpy((uint8_t *)dst, (uint8_t *)&p, sizeof(p));
+	} else {
+		z_cbprintf_wcpy((int *)dst, (int *)&p, sizeof(p) / sizeof(int));
+	}
 }
 
 static inline void z_cbprintf_cxx_store_arg(uint8_t *dst, char arg)
@@ -134,7 +147,7 @@ static inline void z_cbprintf_cxx_store_arg(uint8_t *dst, T arg)
 	size_t wlen = z_cbprintf_cxx_arg_size(arg) / sizeof(int);
 	void *p = &arg;
 
-	z_cbprintf_wcpy((int *)dst, (int *)p, wlen);
+	z_cbprintf_bcpy((uint8_t *)dst, (uint8_t *)p, 4*wlen);
 }
 
 /* C++ version for long double detection. */
