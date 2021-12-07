@@ -16,6 +16,11 @@
 extern "C" {
 #endif
 
+#if !CONFIG_X86
+#define _EM_FORCED_ALIGNMENT
+#else
+#define _EM_FORCED_ALIGNMENT __aligned(4)
+#endif
 
 /* There are 3 levels of priorities defining an order at which event listeners
  * are notified about incoming events.
@@ -38,9 +43,10 @@ extern "C" {
 
 
 /* Declare a zero-length subscriber. */
-#define _EVENT_SUBSCRIBERS_EMPTY(ename, prio)								\
-	const struct {} _CONCAT(_EVENT_SUBSCRIBERS_SECTION_PREFIX(ename, prio), empty)			\
-	__attribute__((__section__(STRINGIFY(_EVENT_SUBSCRIBERS_SECTION_NAME(ename, prio))))) = {};
+#define _EVENT_SUBSCRIBERS_EMPTY(ename, prio)							\
+	const struct {} _CONCAT(_EVENT_SUBSCRIBERS_SECTION_PREFIX(ename, prio), empty)		\
+	__used _EM_FORCED_ALIGNMENT								\
+	__attribute__((__section__(_EVENT_SUBSCRIBERS_SECTION_NAME(ename, prio)))) = {};
 
 
 /* Convenience macros generating section start and stop markers. */
@@ -75,10 +81,11 @@ extern "C" {
 
 
 /* Subscribe a listener to an event. */
-#define _EVENT_SUBSCRIBE(lname, ename, prio)								\
-	const struct event_subscriber _CONCAT(_CONCAT(__event_subscriber_, ename), lname) __used	\
-	__attribute__((__section__(_EVENT_SUBSCRIBERS_SECTION_NAME(ename, prio)))) = {			\
-		.listener = &_CONCAT(__event_listener_, lname),						\
+#define _EVENT_SUBSCRIBE(lname, ename, prio)							\
+	const struct event_subscriber _CONCAT(_CONCAT(__event_subscriber_, ename), lname)	\
+	__used _EM_FORCED_ALIGNMENT								\
+	__attribute__((__section__(_EVENT_SUBSCRIBERS_SECTION_NAME(ename, prio)))) = {		\
+		.listener = &_CONCAT(__event_listener_, lname),					\
 	}
 
 
@@ -150,11 +157,12 @@ extern "C" {
 
 
 /* Declarations and definitions - for more details refer to public API. */
-#define _EVENT_LISTENER(lname, notification_fn)					\
-	const struct event_listener _CONCAT(__event_listener_, lname) __used	\
-	__attribute__((__section__("event_listeners"))) = {			\
-		.name = STRINGIFY(lname),					\
-		.notification = (notification_fn),				\
+#define _EVENT_LISTENER(lname, notification_fn)						\
+	const struct event_listener _CONCAT(__event_listener_, lname)			\
+	__used _EM_FORCED_ALIGNMENT							\
+	__attribute__((__section__("event_listeners"))) = {				\
+		.name = STRINGIFY(lname),						\
+		.notification = (notification_fn),					\
 	}
 
 
@@ -177,7 +185,7 @@ extern "C" {
 
 #define _EVENT_TYPE_DEFINE(ename, init_log_en, log_fn, trace_data_pointer)			\
 	_EVENT_SUBSCRIBERS_DEFINE(ename);							\
-	const struct event_type _CONCAT(__event_type_, ename) __used				\
+	const struct event_type _CONCAT(__event_type_, ename) __used _EM_FORCED_ALIGNMENT	\
 	__attribute__((__section__("event_types"))) = {						\
 		.name				= STRINGIFY(ename),				\
 		.subs_start	= {								\
