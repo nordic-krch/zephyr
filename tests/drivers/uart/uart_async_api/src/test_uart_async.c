@@ -5,6 +5,8 @@
  */
 
 #include "test_uart.h"
+#include <logging/log.h>
+LOG_MODULE_REGISTER(test);
 
 K_SEM_DEFINE(tx_done, 0, 1);
 K_SEM_DEFINE(tx_aborted, 0, 1);
@@ -69,15 +71,21 @@ void test_single_read(void)
 {
 	uint8_t rx_buf[10] = {0};
 	uint8_t tx_buf[5] = "test";
+	int err;
 
 	zassert_not_equal(memcmp(tx_buf, rx_buf, 5), 0,
 			  "Initial buffer check failed");
 
-	uart_rx_enable(uart_dev, rx_buf, 10, 50 * USEC_PER_MSEC);
+
+	err = uart_rx_enable(uart_dev, rx_buf, 10, 50 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), -EAGAIN,
 		      "RX_RDY not expected at this point");
 
-	uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), 0, "RX_RDY timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), -EAGAIN,
@@ -86,7 +94,9 @@ void test_single_read(void)
 	zassert_equal(memcmp(tx_buf, rx_buf, 5), 0, "Buffers not equal");
 	zassert_not_equal(memcmp(tx_buf, rx_buf+5, 5), 0, "Buffers not equal");
 
-	uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), 0, "RX_RDY timeout");
 	zassert_equal(k_sem_take(&rx_buf_released, K_MSEC(100)),
@@ -111,6 +121,8 @@ ZTEST_BMEM volatile size_t read_len;
 void test_chained_read_callback(const struct device *uart_dev,
 				struct uart_event *evt, void *user_data)
 {
+	int err;
+
 	switch (evt->type) {
 	case UART_TX_DONE:
 		k_sem_give(&tx_done);
@@ -122,14 +134,18 @@ void test_chained_read_callback(const struct device *uart_dev,
 		break;
 	case UART_RX_BUF_REQUEST:
 		if (buf_num == 1U) {
-			uart_rx_buf_rsp(uart_dev,
+			err = uart_rx_buf_rsp(uart_dev,
 					chained_read_buf1,
 					sizeof(chained_read_buf1));
+			zassert_equal(err, 0, "Unexpected err:%d", err);
+
 			buf_num = 2U;
 		} else if (buf_num == 2U) {
-			uart_rx_buf_rsp(uart_dev,
+			err = uart_rx_buf_rsp(uart_dev,
 					chained_read_buf2,
 					sizeof(chained_read_buf2));
+			zassert_equal(err, 0, "Unexpected err:%d", err);
+
 			buf_num = 0U;
 		}
 		break;
@@ -144,21 +160,28 @@ void test_chained_read_callback(const struct device *uart_dev,
 
 void test_chained_read_setup(void)
 {
-	uart_callback_set(uart_dev, test_chained_read_callback, NULL);
+	int err;
+
+	err = uart_callback_set(uart_dev, test_chained_read_callback, NULL);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 }
 
 void test_chained_read(void)
 {
 	uint8_t tx_buf[10];
+	int err;
 
-	uart_rx_enable(uart_dev, chained_read_buf0, 10, 50 * USEC_PER_MSEC);
+	err = uart_rx_enable(uart_dev, chained_read_buf0, 10, 50 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
 	for (int i = 0; i < 6; i++) {
 		zassert_not_equal(k_sem_take(&rx_disabled, K_MSEC(10)),
 				  0,
 				  "RX_DISABLED occurred");
 		snprintf(tx_buf, sizeof(tx_buf), "Message %d", i);
-		uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+		err = uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+		zassert_equal(err, 0, "Unexpected err:%d", err);
+
 		zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0,
 			      "TX_DONE timeout");
 		zassert_equal(k_sem_take(&rx_rdy, K_MSEC(1000)), 0,
@@ -181,6 +204,8 @@ ZTEST_DMEM uint8_t *next_buf = double_buffer[1];
 void test_double_buffer_callback(const struct device *uart_dev,
 				 struct uart_event *evt, void *user_data)
 {
+	int err;
+
 	switch (evt->type) {
 	case UART_TX_DONE:
 		k_sem_give(&tx_done);
@@ -190,7 +215,9 @@ void test_double_buffer_callback(const struct device *uart_dev,
 		k_sem_give(&rx_rdy);
 		break;
 	case UART_RX_BUF_REQUEST:
-		uart_rx_buf_rsp(uart_dev, next_buf, sizeof(double_buffer[0]));
+		err = uart_rx_buf_rsp(uart_dev, next_buf, sizeof(double_buffer[0]));
+		zassert_equal(err, 0, "Unexpected err:%d", err);
+
 		break;
 	case UART_RX_BUF_RELEASED:
 		next_buf = evt->data.rx_buf.buf;
@@ -207,23 +234,27 @@ void test_double_buffer_callback(const struct device *uart_dev,
 
 void test_double_buffer_setup(void)
 {
-	uart_callback_set(uart_dev, test_double_buffer_callback, NULL);
+	int err;
+
+	err = uart_callback_set(uart_dev, test_double_buffer_callback, NULL);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 }
 
 void test_double_buffer(void)
 {
 	uint8_t tx_buf[4];
+	int err;
 
-	zassert_equal(uart_rx_enable(uart_dev,
-				     double_buffer[0],
-				     sizeof(double_buffer[0]),
-				     50 * USEC_PER_MSEC),
-		      0,
-		      "Failed to enable receiving");
+	err = uart_rx_enable(uart_dev, double_buffer[0],
+			     sizeof(double_buffer[0]), 50 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
 	for (int i = 0; i < 100; i++) {
 		snprintf(tx_buf, sizeof(tx_buf), "%03d", i);
-		uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+
+		err = uart_tx(uart_dev, tx_buf, sizeof(tx_buf), 100 * USEC_PER_MSEC);
+		zassert_equal(err, 0, "Unexpected err:%d", err);
+
 		zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0,
 			      "TX_DONE timeout");
 		zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), 0,
@@ -232,7 +263,9 @@ void test_double_buffer(void)
 			      0,
 			      "Buffers not equal");
 	}
-	uart_rx_disable(uart_dev);
+	err = uart_rx_disable(uart_dev);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&rx_disabled, K_MSEC(100)), 0,
 		      "RX_DISABLED timeout");
 }
@@ -254,10 +287,16 @@ void test_read_abort_callback(const struct device *dev,
 	case UART_RX_BUF_RELEASED:
 		k_sem_give(&rx_buf_released);
 		err = k_sem_take(&rx_rdy, K_NO_WAIT);
+		if (err < 0) {
+			LOG_ERR("failed in buf release");
+		}
 		failed_in_isr |= (err < 0);
 		break;
 	case UART_RX_DISABLED:
 		err = k_sem_take(&rx_buf_released, K_NO_WAIT);
+		if (err < 0) {
+			LOG_ERR("failed in rx disabled");
+		}
 		failed_in_isr |= (err < 0);
 		k_sem_give(&rx_disabled);
 		break;
@@ -268,8 +307,11 @@ void test_read_abort_callback(const struct device *dev,
 
 void test_read_abort_setup(void)
 {
+	int err;
+
 	failed_in_isr = false;
-	uart_callback_set(uart_dev, test_read_abort_callback, NULL);
+	err = uart_callback_set(uart_dev, test_read_abort_callback, NULL);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
 	k_sem_reset(&rx_rdy);
 	k_sem_reset(&rx_buf_released);
@@ -281,25 +323,33 @@ void test_read_abort(void)
 {
 	uint8_t rx_buf[100];
 	uint8_t tx_buf[100];
+	int err;
 
 	memset(rx_buf, 0, sizeof(rx_buf));
 	memset(tx_buf, 1, sizeof(tx_buf));
 
-	uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	err = uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
-	uart_tx(uart_dev, tx_buf, 5, 100 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, tx_buf, 5, 100 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), 0, "RX_RDY timeout");
 	zassert_equal(memcmp(tx_buf, rx_buf, 5), 0, "Buffers not equal");
 
-	uart_tx(uart_dev, tx_buf, 95, 100 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, tx_buf, 95, 100 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
 	/* Wait for at least one character. RX_RDY event will be generated only
 	 * if there is pending data.
 	 */
-	k_busy_wait(1000);
+	k_busy_wait(100);
 
-	uart_rx_disable(uart_dev);
+	k_sem_reset(&rx_disabled);
+	err = uart_rx_disable(uart_dev);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_disabled, K_MSEC(100)), 0,
 		      "RX_DISABLED timeout");
@@ -309,10 +359,21 @@ void test_read_abort(void)
 	/* Read out possible other RX bytes
 	 * that may affect following test on RX
 	 */
-	uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	err = uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	while (k_sem_take(&rx_rdy, K_MSEC(1000)) != -EAGAIN)
 		;
-	uart_rx_disable(uart_dev);
+
+	k_sem_reset(&rx_disabled);
+	err = uart_rx_disable(uart_dev);
+	if (err == 0) {
+		zassert_equal(k_sem_take(&rx_disabled, K_MSEC(100)), 0,
+			      "RX_DISABLED timeout");
+	}
+
+	zassert_true(err == 0 || err == -EFAULT, "Unexpected err:%d", err);
+
 }
 
 ZTEST_BMEM volatile size_t sent;
@@ -348,26 +409,42 @@ void test_write_abort_callback(const struct device *dev,
 
 void test_write_abort_setup(void)
 {
-	uart_callback_set(uart_dev, test_write_abort_callback, NULL);
+	int err;
+
+	err = uart_callback_set(uart_dev, test_write_abort_callback, NULL);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
+	k_sem_reset(&rx_rdy);
+	k_sem_reset(&rx_buf_released);
+	k_sem_reset(&rx_disabled);
+	k_sem_reset(&tx_done);
 }
 
 void test_write_abort(void)
 {
 	uint8_t rx_buf[100];
 	uint8_t tx_buf[100];
+	int err;
 
 	memset(rx_buf, 0, sizeof(rx_buf));
 	memset(tx_buf, 1, sizeof(tx_buf));
 
-	uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	err = uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
-	uart_tx(uart_dev, tx_buf, 5, 100 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, tx_buf, 5, 100 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), 0, "RX_RDY timeout");
 	zassert_equal(memcmp(tx_buf, rx_buf, 5), 0, "Buffers not equal");
 
-	uart_tx(uart_dev, tx_buf, 95, 100 * USEC_PER_MSEC);
-	uart_tx_abort(uart_dev);
+	err = uart_tx(uart_dev, tx_buf, 95, 100 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
+	err = uart_tx_abort(uart_dev);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_aborted, K_MSEC(100)), 0,
 		      "TX_ABORTED timeout");
 	if (sent != 0) {
@@ -375,7 +452,10 @@ void test_write_abort(void)
 			      "RX_RDY timeout");
 		zassert_equal(sent, received, "Sent is not equal to received.");
 	}
-	uart_rx_disable(uart_dev);
+
+	err = uart_rx_disable(uart_dev);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&rx_buf_released, K_MSEC(100)),
 		      0,
 		      "RX_BUF_RELEASED timeout");
@@ -414,37 +494,54 @@ void test_forever_timeout_callback(const struct device *dev,
 
 void test_forever_timeout_setup(void)
 {
-	uart_callback_set(uart_dev, test_forever_timeout_callback, NULL);
+	int err;
+
+	err = uart_callback_set(uart_dev, test_forever_timeout_callback, NULL);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
+	k_sem_reset(&rx_rdy);
+	k_sem_reset(&rx_buf_released);
+	k_sem_reset(&rx_disabled);
+	k_sem_reset(&tx_done);
 }
 
 void test_forever_timeout(void)
 {
 	uint8_t rx_buf[100];
 	uint8_t tx_buf[100];
+	int err;
 
 	memset(rx_buf, 0, sizeof(rx_buf));
 	memset(tx_buf, 1, sizeof(tx_buf));
 
-	uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), SYS_FOREVER_US);
+	err = uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), SYS_FOREVER_US);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
-	uart_tx(uart_dev, tx_buf, 5, SYS_FOREVER_US);
+	err = uart_tx(uart_dev, tx_buf, 5, SYS_FOREVER_US);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_not_equal(k_sem_take(&tx_aborted, K_MSEC(1000)), 0,
 			  "TX_ABORTED timeout");
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_not_equal(k_sem_take(&rx_rdy, K_MSEC(1000)), 0,
 			  "RX_RDY timeout");
 
-	uart_tx(uart_dev, tx_buf, 95, SYS_FOREVER_US);
+	err = uart_tx(uart_dev, tx_buf, 95, SYS_FOREVER_US);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
 	zassert_not_equal(k_sem_take(&tx_aborted, K_MSEC(1000)), 0,
 			  "TX_ABORTED timeout");
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(100)), 0, "RX_RDY timeout");
 
-
 	zassert_equal(memcmp(tx_buf, rx_buf, 100), 0, "Buffers not equal");
 
-	uart_rx_disable(uart_dev);
+	err = uart_rx_disable(uart_dev);
+	/* By the time we get here uart rx may already be disabled (becuase buffer
+	 * is filled).
+	 */
+	zassert_true(err == 0 || err == -EFAULT, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&rx_buf_released, K_MSEC(100)),
 		      0,
 		      "RX_BUF_RELEASED timeout");
@@ -460,10 +557,14 @@ ZTEST_BMEM volatile uint8_t tx_sent;
 void test_chained_write_callback(const struct device *uart_dev,
 				 struct uart_event *evt, void *user_data)
 {
+	int err;
+
 	switch (evt->type) {
 	case UART_TX_DONE:
 		if (chained_write_next_buf) {
-			uart_tx(uart_dev, chained_write_tx_bufs[1], 10, 100 * USEC_PER_MSEC);
+			err = uart_tx(uart_dev, chained_write_tx_bufs[1], 10, 100 * USEC_PER_MSEC);
+			zassert_equal(err, 0, "Unexpected err:%d", err);
+
 			chained_write_next_buf = false;
 		}
 		tx_sent = 1;
@@ -490,18 +591,25 @@ void test_chained_write_callback(const struct device *uart_dev,
 
 void test_chained_write_setup(void)
 {
-	uart_callback_set(uart_dev, test_chained_write_callback, NULL);
+	int err;
+
+	err = uart_callback_set(uart_dev, test_chained_write_callback, NULL);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 }
 
 void test_chained_write(void)
 {
 	uint8_t rx_buf[20];
+	int err;
 
 	memset(rx_buf, 0, sizeof(rx_buf));
 
-	uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	err = uart_rx_enable(uart_dev, rx_buf, sizeof(rx_buf), 50 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
-	uart_tx(uart_dev, chained_write_tx_bufs[0], 10, 100 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, chained_write_tx_bufs[0], 10, 100 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(100)), 0, "TX_DONE timeout");
 	zassert_equal(chained_write_next_buf, false, "Sent no message");
@@ -513,7 +621,9 @@ void test_chained_write(void)
 		      0,
 		      "Buffers not equal");
 
-	uart_rx_disable(uart_dev);
+	err = uart_rx_disable(uart_dev);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&rx_buf_released, K_MSEC(100)),
 		      0,
 		      "RX_BUF_RELEASED timeout");
@@ -553,7 +663,11 @@ void test_long_buffers_callback(const struct device *uart_dev,
 		break;
 	case UART_RX_BUF_REQUEST:
 		if (next_buf) {
-			uart_rx_buf_rsp(uart_dev, long_rx_buf2, 1024);
+			int err;
+
+			err = uart_rx_buf_rsp(uart_dev, long_rx_buf2, 1024);
+			zassert_equal(err, 0, "Unexpected err:%d", err);
+
 			next_buf = false;
 		}
 		k_sem_give(&rx_disabled);
@@ -565,17 +679,25 @@ void test_long_buffers_callback(const struct device *uart_dev,
 
 void test_long_buffers_setup(void)
 {
-	uart_callback_set(uart_dev, test_long_buffers_callback, NULL);
+	int err;
+
+	err = uart_callback_set(uart_dev, test_long_buffers_callback, NULL);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 }
 
 void test_long_buffers(void)
 {
+	int err;
+
 	memset(long_rx_buf, 0, sizeof(long_rx_buf));
 	memset(long_tx_buf, 1, sizeof(long_tx_buf));
 
-	uart_rx_enable(uart_dev, long_rx_buf, sizeof(long_rx_buf), 10 * USEC_PER_MSEC);
+	err = uart_rx_enable(uart_dev, long_rx_buf, sizeof(long_rx_buf), 10 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
 
-	uart_tx(uart_dev, long_tx_buf, 500, 200 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, long_tx_buf, 500, 200 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(200)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(200)), 0, "RX_RDY timeout");
 	zassert_equal(long_received[0], 500, "Wrong number of bytes received.");
@@ -584,7 +706,9 @@ void test_long_buffers(void)
 		      "Buffers not equal");
 
 	evt_num = 0;
-	uart_tx(uart_dev, long_tx_buf, 1000, 200 * USEC_PER_MSEC);
+	err = uart_tx(uart_dev, long_tx_buf, 1000, 200 * USEC_PER_MSEC);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&tx_done, K_MSEC(200)), 0, "TX_DONE timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(200)), 0, "RX_RDY timeout");
 	zassert_equal(k_sem_take(&rx_rdy, K_MSEC(200)), 0, "RX_RDY timeout");
@@ -597,7 +721,9 @@ void test_long_buffers(void)
 		      0,
 		      "Buffers not equal");
 
-	uart_rx_disable(uart_dev);
+	err = uart_rx_disable(uart_dev);
+	zassert_equal(err, 0, "Unexpected err:%d", err);
+
 	zassert_equal(k_sem_take(&rx_buf_released, K_MSEC(100)),
 		      0,
 		      "RX_BUF_RELEASED timeout");
