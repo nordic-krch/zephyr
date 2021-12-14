@@ -62,6 +62,7 @@ static void async_callback(const struct device *dev,
 static void process_byte(uint8_t b)
 {
 	int base = b >> 4;
+	__ASSERT_NO_MSG(base >= 0 && base < 4);
 	struct rx_source *src = &source[base];
 	bool ok;
 
@@ -74,7 +75,6 @@ static void process_byte(uint8_t b)
 	}
 
 	ok = ((b - src->prev) == 1) || (!b && (src->prev == 0x0F));
-
 	zassert_true(ok, "Unexpected byte received:0x%02x, prev:0x%02x",
 			(base << 4) | b, (base << 4) | src->prev);
 	src->prev = b;
@@ -106,6 +106,7 @@ static void counter_top_handler(const struct device *dev, void *user_data)
 		while (uart_poll_in(uart_dev, &c) >= 0) {
 			process_byte(c);
 		}
+
 	}
 }
 
@@ -224,10 +225,10 @@ static void poll_out_thread(void *data, void *unused0, void *unused1)
 	bulk_poll_out((struct test_data *)data, 200, 600);
 }
 
-K_THREAD_STACK_DEFINE(high_poll_out_thread_stack, 1024);
+K_THREAD_STACK_DEFINE(high_poll_out_thread_stack, 2048);
 static struct k_thread high_poll_out_thread;
 
-K_THREAD_STACK_DEFINE(int_async_thread_stack, 1024);
+K_THREAD_STACK_DEFINE(int_async_thread_stack, 2048);
 static struct k_thread int_async_thread;
 
 static void int_async_thread_func(void *p_data, void *base, void *range)
@@ -344,11 +345,13 @@ static void test_mixed_uart_access(void)
 				i, source[i].cnt, repeat);
 
 	}
-
 }
 
 void test_main(void)
 {
+	/* To allow logging thread initialization. */
+	k_msleep(50);
+
 	init_test();
 
 	ztest_test_suite(uart_mix_fifo_poll_test,
