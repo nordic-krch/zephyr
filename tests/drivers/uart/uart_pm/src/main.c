@@ -8,6 +8,8 @@
 #include <device.h>
 #include <pm/device.h>
 #include <ztest.h>
+#include <logging/log.h>
+LOG_MODULE_REGISTER(test);
 
 #if defined(CONFIG_BOARD_NRF52840DK_NRF52840)
 #define LABEL uart0
@@ -64,6 +66,67 @@ static void async_callback(const struct device *dev, struct uart_event *evt, voi
 	}
 }
 
+static void int_driven_callback(const struct device *dev, void *user_data)
+{
+	bool *test_ok = (bool *)user_data;
+	static const uint8_t test_byte = 0xAA;
+
+	while (uart_irq_is_pending(dev)) {
+		int len;
+
+		if (uart_irq_rx_ready(dev)) {
+			uint8_t x;
+
+			len = uart_fifo_read(dev, &x, 1);
+			if (len == 1 && x == test_byte) {
+				*test_ok = true;
+			} else {
+				LOG_ERR("Received data: %02x (%c) (exp:%02x)",
+					x, (char)x, test_byte);
+			}
+
+			uart_irq_rx_disable(dev);
+		}
+
+		if (uart_irq_tx_ready(dev)) {
+			len = uart_fifo_fill(dev, &test_byte, 1);
+			if (len != 1) {
+				LOG_ERR("Failed to fill fifo");
+			}
+
+			uart_irq_tx_disable(dev);
+		}
+	}
+}
+
+/* Verify that interrupt driven functionality is working.
+ * Enable rx and tx interrupt. Send 1 byte and verify that same byte is received.
+ */
+static void int_driven_verify(const struct device *dev, bool active)
+{
+	/* Check if api is supported. */
+	if (uart_irq_is_pending(dev) < 0) {
+		return;
+	}
+
+	/* int driven api shall not be used when uart is suspended. */
+	if (!active) {
+		return;
+	}
+
+	bool test_ok = false;
+
+	uart_irq_callback_user_data_set(dev, int_driven_callback, &test_ok);
+
+	LOG_INF("Starting int driven verification");
+	uart_irq_rx_enable(dev);
+	uart_irq_tx_enable(dev);
+
+	k_msleep(10);
+	zassert_true(test_ok, NULL);
+}
+
+
 static bool async_verify(const struct device *dev, bool active)
 {
 	char txbuf[] = "test";
@@ -109,6 +172,8 @@ static bool async_verify(const struct device *dev, bool active)
 
 static void communication_verify(const struct device *dev, bool active)
 {
+	int_driven_verify(dev, active);
+
 	bool is_async = async_verify(dev, active);
 
 	polling_verify(dev, is_async, active);
