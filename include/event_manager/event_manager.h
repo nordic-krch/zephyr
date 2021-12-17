@@ -24,7 +24,7 @@
 #include <zephyr/types.h>
 #include <sys/reboot.h>
 #include <sys/__assert.h>
-#include <logging/log_ctrl.h>
+#include <logging/log.h>
 
 #include <event_manager/event_manager_priv.h>
 
@@ -304,6 +304,19 @@ void *event_manager_alloc(size_t size);
  * @param addr  Pointer to previously allocated memory.
  **/
 void event_manager_free(void *addr);
+
+#define EVENT_MANAGER_LOG(eh, ...) do { \
+	LOG_MODULE_DECLARE(event_manager, CONFIG_EVENT_MANAGER_LOG_LEVEL); \
+	if (IS_ENABLED(CONFIG_EVENT_MANAGER_LOG_EVENT_TYPE)) { \
+		COND_CODE_0(NUM_VA_ARGS_LESS_1(__VA_ARGS__), \
+			    (LOG_INF("e:%s " __VA_ARGS__, eh->type_id->name);), \
+			    (LOG_INF("e:%s " GET_ARG_N(1, __VA_ARGS__), \
+				     eh->type_id->name, GET_ARGS_LESS_N(1, __VA_ARGS__));)\
+			   ) \
+	} else { \
+		LOG_INF(__VA_ARGS__); \
+	} \
+} while (0)
 
 
 #ifdef __cplusplus
