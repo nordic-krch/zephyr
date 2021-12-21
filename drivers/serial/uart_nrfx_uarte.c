@@ -371,23 +371,26 @@ static int ppi_setup(uint32_t evt, uint32_t tsk)
 
 static void uarte_nrfx_poll_out(const struct device *dev, unsigned char c)
 {
-	if (!(get_dev_data(dev)->flags & UARTE_DATA_FLAG_OFF)) {
-		nrf_gpio_cfg_output(3);
-		nrf_gpio_pin_set(3);
-		nrfx_err_t err = nrfx_uarte_poll_out(&get_dev_config(dev)->instance, c, 10000);
+	nrf_gpio_cfg_output(3);
+	nrf_gpio_pin_set(3);
+	nrfx_err_t err;
+	static const uint32_t flags = NRFX_UARTE_TX_BLOCKING | NRFX_UARTE_TX_EARLY_RETURN;
 
-		nrf_gpio_pin_clear(3);
-		if (err != NRFX_SUCCESS) {
-			LOG_INST_WRN(GET_LOG(dev), "Poll out failed (err: %08x)", err);
-		}
+	while ((err = nrfx_uarte_tx(&get_dev_config(dev)->instance, &c, 1, flags)) ==
+			NRFX_ERROR_BUSY) {
 	}
+
+	if (err != NRFX_SUCCESS) {
+		while(1);
+	}
+	nrf_gpio_pin_clear(3);
 }
 
 static void tx_timeout(struct k_timer *timer)
 {
 	const struct device *dev = (const struct device *)k_timer_user_data_get(timer);
 
-	(void)nrfx_uarte_tx_abort(&get_dev_config(dev)->instance, false, false);
+	(void)nrfx_uarte_tx_abort(&get_dev_config(dev)->instance, false);
 }
 
 /* Setup cache buffer (used for sending data from RO memmory).
@@ -438,7 +441,8 @@ static int uarte_nrfx_tx(const struct device *dev, const uint8_t *buf,
 		(void)setup_tx_cache(data, &xfer_len);
 	}
 
-	err = nrfx_uarte_tx(&get_dev_config(dev)->instance, xfer_buf, xfer_len);
+	err = nrfx_uarte_tx(&get_dev_config(dev)->instance, xfer_buf, xfer_len, 0);
+	LOG_INST_DBG(GET_LOG(dev), "uart tx:%d", err);
 	if (err != NRFX_SUCCESS)
 	{
 		__ASSERT(0, "err:%08x %s %d", err, buf, len);
@@ -460,7 +464,7 @@ static int uarte_nrfx_tx_abort(const struct device *dev)
 	nrfx_err_t err;
 
 	k_timer_stop(&data->async->tx.timer);
-	err = nrfx_uarte_tx_abort(&get_dev_config(dev)->instance, false, false);
+	err = nrfx_uarte_tx_abort(&get_dev_config(dev)->instance, false);
 
 	return (err != NRFX_SUCCESS) ? -EFAULT : 0;
 }
@@ -784,9 +788,6 @@ static void rx_disabled_handler(const struct device *dev,
 	stop_rx_framework(dev, data, flush_cnt);
 	report_rx_rdy(dev, data);
 
-	if (flush_cnt) {
-		LOG_WRN("flush_cnt: %d", flush_cnt);
-	}
 	if (data->async->rx.buf) {
 		event.type = UART_RX_BUF_RELEASED;
 		event.data.rx_buf.buf = data->async->rx.buf;
@@ -866,7 +867,8 @@ static void tx_done_handler(const struct device *dev, nrfx_uarte_event_t const *
 		if (setup_tx_cache(data, &len)) {
 			nrfx_err_t err;
 
-			err = nrfx_uarte_tx(&get_dev_config(dev)->instance, data->async->tx.cache_buf, len);
+			err = nrfx_uarte_tx(&get_dev_config(dev)->instance,
+					    data->async->tx.cache_buf, len, 0);
 
 			(void)err;
 			__ASSERT_NO_MSG(err == NRFX_SUCCESS);
@@ -987,7 +989,7 @@ static int uarte_nrfx_rx_enable(const struct device *dev, uint8_t *buf,
 			return rv;
 		}
 
-		err = nrfx_uarte_rx_enable(instance, false, false);
+		err = nrfx_uarte_rx_enable(instance, 0);
 		return (err != NRFX_SUCCESS) ? -EBUSY : 0;
 	}
 
@@ -1003,7 +1005,10 @@ static int uarte_nrfx_rx_enable(const struct device *dev, uint8_t *buf,
 		return -EIO;
 	}
 
-	err = nrfx_uarte_rx_enable(instance, stop_on_end, true);
+	uint32_t flags = NRFX_UARTE_RX_CONT |
+			 (is_int_driven_api(dev) ? 0 : NRFX_UARTE_RX_STOP_ON_END);
+
+	err = nrfx_uarte_rx_enable(instance, flags);
 	if (err != NRFX_SUCCESS) {
 		return -EBUSY;
 	}
@@ -1047,17 +1052,6 @@ static int uarte_nrfx_rx_buf_rsp(const struct device *dev, uint8_t *buf,
 	return rv;
 }
 
-static void set_next_rx_byte(const nrfx_uarte_t *instance, uint8_t *data)
-{
-	nrfx_err_t err;
-
-	err = nrfx_uarte_rx_buffer_set(instance, data, 1);
-	__ASSERT_NO_MSG(err == NRFX_SUCCESS);
-
-	err = nrfx_uarte_rx_enable(instance, false, false);
-	__ASSERT_NO_MSG(err == NRFX_SUCCESS || err == NRFX_ERROR_BUSY);
-}
-
 static int uarte_nrfx_poll_in(const struct device *dev, unsigned char *c)
 {
 	struct uarte_nrfx_data *data = get_dev_data(dev);
@@ -1075,12 +1069,9 @@ static int uarte_nrfx_poll_in(const struct device *dev, unsigned char *c)
 		return -EBUSY;
 	}
 
-	uint8_t *buf;
-	size_t len;
-
-	err = nrfx_uarte_get_rx(instance, &buf, &len);
-	if (err == NRFX_SUCCESS && len == 1) {
-		*c = buf[0];
+	err = nrfx_uarte_rx_ready(instance, NULL);
+	if (err == NRFX_SUCCESS) {
+		*c = data->rx_byte;
 		err = nrfx_uarte_rx_buffer_set(instance, &data->rx_byte, 1);
 		__ASSERT_NO_MSG(err == NRFX_SUCCESS);
 
@@ -1174,8 +1165,17 @@ static int start_rx(const struct device *dev, bool int_driven_api)
 	struct uarte_nrfx_data *data = get_dev_data(dev);
 
 	if (is_sync_api(dev)) {
-		set_next_rx_byte(&get_dev_config(dev)->instance,
-				 (uint8_t *)&data->rx_byte);
+		nrfx_err_t err;
+		const nrfx_uarte_t *instance = &get_dev_config(dev)->instance;
+
+		err = nrfx_uarte_rx_buffer_set(instance, &data->rx_byte, 1);
+		__ASSERT_NO_MSG(err == NRFX_SUCCESS);
+
+		err = nrfx_uarte_rx_enable(instance, 0);
+		__ASSERT_NO_MSG(err == NRFX_SUCCESS || err == NRFX_ERROR_BUSY);
+
+		(void)err;
+
 		return 0;
 	} else if (IS_ENABLED(CONFIG_UART_INTERRUPT_DRIVEN) && int_driven_api) {
 		return uart_async_to_irq_rx_enable(dev);
@@ -1380,7 +1380,10 @@ static int uarte_nrfx_pm_action(const struct device *dev,
 			/* reset rx data. */
 		}
 
-		err = nrfx_uarte_tx_abort(instance, true, true);
+		err = nrfx_uarte_tx_lock(instance);
+		__ASSERT_NO_MSG(err == NRFX_SUCCESS);
+
+		err = nrfx_uarte_tx_abort(instance, true);
 		__ASSERT_NO_MSG((err == NRFX_SUCCESS) ||
 				(err == NRFX_ERROR_INVALID_STATE));
 
@@ -1459,13 +1462,14 @@ static int uarte_nrfx_pm_action(const struct device *dev,
 	static const struct uarte_nrfx_config uarte_##idx##_config = { \
 		.instance = NRFX_UARTE_INSTANCE(idx), \
 		.nrfx_config = { \
-			.p_psel_config = NULL,\
 			.p_context = (void *)DEVICE_DT_GET(UARTE(idx)), \
 			.baudrate = NRF_BAUDRATE(uart##idx##_config.baudrate), \
 			.interrupt_priority = DT_IRQ(UARTE(idx), priority), \
 			.hal_cfg = NRF_UARTE_CONFIG(uart##idx##_config, \
 						UARTE_ODD_PARITY_ALLOWED), \
 			.tx_stop_on_end = IS_ENABLED(CONFIG_UART_##idx##_ENHANCED_POLL_OUT), \
+			.skip_psel_cfg = true, \
+			.skip_gpio_cfg = true, \
 		}, \
 		.pin_config = { \
 			COND_CODE_1(CONFIG_PINCTRL, \
