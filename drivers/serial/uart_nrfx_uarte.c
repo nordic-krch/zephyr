@@ -131,12 +131,13 @@ struct uarte_tx_data {
 	uint8_t cache_buf[8];
 };
 
-#define UARTE_DATA_FLAG_OFF BIT(0)
-#define UARTE_DATA_FLAG_HW_RX_COUNT BIT(1)
-#define UARTE_DATA_FLAG_RX_RDY_REPORTING BIT(2)
-#define UARTE_DATA_FLAG_RX_TIMEOUT_SETUP BIT(3)
-#define UARTE_DATA_FLAG_IN_RX_DONE_IRQ BIT(4)
-#define UARTE_DATA_FLAG_RX_ACTIVE BIT(5)
+#define UARTE_DATA_FLAG_OFF			BIT(0)
+#define UARTE_DATA_FLAG_HW_RX_COUNT 		BIT(1)
+#define UARTE_DATA_FLAG_RX_RDY_REPORTING 	BIT(2)
+#define UARTE_DATA_FLAG_RX_TIMEOUT_SETUP 	BIT(3)
+#define UARTE_DATA_FLAG_RX_ACTIVE		BIT(5)
+#define UARTE_DATA_FLAG_RX_REPORT		BIT(6)
+#define UARTE_DATA_FLAG_TRAMPOLINE		BIT(7)
 
 #define UARTE_DATA_FLAG_ERROR_SHIFT 8
 #define UARTE_DATA_FLAG_ERROR_BITS 8
@@ -540,13 +541,10 @@ static void hw_rx_counter_disable(const struct device *dev, struct uarte_nrfx_da
 	nrfx_timer_disable(timer);
 }
 
-/* Function can be called from two contexts: UART interrupt and timeout handler.
- * Driver has no control over priority of those contexts thus it assumes that one
- * may preempt another. Function is not reentrant. Before enterring from timeout
- * context uart interrupt is disabled to ensure that it will not preempt. When
- * calling from uarte context a flag is set to indicate that interrupt context is
- * active, if timeout handler preempts it checks this flag and if set reporting
- * is skipped.
+/* Function is called when user buffer is filled or when timeout occured.
+ * When timeout occured, trampoline triggers UARTE interrupt and in that context
+ * rx data is reported. It means that report always happens from single context
+ * (but from two places).
  */
 static void report_rx_rdy(const struct device *dev,
 			  struct uarte_nrfx_data *data)
@@ -620,14 +618,8 @@ static void rx_timeout_bbb(struct k_timer *timer)
 		return;
 	}
 
-	if (data->flags & UARTE_DATA_FLAG_IN_RX_DONE_IRQ) {
-		return;
-	}
-
-	nrfx_uarte_rx_int_disable(instance);
-	LOG_INST_DBG(GET_LOG(dev), "Report from timeout");
-	report_rx_rdy(dev, data);
-	nrfx_uarte_rx_int_enable(instance);
+	atomic_or(&data->flags, UARTE_DATA_FLAG_RX_REPORT);
+	nrfx_uarte_int_trigger(instance);
 }
 
 static void rx_timeout(struct k_timer *timer)
@@ -643,24 +635,16 @@ static void rx_timeout(struct k_timer *timer)
 		return;
 	}
 
-	if (data->flags & UARTE_DATA_FLAG_IN_RX_DONE_IRQ) {
-		return;
-	}
-
-	nrfx_uarte_rx_int_disable(instance);
-
 	nrf_gpio_cfg_output(31);
 	nrf_gpio_pin_set(31);
-	data->async->rx.curr_cnt = nrfx_timer_capture(&cfg->timer, 0);
-	last_report_cnt = data->async->rx.last_report_cnt;
-	curr_cnt = data->async->rx.curr_cnt;
 
-	new_bytes = curr_cnt - last_report_cnt;
+	curr_cnt = nrfx_timer_capture(&cfg->timer, 0);
+	last_report_cnt = data->async->rx.last_report_cnt;
 	last_cnt = data->async->rx.last_cnt;
 	data->async->rx.last_cnt = curr_cnt;
+	new_bytes = curr_cnt - last_report_cnt;
 
-	/* If there are new bytes coming reset timeout and return. */
-	if (curr_cnt != last_cnt || !new_bytes) {
+	if (curr_cnt != last_cnt || new_bytes != 0) {
 		data->async->rx.t_countdown = RX_TIMEOUT_DIV;
 	} else {
 		/* If no new bytes, continue countdown. */
@@ -671,15 +655,13 @@ static void rx_timeout(struct k_timer *timer)
 			 * data, if we interrupted another place of report then skip.
 			 */
 
-			report_rx_rdy(dev, data);
-			data->async->rx.t_countdown = RX_TIMEOUT_DIV;
+			atomic_or(&data->flags, UARTE_DATA_FLAG_RX_REPORT);
+			nrfx_uarte_int_trigger(instance);
 		}
 	}
 
 	/*restart_rx_timeout(data);*/
 	nrf_gpio_pin_clear(31);
-
-	nrfx_uarte_rx_int_enable(instance);
 }
 
 static int schedule_bbb(const struct device *dev, struct uarte_nrfx_data *data, bool timeout)
@@ -729,19 +711,14 @@ static void rx_done_handler_bbb(const struct device *dev, struct uarte_nrfx_data
 
 static void rx_done_handler(const struct device *dev, struct uarte_nrfx_data *data)
 {
-	atomic_or(&data->flags, UARTE_DATA_FLAG_IN_RX_DONE_IRQ);
-
 	if (HW_RX_COUNTING_ENABLED(get_dev_config(dev))) {
 		data->async->rx.curr_cnt =
 			nrfx_timer_capture(&get_dev_config(dev)->timer, 0);
-		report_rx_rdy(dev, data);
 		data->async->rx.t_countdown = RX_TIMEOUT_DIV;
-		/*restart_rx_timeout(data);*/
+		report_rx_rdy(dev, data);
 	} else {
 		rx_done_handler_bbb(dev, data);
 	}
-
-	atomic_and(&data->flags, ~UARTE_DATA_FLAG_IN_RX_DONE_IRQ);
 }
 
 static void rx_buf_req_handler(const struct device *dev, struct uarte_nrfx_data *data)
@@ -759,6 +736,18 @@ static void rx_buf_req_handler(const struct device *dev, struct uarte_nrfx_data 
 
 	if (call_handler) {
 		data->async->user_callback(dev, &event, data->async->user_data);
+	}
+}
+
+static void trigger_handler(const struct device *dev, struct uarte_nrfx_data *data)
+{
+	if (atomic_and(&data->flags, ~UARTE_DATA_FLAG_RX_REPORT) & UARTE_DATA_FLAG_RX_ACTIVE) {
+		if (HW_RX_COUNTING_ENABLED(get_dev_config(dev))) {
+			data->async->rx.curr_cnt =
+				nrfx_timer_capture(&get_dev_config(dev)->timer, 0);
+			data->async->rx.t_countdown = RX_TIMEOUT_DIV;
+		}
+		report_rx_rdy(dev, data);
 	}
 }
 
@@ -918,6 +907,9 @@ static void event_handler(nrfx_uarte_event_t const *event, void *context)
 		break;
 	case NRFX_UARTE_EVT_RX_DISABLED:
 		rx_disabled_handler(dev, data, event->data.rx_disabled.flush_cnt);
+		break;
+	case NRFX_UARTE_EVT_TRIGGER:
+		trigger_handler(dev, data);
 		break;
 	case NRFX_UARTE_EVT_ERROR:
 		rx_error_handler(dev, data);
