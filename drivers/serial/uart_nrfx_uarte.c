@@ -18,7 +18,6 @@
 #include <kernel.h>
 #include <logging/log.h>
 #include <helpers/nrfx_gppi.h>
-#include <nrfx_egu.h>
 #include "uart_async_to_irq.h"
 #include <drivers/pinctrl.h>
 
@@ -152,15 +151,9 @@ struct uarte_async_data {
 	struct uarte_tx_data tx;
 };
 
-struct uart_nrfx_a2i {
-	struct uart_async_to_irq_data data;
-	struct k_timer *timer;
-	const nrfx_egu_t *egu;
-};
-
 /* Device data structure */
 struct uarte_nrfx_data {
-	struct uart_nrfx_a2i *a2i_data;
+	struct uart_async_to_irq_data *a2i_data;
 	struct uarte_async_data *async;
 	atomic_t flags;
 	struct uart_config config;
@@ -381,9 +374,6 @@ static void uarte_nrfx_poll_out(const struct device *dev, unsigned char c)
 			NRFX_ERROR_BUSY) {
 	}
 
-	if (err != NRFX_SUCCESS) {
-		while(1);
-	}
 	nrf_gpio_pin_clear(3);
 }
 
@@ -607,19 +597,24 @@ static void restart_rx_timeout(struct uarte_nrfx_data *data)
 		      K_NO_WAIT);
 }
 
+static void trigger_int(const struct device *dev, uint32_t flag)
+{
+	if ((atomic_or(&get_dev_data(dev)->flags, flag) & flag) == 0) {
+		nrfx_uarte_int_trigger(&get_dev_config(dev)->instance);
+	}
+}
+
 static void rx_timeout_bbb(struct k_timer *timer)
 {
 	const struct device *dev = (const struct device *)k_timer_user_data_get(timer);
 	struct uarte_nrfx_data *data = get_dev_data(dev);
-	const nrfx_uarte_t *instance = &get_dev_config(dev)->instance;
 
 	/* Timeout may arrive after RX is disabled. */
 	if (!(data->flags & UARTE_DATA_FLAG_RX_ACTIVE)) {
 		return;
 	}
 
-	atomic_or(&data->flags, UARTE_DATA_FLAG_RX_REPORT);
-	nrfx_uarte_int_trigger(instance);
+	trigger_int(dev, UARTE_DATA_FLAG_RX_REPORT);
 }
 
 static void rx_timeout(struct k_timer *timer)
@@ -627,8 +622,8 @@ static void rx_timeout(struct k_timer *timer)
 	const struct device *dev = (const struct device *)k_timer_user_data_get(timer);
 	struct uarte_nrfx_data *data = get_dev_data(dev);
 	const struct uarte_nrfx_config *cfg = get_dev_config(dev);
-	const nrfx_uarte_t *instance = &cfg->instance;
-	uint32_t new_bytes, last_report_cnt, curr_cnt, last_cnt;
+	int new_bytes;
+	uint32_t last_report_cnt, curr_cnt, last_cnt;
 
 	/* Timeout may arrive after RX is disabled. */
 	if (!(data->flags & UARTE_DATA_FLAG_RX_ACTIVE)) {
@@ -644,7 +639,7 @@ static void rx_timeout(struct k_timer *timer)
 	data->async->rx.last_cnt = curr_cnt;
 	new_bytes = curr_cnt - last_report_cnt;
 
-	if (curr_cnt != last_cnt || new_bytes != 0) {
+	if (curr_cnt != last_cnt || new_bytes == 0) {
 		data->async->rx.t_countdown = RX_TIMEOUT_DIV;
 	} else {
 		/* If no new bytes, continue countdown. */
@@ -655,12 +650,10 @@ static void rx_timeout(struct k_timer *timer)
 			 * data, if we interrupted another place of report then skip.
 			 */
 
-			atomic_or(&data->flags, UARTE_DATA_FLAG_RX_REPORT);
-			nrfx_uarte_int_trigger(instance);
+			trigger_int(dev, UARTE_DATA_FLAG_RX_REPORT);
 		}
 	}
 
-	/*restart_rx_timeout(data);*/
 	nrf_gpio_pin_clear(31);
 }
 
@@ -748,6 +741,11 @@ static void trigger_handler(const struct device *dev, struct uarte_nrfx_data *da
 			data->async->rx.t_countdown = RX_TIMEOUT_DIV;
 		}
 		report_rx_rdy(dev, data);
+	}
+
+	if (UARTE_INTERRUPT_DRIVEN &&
+	    atomic_and(&data->flags, ~UARTE_DATA_FLAG_TRAMPOLINE) & UARTE_DATA_FLAG_TRAMPOLINE) {
+		uart_async_to_irq_trampoline_cb(data->a2i_data);
 	}
 }
 
@@ -1176,55 +1174,9 @@ static int start_rx(const struct device *dev, bool int_driven_api)
 	return 0;
 }
 
-
-static void async_to_irq_egu_evt_handler(uint8_t event_idx, void *context)
-{
-	struct uart_async_to_irq_data *data = context;
-
-	uart_async_to_irq_trampoline_cb(data);
-}
-
-static void async_to_irq_trampoline_timeout(struct k_timer *timer)
-{
-	struct uart_async_to_irq_data *data = k_timer_user_data_get(timer);
-
-	uart_async_to_irq_trampoline_cb(data);
-}
-
 static void async_to_irq_trampoline(struct uart_async_to_irq_data *data)
 {
-	struct uart_nrfx_a2i *ndata = CONTAINER_OF(data, struct uart_nrfx_a2i, data);
-
-	if (ndata->timer) {
-		uint32_t key = irq_lock();
-		k_timer_start(ndata->timer, K_USEC(10), K_NO_WAIT);
-		irq_unlock(key);
-		return;
-	}
-
-	if (USE_EGU_TRAMPOLINE) {
-		nrfx_egu_trigger(ndata->egu, 0);
-	}
-}
-
-static int async_to_irq_trampoline_init(struct uart_nrfx_a2i *data)
-{
-	if (data->timer) {
-		k_timer_user_data_set(data->timer, data);
-	} else if (USE_EGU_TRAMPOLINE && data->egu) {
-		nrfx_err_t err;
-
-		err = nrfx_egu_init(data->egu, 1, async_to_irq_egu_evt_handler, data);
-		if (err != NRFX_SUCCESS) {
-			return -EIO;
-		}
-
-		nrfx_egu_int_enable(data->egu, BIT(0));
-	} else {
-		return -EINVAL;
-	}
-
-	return 0;
+	trigger_int(data->dev, UARTE_DATA_FLAG_TRAMPOLINE);
 }
 
 static int uarte_nrfx_init(const struct device *dev)
@@ -1249,13 +1201,6 @@ static int uarte_nrfx_init(const struct device *dev)
 	if (nrfx_err != NRFX_SUCCESS) {
 		err = -EIO;
 		goto bail;
-	}
-
-	if (data->a2i_data) {
-		err = async_to_irq_trampoline_init(data->a2i_data);
-		if (err != 0) {
-			goto bail;
-		}
 	}
 
 	if (!(config->flags & UARTE_CFG_FLAG_NO_RX)) {
@@ -1482,23 +1427,13 @@ static int uarte_nrfx_pm_action(const struct device *dev,
 				CONFIG_UART_##idx##_NRF_HW_ASYNC_TIMER),)) \
 		LOG_INSTANCE_PTR_INIT(log, LOG_MODULE_NAME, idx) \
 	}; \
-	K_TIMER_DEFINE(a2i_timer_##idx, async_to_irq_trampoline_timeout, NULL); \
-	static nrfx_egu_t uart_egu_##idx = \
-		COND_CODE_1(CONFIG_UART_##idx##_INT_DRIVEN_USE_EGU, \
-			    (NRFX_EGU_INSTANCE(EGU_INSTANCE(idx))), \
-			    ({})); \
 	static uint8_t a2i_rxbuf_##idx[32]; \
 	static uint8_t a2i_txbuf_##idx[8]; \
-	static struct uart_nrfx_a2i a2i_data_##idx = { \
-		.data = UART_ASYNC_TO_IRQ_API_DATA_INITIALIZE( &a2i_api,\
+	static struct uart_async_to_irq_data a2i_data_##idx = \
+		UART_ASYNC_TO_IRQ_API_DATA_INITIALIZE( &a2i_api,\
 					  a2i_rxbuf_##idx, a2i_txbuf_##idx,\
 					  async_to_irq_trampoline, \
-					  LOG_INSTANCE_PTR(LOG_MODULE_NAME, idx)), \
-		.timer = !IS_ENABLED(CONFIG_UART_##idx##_INT_DRIVEN_USE_EGU) ? \
-			&a2i_timer_##idx : NULL, \
-		.egu = IS_ENABLED(CONFIG_UART_##idx##_INT_DRIVEN_USE_EGU) ? \
-			&uart_egu_##idx : NULL, \
-	}; \
+					  LOG_INSTANCE_PTR(LOG_MODULE_NAME, idx)); \
 	static struct uarte_async_data uarte##idx##_async; \
 	static struct uarte_nrfx_data uarte_##idx##_data = { \
 		.a2i_data = IS_ENABLED(CONFIG_UART_##idx##_INTERRUPT_DRIVEN) ? \
