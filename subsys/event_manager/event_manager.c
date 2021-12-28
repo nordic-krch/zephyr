@@ -11,14 +11,11 @@
 #include <event_manager/event_manager.h>
 #include <logging/log.h>
 
+#if defined(CONFIG_REBOOT)
+#include <sys/reboot.h>
+#endif
+
 LOG_MODULE_REGISTER(event_manager, CONFIG_EVENT_MANAGER_LOG_LEVEL);
-
-
-/* Event manager uses orphan sections. Below tag will allow linker to
- * find a section usable to put the orphan sections next to.
- */
-const struct {} linker_tag __attribute__((__section__("event_manager"))) __used;
-
 
 static void event_processor_fn(struct k_work *work);
 
@@ -31,7 +28,33 @@ static struct k_spinlock lock;
 
 static bool log_is_event_displayed(const struct event_type *et)
 {
-	return atomic_test_bit(_event_manager_event_display_bm.flags, et - __start_event_types);
+	size_t idx = et - _event_type_list_start;
+
+	return atomic_test_bit(_event_manager_event_display_bm.flags, idx);
+}
+
+static void log_event_using_buffer(const struct event_header *eh, const struct event_type *et)
+{
+	if (CONFIG_EVENT_MANAGER_EVENT_LOG_BUF_LEN < 2) {
+		return;
+	}
+
+	BUILD_ASSERT(CONFIG_EVENT_MANAGER_EVENT_LOG_BUF_LEN != 1);
+	char log_buf[CONFIG_EVENT_MANAGER_EVENT_LOG_BUF_LEN];
+
+	int pos = et->log_event_func_dep(eh, log_buf, sizeof(log_buf));
+
+	if (pos < 0) {
+		log_buf[0] = '\0';
+	} else if (pos >= sizeof(log_buf)) {
+		log_buf[sizeof(log_buf) - 2] = '~';
+	}
+
+	if (IS_ENABLED(CONFIG_EVENT_MANAGER_LOG_EVENT_TYPE)) {
+		LOG_INF("e: %s %s", et->name, log_strdup(log_buf));
+	} else {
+		LOG_INF("%s", log_strdup(log_buf));
+	}
 }
 
 static void log_event(const struct event_header *eh)
@@ -43,25 +66,10 @@ static void log_event(const struct event_header *eh)
 		return;
 	}
 
-	if (et->log_event) {
-		char log_buf[CONFIG_EVENT_MANAGER_EVENT_LOG_BUF_LEN];
-
-		int pos = et->log_event(eh, log_buf, sizeof(log_buf));
-
-		if (pos < 0) {
-			log_buf[0] = '\0';
-		} else if (pos >= sizeof(log_buf)) {
-			BUILD_ASSERT(sizeof(log_buf) >= 2,
-					 "Buffer invalid");
-			log_buf[sizeof(log_buf) - 2] = '~';
-		}
-
-		if (IS_ENABLED(CONFIG_EVENT_MANAGER_LOG_EVENT_TYPE)) {
-			LOG_INF("e: %s %s", et->name, log_strdup(log_buf));
-		} else {
-			LOG_INF("%s", log_strdup(log_buf));
-		}
-
+	if (et->log_event_func_dep) {
+		log_event_using_buffer(eh, et);
+	} else if (et->log_event_func) {
+		et->log_event_func(eh);
 	} else if (IS_ENABLED(CONFIG_EVENT_MANAGER_LOG_EVENT_TYPE)) {
 		LOG_INF("e: %s", et->name);
 	}
@@ -96,12 +104,11 @@ static void log_event_init(void)
 		return;
 	}
 
-	for (const struct event_type *et = __start_event_types;
-	     (et != NULL) && (et != __stop_event_types);
-	     et++) {
+	STRUCT_SECTION_FOREACH(event_type, et) {
 		if (et->init_log_enable) {
-			atomic_set_bit(_event_manager_event_display_bm.flags,
-					et - __start_event_types);
+			size_t idx = et - _event_type_list_start;
+
+			atomic_set_bit(_event_manager_event_display_bm.flags, idx);
 		}
 	}
 }
@@ -121,10 +128,13 @@ void * __weak event_manager_alloc(size_t size)
 	void *event = k_malloc(size);
 
 	if (unlikely(!event)) {
-		printk("Event Manager OOM error\n");
-		LOG_PANIC();
+		LOG_ERR("Event Manager OOM error\n");
 		__ASSERT_NO_MSG(false);
-		k_panic();
+		#if defined(CONFIG_REBOOT)
+			sys_reboot(SYS_REBOOT_WARM);
+		#else
+			k_panic();
+		#endif
 		return NULL;
 	}
 
@@ -157,7 +167,6 @@ static void event_processor_fn(struct k_work *work)
 
 	k_spin_unlock(&lock, key);
 
-
 	/* Traverse the list of events. */
 	sys_snode_t *node;
 
@@ -176,28 +185,23 @@ static void event_processor_fn(struct k_work *work)
 
 		bool consumed = false;
 
-		for (size_t prio = SUBS_PRIO_MIN;
-		     (prio <= SUBS_PRIO_MAX) && !consumed;
-		     prio++) {
-			for (const struct event_subscriber *es =
-					et->subs_start[prio];
-			     (es != et->subs_stop[prio]) && !consumed;
-			     es++) {
+		for (const struct event_subscriber *es = et->subs_start;
+		     (es != et->subs_stop) && !consumed;
+		     es++) {
 
-				__ASSERT_NO_MSG(es != NULL);
+			__ASSERT_NO_MSG(es != NULL);
 
-				const struct event_listener *el = es->listener;
+			const struct event_listener *el = es->listener;
 
-				__ASSERT_NO_MSG(el != NULL);
-				__ASSERT_NO_MSG(el->notification != NULL);
+			__ASSERT_NO_MSG(el != NULL);
+			__ASSERT_NO_MSG(el->notification != NULL);
 
-				log_event_progress(et, el);
+			log_event_progress(et, el);
 
-				consumed = el->notification(eh);
+			consumed = el->notification(eh);
 
-				if (consumed) {
-					log_event_consumed(et);
-				}
+			if (consumed) {
+				log_event_consumed(et);
 			}
 		}
 
@@ -224,7 +228,7 @@ void _event_submit(struct event_header *eh)
 
 int event_manager_init(void)
 {
-	__ASSERT_NO_MSG(__stop_event_types - __start_event_types <=
+	__ASSERT_NO_MSG(_event_type_list_end - _event_type_list_start <=
 			CONFIG_EVENT_MANAGER_MAX_EVENT_CNT);
 
 	log_event_init();
