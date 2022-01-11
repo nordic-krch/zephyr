@@ -29,6 +29,7 @@ struct test_stats {
 	atomic_t claim_miss_cnt;
 	atomic_t produce_cnt;
 	atomic_t alloc_fails;
+	atomic_t dropped;
 };
 
 static struct test_stats stats;
@@ -59,7 +60,7 @@ static bool track_consume_locked(uint32_t idx)
 	uint32_t bit = ridx & 0x1f;
 
 	if (idx < track_base_idx || idx > (track_base_idx + 32 * ARRAY_SIZE(track_mask))) {
-		printk("Strange value %d base:%d", idx, track_base_idx);
+		printk("Strange value %d base:%d\n", idx, track_base_idx);
 		return false;
 	}
 
@@ -106,6 +107,7 @@ static void consume_check(struct test_data *data, bool claim)
 
 	if (!res) {
 		test_fail(__LINE__, data->data);
+		return;
 	}
 
 	for (int i = 0; i < data->len - 1; i++) {
@@ -119,6 +121,7 @@ static void drop(const struct mpsc_pbuf_buffer *buffer, const union mpsc_pbuf_ge
 {
 	struct test_data *data = (struct test_data *)item;
 
+	atomic_inc(&stats.dropped);
 	consume_check(data, false);
 }
 
@@ -206,7 +209,11 @@ static uint32_t get_wlen(const union mpsc_pbuf_generic *item)
  * to keep cpu load at ~80%. Some room is left for keeping random number pool
  * filled.
  */
-static void stress_test(ztress_handler h1, ztress_handler h2, ztress_handler h3)
+static void stress_test(bool overwrite,
+			ztress_handler h1,
+			ztress_handler h2,
+			ztress_handler h3,
+			ztress_handler h4)
 {
 	uint32_t preempt_max = 4000;
 	k_timeout_t t = Z_TIMEOUT_TICKS(20);
@@ -215,10 +222,10 @@ static void stress_test(ztress_handler h1, ztress_handler h2, ztress_handler h3)
 		.size = ARRAY_SIZE(buf32),
 		.notify_drop = drop,
 		.get_wlen = get_wlen,
-		.flags = MPSC_PBUF_MODE_OVERWRITE
+		.flags = overwrite ? MPSC_PBUF_MODE_OVERWRITE : 0
 	};
 
-	if (CONFIG_SYS_CLOCK_TICKS_PER_SEC < 100000) {
+	if (CONFIG_SYS_CLOCK_TICKS_PER_SEC < 10000) {
 		ztest_test_skip();
 	}
 
@@ -231,28 +238,43 @@ static void stress_test(ztress_handler h1, ztress_handler h2, ztress_handler h3)
 
 	ztress_set_timeout(K_MSEC(5000));
 
-	ZTRESS_EXECUTE(ZTRESS_TIMER(h1,  &buffer, 0, t),
-		       ZTRESS_THREAD(h2, &buffer, 0, preempt_max, t),
-		       ZTRESS_THREAD(h3, &buffer, 0, preempt_max, t));
+	if (h4 == NULL) {
+		ZTRESS_EXECUTE(ZTRESS_TIMER(h1,  &buffer, 0, t),
+			       ZTRESS_THREAD(h2, &buffer, 0, preempt_max, t),
+			       ZTRESS_THREAD(h3, &buffer, 0, preempt_max, t));
+	} else {
+		ZTRESS_EXECUTE(ZTRESS_TIMER(h1,  &buffer, 0, t),
+			       ZTRESS_THREAD(h2, &buffer, 0, preempt_max, t),
+			       ZTRESS_THREAD(h3, &buffer, 0, preempt_max, t),
+			       ZTRESS_THREAD(h4, &buffer, 0, preempt_max, t)
+			       );
+	}
 
+	zassert_false(test_failed, "Test failed with data:%d (line: %d)",
+			test_failed_cnt, test_failed_line);
 	PRINT("Test report:\n");
 	PRINT("\tClaims:%ld, claim misses:%ld\n", stats.claim_cnt, stats.claim_miss_cnt);
 	PRINT("\tProduced:%ld, allocation failures:%ld\n", stats.produce_cnt, stats.alloc_fails);
+	PRINT("\tDropped: %ld\n", stats.dropped);
 }
 
 void test_stress_preemptions_low_consumer(void)
 {
-	stress_test(produce, produce, consume);
+	stress_test(true, produce, produce, produce, consume);
+	/*stress_test(false, produce, produce, produce, consume);*/
+	/*stress_test(produce, produce, consume);*/
 }
 
 /* Consumer has medium priority with one lower priority consumer and one higher. */
 void test_stress_preemptions_mid_consumer(void)
 {
-	stress_test(produce, consume, produce);
+	stress_test(true, produce, consume, produce, NULL);
+	/*stress_test(false, produce, consume, produce, NULL);*/
 }
 
 /* Consumer has the highest priority, it preempts both producer. */
 void test_stress_preemptions_high_consumer(void)
 {
-	stress_test(consume, produce, produce);
+	stress_test(true, consume, produce, produce, NULL);
+	/*stress_test(false, consume, produce, produce, NULL);*/
 }
