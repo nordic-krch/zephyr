@@ -31,5 +31,6 @@ config ADC_NRFX_SAADC
 	default y
 	depends on HAS_HW_NRF_SAADC && $(dt_nodelabel_has_compat,adc,$(DT_COMPAT_NORDIC_NRF_SAADC))
 	select ADC_CONFIGURABLE_INPUTS
+	select NRFX_SAADC
 	help
 	  Enable support for nrfx SAADC driver.
