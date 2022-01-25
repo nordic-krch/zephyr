@@ -5,6 +5,7 @@
  */
 
 #include "mock_backend.h"
+#include "mock_frontend.h"
 #include "test_module.h"
 #include <ztest.h>
 #include <logging/log.h>
@@ -76,6 +77,7 @@ static void log_setup(bool backend2_enable)
 	zassert_equal(0, log_set_timestamp_func(timestamp_get, 0),
 		      "Expects successful timestamp function setting.");
 
+	mock_log_frontend_reset();
 	mock_log_backend_reset(&backend1);
 	mock_log_backend_reset(&backend2);
 
@@ -117,6 +119,7 @@ static void test_log_various_messages(void)
 			snprintk(str, sizeof(str), TEST_MSG_0, ll, ull, i);
 		}
 
+		mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_DBG, str);
 		mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 					CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_DBG,
 					exp_timestamp++, str);
@@ -129,6 +132,7 @@ static void test_log_various_messages(void)
 	double d = -1.2356;
 
 	snprintk(str, sizeof(str), TEST_MSG_1, f, 100,  d);
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, str);
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_INF,
 				exp_timestamp++, str);
@@ -150,6 +154,7 @@ static void test_log_various_messages(void)
 			snprintk(str, sizeof(str), TEST_MSG_0, i);
 		}
 
+		mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_DBG, str);
 		mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 					CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_DBG,
 					exp_timestamp++, str);
@@ -164,10 +169,12 @@ static void test_log_various_messages(void)
 	LOG_INF(TEST_MSG_1, &i);
 #endif
 	snprintk(str, sizeof(str), "wrn %s", dstr);
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_WRN, str);
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_WRN,
 				exp_timestamp++, str);
 
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_ERR, "err");
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_ERR,
 				exp_timestamp++, "err");
@@ -176,6 +183,8 @@ static void test_log_various_messages(void)
 	dstr[0] = '\0';
 
 	LOG_ERR("err");
+
+	mock_log_frontend_validate(false);
 
 	while (LOG_PROCESS()) {
 	}
@@ -210,6 +219,7 @@ static void test_log_backend_runtime_filtering(void)
 			snprintk(str, sizeof(str), "test");
 		}
 
+		mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_DBG, str);
 		mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_DBG,
 				exp_timestamp, str);
@@ -219,6 +229,7 @@ static void test_log_backend_runtime_filtering(void)
 		exp_timestamp++;
 	}
 
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, "test");
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_INF,
 				exp_timestamp, "test");
@@ -229,6 +240,8 @@ static void test_log_backend_runtime_filtering(void)
 
 	LOG_DBG("test");
 	LOG_INF("test");
+
+	mock_log_frontend_validate(false);
 
 	while (LOG_PROCESS()) {
 	}
@@ -244,15 +257,20 @@ static void test_log_backend_runtime_filtering(void)
 	uint8_t data[] = {1, 2, 4, 5, 6, 8};
 
 	/* INF logs expected only on backend1 */
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, "test");
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_INF,
 				exp_timestamp++, "test");
+
+	mock_log_frontend_generic_record(LOG_CURRENT_MODULE_ID(), CONFIG_LOG_DOMAIN_ID,
+					 LOG_LEVEL_INF, "hexdump", data, sizeof(data));
 	mock_log_backend_generic_record(&backend1, LOG_CURRENT_MODULE_ID(),
 					CONFIG_LOG_DOMAIN_ID,
 					LOG_LEVEL_INF,
 					exp_timestamp++, "hexdump",
 					data, sizeof(data));
 
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_WRN, "test2");
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_WRN,
 				exp_timestamp, "test2");
@@ -260,6 +278,8 @@ static void test_log_backend_runtime_filtering(void)
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_WRN,
 				exp_timestamp++, "test2");
 
+	mock_log_frontend_generic_record(LOG_CURRENT_MODULE_ID(), CONFIG_LOG_DOMAIN_ID,
+					 LOG_LEVEL_WRN, "hexdump", data, sizeof(data));
 	mock_log_backend_generic_record(&backend1, LOG_CURRENT_MODULE_ID(),
 					CONFIG_LOG_DOMAIN_ID,
 					LOG_LEVEL_WRN,
@@ -275,6 +295,8 @@ static void test_log_backend_runtime_filtering(void)
 	LOG_HEXDUMP_INF(data, sizeof(data), "hexdump");
 	LOG_WRN("test2");
 	LOG_HEXDUMP_WRN(data, sizeof(data), "hexdump");
+
+	mock_log_frontend_validate(false);
 
 	while (LOG_PROCESS()) {
 	}
@@ -349,6 +371,10 @@ static void test_log_overflow(void)
 
 	/* expect first message to be dropped */
 	exp_timestamp++;
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, "test 100 100");
+	mock_log_frontend_generic_record(LOG_CURRENT_MODULE_ID(), CONFIG_LOG_DOMAIN_ID,
+					 LOG_LEVEL_INF, "hexdump", data, hexdump_len);
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, "test2");
 	mock_log_backend_generic_record(&backend1, LOG_CURRENT_MODULE_ID(),
 					CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_INF,
 					exp_timestamp++, "hexdump",
@@ -362,6 +388,8 @@ static void test_log_overflow(void)
 	LOG_HEXDUMP_INF(data, hexdump_len, "hexdump");
 	LOG_INF("test2");
 
+	mock_log_frontend_validate(false);
+
 	while (LOG_PROCESS()) {
 	}
 
@@ -372,6 +400,11 @@ static void test_log_overflow(void)
 	exp_timestamp = TIMESTAMP_INIT_VAL;
 	hexdump_len = get_max_hexdump();
 	mock_log_backend_reset(&backend1);
+	mock_log_frontend_reset();
+
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, "test");
+	mock_log_frontend_generic_record(LOG_CURRENT_MODULE_ID(), CONFIG_LOG_DOMAIN_ID,
+					 LOG_LEVEL_INF, "test", data, hexdump_len + 1);
 	if (IS_ENABLED(CONFIG_LOG2_DEFERRED)) {
 		/* Log2 allocation is not destructive if request exceeds the
 		 * capacity.
@@ -388,7 +421,9 @@ static void test_log_overflow(void)
 	}
 
 	LOG_INF("test");
-	LOG_HEXDUMP_INF(data, hexdump_len+1, "test");
+	LOG_HEXDUMP_INF(data, hexdump_len + 1, "test");
+
+	mock_log_frontend_validate(false);
 
 	while (LOG_PROCESS()) {
 	}
@@ -399,39 +434,44 @@ static void test_log_overflow(void)
 /*
  * Test checks if arguments are correctly processed by the logger.
  *
- * Log messages with supported number of messages are called. Test backend
- * validates number of arguments and values.
+ * Log messages with supported number of messages are called. Test backend and
+ * frontend validate number of arguments and values.
  */
-#define MOCK_LOG_BACKEND_RECORD(str) mock_log_backend_record( \
-	&backend1, LOG_CURRENT_MODULE_ID(), \
-	CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_INF, \
-	exp_timestamp++, \
-	str);
+#define MOCK_LOG_FRONT_BACKEND_RECORD(str) do { \
+	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(), \
+				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_INF, \
+				exp_timestamp++, str); \
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, str); \
+} while (0)
 
 static void test_log_arguments(void)
 {
+	return;
 	log_timestamp_t exp_timestamp = TIMESTAMP_INIT_VAL;
 
 	log_setup(false);
 
-	MOCK_LOG_BACKEND_RECORD("test");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7 8");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11 12");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11 12 13");
-	MOCK_LOG_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11 12 13 14");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7 8");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11 12");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11 12 13");
+	MOCK_LOG_FRONT_BACKEND_RECORD("test 1 2 3 4 5 6 7 8 9 10 11 12 13 14");
 
 	LOG_INF("test");
 	LOG_INF("test %d %d %d", 1, 2, 3);
 	LOG_INF("test %d %d %d %d", 1, 2, 3, 4);
 	LOG_INF("test %d %d %d %d %d", 1, 2, 3, 4, 5);
+
+	mock_log_frontend_validate(false);
+
 	while (LOG_PROCESS()) {
 	}
 
@@ -439,6 +479,9 @@ static void test_log_arguments(void)
 	LOG_INF("test %d %d %d %d %d %d %d", 1, 2, 3, 4, 5, 6, 7);
 	LOG_INF("test %d %d %d %d %d %d %d %d", 1, 2, 3, 4, 5, 6, 7,8);
 	LOG_INF("test %d %d %d %d %d %d %d %d %d", 1, 2, 3, 4, 5, 6, 7,8, 9);
+
+	mock_log_frontend_validate(false);
+
 	while (LOG_PROCESS()) {
 	}
 
@@ -448,6 +491,9 @@ static void test_log_arguments(void)
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11);
 	LOG_INF("test %d %d %d %d %d %d %d %d %d %d %d %d",
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+
+	mock_log_frontend_validate(false);
+
 	while (LOG_PROCESS()) {
 	}
 
@@ -455,6 +501,9 @@ static void test_log_arguments(void)
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13);
 	LOG_INF("test %d %d %d %d %d %d %d %d %d %d %d %d %d %d",
 		1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+
+	mock_log_frontend_validate(false);
+
 	while (LOG_PROCESS()) {
 	}
 
@@ -483,11 +532,13 @@ static void test_log_from_declared_module(void)
 			snprintk(str, sizeof(str), TEST_DBG_MSG);
 		}
 
+		mock_log_frontend_record(test_source_id, LOG_LEVEL_DBG, str);
 		mock_log_backend_record(&backend1, test_source_id,
 					CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_DBG,
 					exp_timestamp++, str);
 	}
 
+	mock_log_frontend_record(test_source_id, LOG_LEVEL_ERR, TEST_ERR_MSG);
 	mock_log_backend_record(&backend1, test_source_id,
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_ERR,
 				exp_timestamp++, TEST_ERR_MSG);
@@ -505,16 +556,20 @@ static void test_log_from_declared_module(void)
 			snprintk(str, sizeof(str), TEST_INLINE_DBG_MSG);
 		}
 
+		mock_log_frontend_record(test_source_id, LOG_LEVEL_DBG, str);
 		mock_log_backend_record(&backend1, test_source_id,
 					CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_DBG,
 					exp_timestamp++, str);
 	}
 
+	mock_log_frontend_record(test_source_id, LOG_LEVEL_ERR, TEST_INLINE_ERR_MSG);
 	mock_log_backend_record(&backend1, test_source_id,
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_ERR,
 				exp_timestamp, TEST_INLINE_ERR_MSG);
 
 	test_inline_func();
+
+	mock_log_frontend_validate(false);
 
 	while (LOG_PROCESS()) {
 	}
@@ -552,6 +607,7 @@ static void log_n_messages(uint32_t n_msg, uint32_t exp_dropped)
 	stamp = TIMESTAMP_INIT_VAL;
 
 	for (uint32_t i = 0; i < n_msg; i++) {
+		mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_INF, "dummy");
 		if (i >= exp_dropped) {
 			mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_INF,
@@ -566,6 +622,7 @@ static void log_n_messages(uint32_t n_msg, uint32_t exp_dropped)
 	while (LOG_PROCESS()) {
 	}
 
+	mock_log_frontend_validate(false);
 	mock_log_backend_validate(&backend1, false);
 	mock_log_backend_reset(&backend1);
 }
@@ -604,6 +661,8 @@ static void test_log_panic(void)
 
 	log_setup(false);
 
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_WRN, "test");
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_WRN, "test");
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_WRN,
 				exp_timestamp++, "test");
@@ -616,14 +675,17 @@ static void test_log_panic(void)
 	/* logs should be flushed in panic */
 	log_panic();
 
+	mock_log_frontend_validate(true);
 	mock_log_backend_validate(&backend1, true);
 
 	/* messages processed where called */
+	mock_log_frontend_record(LOG_CURRENT_MODULE_ID(), LOG_LEVEL_WRN, "test");
 	mock_log_backend_record(&backend1, LOG_CURRENT_MODULE_ID(),
 				CONFIG_LOG_DOMAIN_ID, LOG_LEVEL_WRN,
 				exp_timestamp++, "test");
 	LOG_WRN("test");
 
+	mock_log_frontend_validate(true);
 	mock_log_backend_validate(&backend1, true);
 }
 
@@ -639,7 +701,10 @@ static void *log_api_suite_setup(void)
 {
 	PRINT("Configuration:\n");
 	PRINT("\t Mode: %s\n",
-	      IS_ENABLED(CONFIG_LOG_MODE_IMMEDIATE) ? "Immediate" : "Deferred");
+	      IS_ENABLED(CONFIG_LOG_FRONTEND_ONLY) ? "Frontend only" :
+	      (IS_ENABLED(CONFIG_LOG_MODE_IMMEDIATE) ? "Immediate" : "Deferred"));
+	PRINT("\t Frontend: %s\n",
+	      IS_ENABLED(CONFIG_LOG_FRONTEND) ? "Yes" : "No");
 	PRINT("\t Version: %s\n",
 	      IS_ENABLED(CONFIG_LOG2) ? "v2" : "v1");
 	PRINT("\t Runtime filtering: %s\n",
@@ -660,7 +725,7 @@ static void log_api_suite_before(void *data)
 }
 
 #define WRAP_TEST(test_name, suffix)                       \
-	ZTEST(UTIL_CAT(test_log_api_, suffix), UTIL_CAT(test_name, UTIL_CAT(_,suffix))) \
+	ZTEST_USER(UTIL_CAT(test_log_api_, suffix), UTIL_CAT(test_name, UTIL_CAT(_,suffix))) \
 	{                                                  \
 		test_name();                               \
 	}

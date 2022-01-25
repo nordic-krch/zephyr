@@ -61,6 +61,10 @@ void mock_log_backend_generic_record(const struct log_backend *backend,
 				     uint8_t *data,
 				     uint32_t data_len)
 {
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND_ONLY) && timestamp < (log_timestamp_t)UINT32_MAX) {
+		return;
+	}
+
 	struct mock_log_backend *mock = backend->cb->ctx;
 	struct mock_log_backend_msg *exp = &mock->exp_msgs[mock->msg_rec_idx];
 
