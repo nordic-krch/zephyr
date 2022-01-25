@@ -220,7 +220,7 @@ static inline bool log_data_pending(void)
  */
 int log_set_tag(const char *tag);
 
-#if defined(CONFIG_LOG) && !defined(CONFIG_LOG_MODE_MINIMAL)
+#if defined(CONFIG_LOG) && !defined(CONFIG_LOG_MODE_MINIMAL) && !defined(CONFIG_LOG_FRONTEND_ONLY)
 #define LOG_CORE_INIT() log_core_init()
 #define LOG_INIT() log_init()
 #define LOG_PANIC() log_panic()

@@ -58,6 +58,10 @@ LOG_MODULE_REGISTER(log);
 #define CONFIG_LOG_BUFFER_SIZE 4
 #endif
 
+#ifndef CONFIG_LOG_TAG_MAX_LEN
+#define CONFIG_LOG_TAG_MAX_LEN 0
+#endif
+
 struct log_strdup_buf {
 	atomic_t refcount;
 	char buf[CONFIG_LOG_STRDUP_MAX_STRING + 1]; /* for termination */
@@ -656,6 +660,10 @@ void z_impl_log_panic(void)
 	 * Forcing initialization of the logger and auto-starting backends.
 	 */
 	log_init();
+
+	if (IS_ENABLED(CONFIG_LOG_FRONTEND)) {
+		log_frontend_panic();
+	}
 
 	for (int i = 0; i < log_backend_count_get(); i++) {
 		backend = log_backend_get(i);
