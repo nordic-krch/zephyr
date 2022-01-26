@@ -334,7 +334,7 @@ do {\
 	_mode = Z_LOG_MSG2_MODE_RUNTIME; \
 } while (0)
 #else /* CONFIG_LOG2_ALWAYS_RUNTIME */
-#define Z_LOG_MSG2_CREATE2(_try_0cpy, _mode,  _cstr_cnt, _domain_id, _source,\
+#define Z_LOG_MSG2_CREATE3(_try_0cpy, _mode,  _cstr_cnt, _domain_id, _source,\
 			  _level, _data, _dlen, ...) \
 do { \
 	Z_LOG_MSG2_STR_VAR(_fmt, ##__VA_ARGS__); \
@@ -356,6 +356,35 @@ do { \
 		_mode = Z_LOG_MSG2_MODE_FROM_STACK; \
 	} \
 	(void)_mode; \
+} while (0)
+
+/* Macro for getting name of a local variable with the exception of the first argument
+ * which is a formatted string in log message.
+ */
+#define Z_LOG_LOCAL_ARG_NAME(idx, arg) COND_CODE_0(idx, (arg), (_v##idx))
+
+/* Create local variable from input variable (expect first (fmt) argument). */
+#ifdef __cplusplus
+#define Z_LOG_LOCAL_ARG_CREATE(idx, arg) \
+	COND_CODE_0(idx, (), (auto Z_LOG_LOCAL_ARG_NAME(idx, arg) = (arg) + 0))
+#else
+#define Z_LOG_LOCAL_ARG_CREATE(idx, arg) \
+	COND_CODE_0(idx, (), (__auto_type Z_LOG_LOCAL_ARG_NAME(idx, arg) = (arg) + 0))
+#endif
+
+/* First level of processing creates stack variables to be passed for further processing.
+ * This is done to prevent multiple evaluations of input arguments (in case argument
+ * evaluation has consequences, e.g. it is a function call).
+ */
+#define Z_LOG_MSG2_CREATE2(_try_0cpy, _mode,  _domain_id, _source, _level, _data, _dlen, ...) \
+do { \
+	_Pragma("GCC diagnostic push") \
+	_Pragma("GCC diagnostic ignored \"-Wpointer-arith\"") \
+	FOR_EACH_IDX(Z_LOG_LOCAL_ARG_CREATE, (;), __VA_ARGS__); \
+	_Pragma("GCC diagnostic pop") \
+	Z_LOG_MSG2_CREATE3(_try_0cpy, _mode,  _domain_id, _source,\
+			   _level, _data, _dlen, \
+			   FOR_EACH_IDX(Z_LOG_LOCAL_ARG_NAME, (,), __VA_ARGS__)); \
 } while (0)
 #endif /* CONFIG_LOG2_ALWAYS_RUNTIME */
 
