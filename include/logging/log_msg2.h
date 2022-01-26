@@ -34,6 +34,25 @@ typedef uint64_t log_timestamp_t;
 typedef uint32_t log_timestamp_t;
 #endif
 
+/* Determine if auto/__auto_type is supported. If not then runtime approach must always
+ * be used.
+ *
+ * Supported by:
+ * - C++ (auto)
+ * - GCC 4.9.0 https://gcc.gnu.org/gcc-4.9/changes.html
+ * - Clang 3.8
+ */
+#if defined(__cplusplus)
+#define Z_AUTO_TYPE auto
+#elif ((__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__) >= 40900) || \
+	((__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__) >= 30800)
+#define Z_AUTO_TYPE __auto_type
+#else
+#ifndef CONFIG_LOG2_ALWAYS_RUNTIME
+#error "Compiler lacks support for __auto_type. Enable CONFIG_LOG2_ALWAYS_RUNTIME."
+#endif
+#endif
+
 /**
  * @brief Log message API
  * @defgroup log_msg2 Log message v2 API
@@ -334,7 +353,7 @@ do {\
 	_mode = Z_LOG_MSG2_MODE_RUNTIME; \
 } while (0)
 #else /* CONFIG_LOG2_ALWAYS_RUNTIME */
-#define Z_LOG_MSG2_CREATE2(_try_0cpy, _mode,  _cstr_cnt, _domain_id, _source,\
+#define Z_LOG_MSG2_CREATE3(_try_0cpy, _mode,  _cstr_cnt, _domain_id, _source,\
 			  _level, _data, _dlen, ...) \
 do { \
 	Z_LOG_MSG2_STR_VAR(_fmt, ##__VA_ARGS__); \
@@ -356,6 +375,31 @@ do { \
 		_mode = Z_LOG_MSG2_MODE_FROM_STACK; \
 	} \
 	(void)_mode; \
+} while (0)
+
+/* Macro for getting name of a local variable with the exception of the first argument
+ * which is a formatted string in log message.
+ */
+#define Z_LOG_LOCAL_ARG_NAME(idx, arg) COND_CODE_0(idx, (arg), (_v##idx))
+
+/* Create local variable from input variable (expect for the first (fmt) argument). */
+#define Z_LOG_LOCAL_ARG_CREATE(idx, arg) \
+	COND_CODE_0(idx, (), (Z_AUTO_TYPE Z_LOG_LOCAL_ARG_NAME(idx, arg) = (arg) + 0))
+
+/* First level of processing creates stack variables to be passed for further processing.
+ * This is done to prevent multiple evaluations of input arguments (in case argument
+ * evaluation has side effects, e.g. it is a non-pure function call).
+ */
+#define Z_LOG_MSG2_CREATE2(_try_0cpy, _mode, _cstr_cnt,  _domain_id, _source, \
+			   _level, _data, _dlen, ...) \
+do { \
+	_Pragma("GCC diagnostic push") \
+	_Pragma("GCC diagnostic ignored \"-Wpointer-arith\"") \
+	FOR_EACH_IDX(Z_LOG_LOCAL_ARG_CREATE, (;), __VA_ARGS__); \
+	_Pragma("GCC diagnostic pop") \
+	Z_LOG_MSG2_CREATE3(_try_0cpy, _mode,  _cstr_cnt, _domain_id, _source,\
+			   _level, _data, _dlen, \
+			   FOR_EACH_IDX(Z_LOG_LOCAL_ARG_NAME, (,), __VA_ARGS__)); \
 } while (0)
 #endif /* CONFIG_LOG2_ALWAYS_RUNTIME */
 
