@@ -235,6 +235,12 @@ int cbprintf_package(void *packaged,
 		     const char *format,
 		     ...);
 
+/** @brief Append strings to existing package.
+ */
+int cbprintf_package_str_append(void *packaged, size_t size, uint8_t *sloc, size_t count);
+
+size_t cbprintf_str_len(const char **strings, size_t count);
+
 /** @brief Capture state required to output formatted data later.
  *
  * Like cbprintf() but instead of processing the arguments and emitting the

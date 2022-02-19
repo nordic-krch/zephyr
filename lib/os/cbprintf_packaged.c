@@ -193,6 +193,84 @@ static int cbprintf_via_va_list(cbprintf_cb out,
 
 #endif
 
+size_t cbprintf_package_slen(const char **strings, size_t count)
+{
+	/* One byte header and null terminator for each appended string. */
+	size_t len = 2 * count;
+
+	for (size_t i = 0; i < count; i++) {
+		len += strlen(strings[i]);
+	}
+
+	return (int)len;
+}
+
+static int z_strncpy(char *dst, const char *src, size_t num)
+{
+	size_t i;
+
+	for (i = 0; i < num; i++) {
+		dst[i] = src[i];
+		if (src[i] == '\0') {
+			break;
+		}
+	}
+
+	return (i == num && src[i] != '\0') ? -ENOMEM : i;
+}
+
+int cbprintf_package_str_append(void *packaged, size_t size, uint8_t *sloc, size_t count)
+{
+	uint8_t *buf = packaged;
+	uint8_t *append;
+	unsigned int args_size, s_nbr, ros_nbr, s_idx;
+
+	if (packaged == NULL) {
+		return -EINVAL;
+	}
+
+	args_size = buf[0] * sizeof(int);
+	s_nbr     = buf[1];
+	ros_nbr   = buf[2];
+
+	/* Find append location. */
+	append = buf + args_size;
+
+	/* Move beyond strings appended to the package. */
+	for (int i = 0; i < s_nbr; i++) {
+		append++;
+		append += strlen((const char *)append) + 1;
+	}
+
+	/* Package length before appending strings. */
+	size_t len = append - buf + count;
+
+	if (len > size) {
+		return -ENOSPC;
+	}
+
+	for (size_t i = 0; i < count; i++) {
+		uint8_t idx = sloc[i];
+		const char *str = *(char **)&buf[idx];
+		int cpy_len;
+
+		append[0] = idx;
+		cpy_len = z_strncpy(&append[1], str, size - len);
+
+		if (cpy_len < 0) {
+			return -ENOSPC;
+		}
+
+		len += cpy_len;
+		append += (1 + cpy_len);
+	}
+
+	/* Update appended strings count. */
+	buf[1] += count;
+
+	return len;
+}
+
 int cbvprintf_package(void *packaged, size_t len, uint32_t flags,
 		      const char *fmt, va_list ap)
 {
