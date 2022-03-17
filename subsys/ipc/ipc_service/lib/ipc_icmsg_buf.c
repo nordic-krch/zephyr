@@ -10,20 +10,6 @@
 #include <cache.h>
 #include <ipc/ipc_icmsg_buf.h>
 
-
-/* Helpers */
-static uint32_t idx_occupied(uint32_t len, uint32_t a, uint32_t b)
-{
-	/* It is implicitly assumed a and b cannot differ by more then len. */
-	return (b > a) ? (len - (b - a)) : (a - b);
-}
-
-static uint32_t idx_cut(uint32_t len, uint32_t idx)
-{
-	/* It is implicitly assumed a and b cannot differ by more then len. */
-	return (idx >= len) ? (idx - len) : (idx);
-}
-
 struct icmsg_buf *icmsg_buf_init(void *buf, size_t blen)
 {
 	/* blen must be big enough to contain icmsg_buf struct, byte of data
@@ -50,53 +36,45 @@ int icmsg_buf_write(struct icmsg_buf *ib, const char *buf, uint16_t len)
 	 */
 	const uint32_t iblen = ib->len;
 
-	/* rx_idx == wr_idx means the buffer is empty.
-	 * Max bytes that can be stored is len - 1.
-	 */
-	const uint32_t max_len = iblen - 1;
-
 	sys_cache_data_range(ib, sizeof(*ib), K_CACHE_INVD);
 	__sync_synchronize();
 
 	uint32_t wr_idx = ib->wr_idx;
 	uint32_t rd_idx = ib->rd_idx;
+	uint32_t space = len + sizeof(len); /* data + length field */
 
-	if ((len + sizeof(len) > max_len) || (len == 0)) {
-		/* Incorrect call. */
-		return -EINVAL;
-	}
+	if (wr_idx >= rd_idx) {
+		uint32_t remaining = iblen - wr_idx;
 
-	uint32_t avail = max_len - idx_occupied(iblen, wr_idx, rd_idx);
-
-	if (len + sizeof(len) > avail) {
-		/* No free space. */
+		if (unlikely(space > iblen - 1)) {
+			return -ENOMEM;
+		} else if (remaining > space || (remaining == space && rd_idx > 0)) {
+			/* Packet will fit */
+		} else {
+			if (rd_idx > space) {
+				/* Packet will fit, padding must be added. */
+				ib->data[wr_idx] = (uint8_t)0xFF;
+				wr_idx = 0;
+			} else {
+				return -ENOMEM;
+			}
+		}
+	} else if (rd_idx - wr_idx <= space) {
 		return -ENOMEM;
 	}
 
-	/* Store info about the message length. */
 	ib->data[wr_idx] = (uint8_t)len;
-	wr_idx = idx_cut(iblen, wr_idx + sizeof(uint8_t));
-	ib->data[wr_idx] = (uint8_t)(len >> 8);
-	wr_idx = idx_cut(iblen, wr_idx + sizeof(uint8_t));
-
-	/* Write until the end of the buffer. */
-	uint32_t sz = MIN(len, iblen - wr_idx);
-
-	memcpy(&ib->data[wr_idx], buf, sz);
+	ib->data[wr_idx + 1] = (uint8_t)(len >> 8);
+	memcpy(&ib->data[wr_idx + 2], buf, len);
 	__sync_synchronize();
-	sys_cache_data_range(&ib->data[wr_idx], sz, K_CACHE_WB);
+	sys_cache_data_range(&ib->data[wr_idx], space, K_CACHE_WB);
 
-	if (len > sz) {
-		/* Write remaining data at the buffer head. */
-		memcpy(&ib->data[0], buf + sz, len - sz);
-		__sync_synchronize();
-		sys_cache_data_range(&ib->data[0], len - sz, K_CACHE_WB);
+	wr_idx += 2 + len;
+	if (wr_idx == iblen) {
+		wr_idx = 0;
 	}
 
-	/* Update write index - make other side aware data was written. */
-	wr_idx = idx_cut(iblen, wr_idx + len);
 	ib->wr_idx = wr_idx;
-
 	__sync_synchronize();
 	sys_cache_data_range(ib, sizeof(*ib), K_CACHE_WB);
 
@@ -119,16 +97,15 @@ int icmsg_buf_read(struct icmsg_buf *ib, char *buf, uint16_t len)
 		return 0;
 	}
 
-	sys_cache_data_range(&ib->data[rd_idx], sizeof(ib->data[rd_idx]), K_CACHE_INVD);
+	sys_cache_data_range(&ib->data[rd_idx], sizeof(len), K_CACHE_INVD);
 	__sync_synchronize();
 
-	uint32_t bytes_stored = idx_occupied(iblen, wr_idx, rd_idx);
+	if (ib->data[rd_idx] == 0xFF) {
+		/* Padding detected. */
+		rd_idx = 0;
+	}
 
-	/* Read message len. */
-	uint16_t mlen = ib->data[rd_idx];
-	rd_idx = idx_cut(iblen, rd_idx + sizeof(ib->data[rd_idx]));
-	mlen |= (ib->data[rd_idx] >> 8);
-	rd_idx = idx_cut(iblen, rd_idx + sizeof(ib->data[rd_idx]));
+	uint16_t mlen = ib->data[rd_idx] + ((uint16_t)ib->data[rd_idx + 1] << 8);
 
 	if (!buf) {
 		return mlen;
@@ -138,32 +115,19 @@ int icmsg_buf_read(struct icmsg_buf *ib, char *buf, uint16_t len)
 		return -EINVAL;
 	}
 
-
-	if (bytes_stored < mlen + sizeof(mlen)) {
-		/* Part of message not available. Should not happen. */
-		__ASSERT_NO_MSG(false);
-		return -EAGAIN;
-	}
-
-	len = MIN(len, mlen);
-
-	/* Read up to the end of the buffer. */
-	uint32_t sz = MIN(len, iblen - rd_idx);
-
-	sys_cache_data_range(&ib->data[rd_idx], sz, K_CACHE_INVD);
-	memcpy(buf, &ib->data[rd_idx], sz);
-	if (len > sz) {
-		/* Read remaining bytes starting from the buffer head. */
-		sys_cache_data_range(&ib->data[0], len - sz, K_CACHE_INVD);
-		memcpy(&buf[sz], &ib->data[0], len - sz);
-	}
+	sys_cache_data_range(&ib->data[rd_idx + 2], sizeof(mlen), K_CACHE_INVD);
+	memcpy(buf, &ib->data[rd_idx + 2], mlen);
 
 	/* Update read index - make other side aware data was read. */
-	rd_idx = idx_cut(iblen, rd_idx + len);
+	rd_idx += 2 + mlen;
+	if (rd_idx == iblen) {
+		rd_idx = 0;
+	}
+
 	ib->rd_idx = rd_idx;
 
 	__sync_synchronize();
 	sys_cache_data_range(ib, sizeof(*ib), K_CACHE_WB);
 
-	return len;
+	return mlen;
 }
