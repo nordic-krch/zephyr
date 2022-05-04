@@ -90,6 +90,17 @@ static void enable_ram_retention(void)
 }
 #endif /* CONFIG_PM_S2RAM */
 
+{
+	/*
+	 * Enable RAM retention for *ALL* the SRAM
+	 */
+	for (size_t n = 0; n < RAM_N_BLOCK; n++) {
+		nrf_vmc_ram_block_retention_set(NRF_VMC, n, MASK_ALL_SECT);
+	}
+
+}
+#endif /* CONFIG_PM_S2RAM */
+
 #if defined(CONFIG_SOC_NRF53_ANOMALY_160_WORKAROUND)
 /* This code prevents the CPU from entering sleep again if it already
  * entered sleep 5 times within last 200 us.
@@ -573,6 +584,10 @@ static int nordicsemi_nrf53_init(void)
 	}
 
 #endif
+
+#if defined(CONFIG_PM_S2RAM)
+	enable_ram_retention();
+#endif /* CONFIG_PM_S2RAM */
 
 #if defined(CONFIG_PM_S2RAM)
 	enable_ram_retention();
