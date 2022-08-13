@@ -125,7 +125,7 @@ static void process_and_validate(bool backend2_enable, bool panic)
 	mock_log_frontend_validate(panic);
 
 	if (NO_BACKENDS) {
-		zassert_equal(log_backend_count_get(), 0, NULL);
+		zassert_equal(STRUCT_SECTION_COUNT(log_backend), 0, NULL);
 		return;
 	}
 

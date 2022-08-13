@@ -238,8 +238,7 @@ void test_log_early_logging(void)
 		/* deactivate other backends */
 		const struct log_backend *backend;
 
-		for (int i = 0; i < log_backend_count_get(); i++) {
-			backend = log_backend_get(i);
+		STRUCT_SECTION_FOREACH(log_backend, backend) {
 			if (strcmp(backend->name, "test")) {
 				log_backend_deactivate(backend);
 			}
@@ -311,8 +310,7 @@ void test_log_timestamping(void)
 	/* deactivate all other backend */
 	const struct log_backend *backend;
 
-	for (int i = 0; i < log_backend_count_get(); i++) {
-		backend = log_backend_get(i);
+	STRUCT_SECTION_FOREACH(log_backend, backend) {
 		log_backend_deactivate(backend);
 	}
 
@@ -359,15 +357,14 @@ void test_multiple_backends(void)
 	TC_PRINT("Test multiple backends");
 	/* enable both backend1 and backend2 */
 	log_setup(true);
-	zassert_true((log_backend_count_get() >= 2),
+	zassert_true((STRUCT_SECTION_COUNT(log_backend) >= 2),
 		     "There is no multi backends");
 
 	if (IS_ENABLED(CONFIG_LOG_BACKEND_UART)) {
 		bool have_uart = false;
 		struct log_backend const *backend;
 
-		for (int i = 0; i < log_backend_count_get(); i++) {
-			backend = log_backend_get(i);
+		STRUCT_SECTION_FOREACH(log_backend, backend) {
 			if (strcmp(backend->name, UART_BACKEND) == 0) {
 				have_uart = true;
 			}

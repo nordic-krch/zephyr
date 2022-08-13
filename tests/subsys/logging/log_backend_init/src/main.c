@@ -105,7 +105,7 @@ LOG_BACKEND_DEFINE(backend2, backend_api, true, &context2);
  */
 void test_log_backends_initialization(void)
 {
-	if (log_backend_count_get() != 2) {
+	if (STRUCT_SECTION_COUNT(log_backend) != 2) {
 		/* Other backends should not be enabled. */
 		ztest_test_skip();
 	}
