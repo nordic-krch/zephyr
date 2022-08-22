@@ -17,18 +17,6 @@
 
 static const struct shell *dummy_shell;
 
-static void test_shell_execute_cmd(const char *cmd, int result)
-{
-	int ret;
-
-	ret = shell_execute_cmd(NULL, cmd);
-
-	TC_PRINT("shell_execute_cmd(%s): %d\n", cmd, ret);
-
-	zassert_true(ret == result, "cmd: %s, got:%d, expected:%d",
-							cmd, ret, result);
-}
-
 ZTEST(shell_logging, test_block)
 {
 
@@ -39,4 +27,28 @@ static void *setup(void)
 	dummy_shell = shell_backend_dummy_get_ptr();
 }
 
-ZTEST_SUITE(shell_logging, NULL, setup, NULL, NULL, NULL);
+static void before(void)
+{
+	/* Disable all execpt dummy backend. */
+	STRUCT_SECTION_FOREACH(log_backend, backend) {
+		if (backend != dummy_shell->log_backend->backend) {
+			log_backend_deactivate(backend);
+		} else {
+			log_backend_activate(backend, backend->cb->ctx);
+		}
+	}
+}
+
+static void after(void)
+{
+	/* Enable all but disable dummy shell backend. */
+	STRUCT_SECTION_FOREACH(log_backend, backend) {
+		if (backend != dummy_shell->log_backend->backend) {
+			log_backend_deactivate(backend);
+		} else {
+			log_backend_activate(backend, backend->cb->ctx);
+		}
+	}
+}
+
+ZTEST_SUITE(shell_logging, NULL, setup, before, after, NULL);
