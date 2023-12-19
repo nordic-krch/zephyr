@@ -11,7 +11,7 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/init.h>
 
-static uint32_t dbuf[CONFIG_LOG_FRONTEND_DICT_UART_BUFFER_SIZE / sizeof(uint32_t)];
+static uint32_t dbuf[CONFIG_LOG_FRONTEND_DICT_BUF_SIZE / sizeof(uint32_t)];
 
 struct log_frontend_uart_pkt_hdr {
 	MPSC_PBUF_HDR;

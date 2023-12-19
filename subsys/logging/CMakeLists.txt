@@ -49,6 +49,11 @@ if(NOT CONFIG_LOG_MODE_MINIMAL)
   )
 
   zephyr_sources_ifdef(
+    CONFIG_LOG_FRONTEND_DICT
+    log_frontend_dict.c
+  )
+
+  zephyr_sources_ifdef(
     CONFIG_LOG_DICTIONARY_SUPPORT
     log_output_dict.c
   )

@@ -3,6 +3,30 @@
 
 menu "Frontends"
 
+config LOG_FRONTEND_DICT
+	bool "Dictionary based frontend"
+	select MPSC_PBUF
+	select LOG_FRONTEND_OPT_API
+	imply LOG_FMT_SECTION
+	imply LOG_FMT_SECTION_STRIP
+
+if LOG_FRONTEND_DICT
+
+config LOG_FRONTEND_DICT_ASYNC
+	bool "Asynchronous sink"
+
+config LOG_FRONTEND_DICT_COBS
+	bool "Use COBS"
+	select COBS
+
+config LOG_FRONTEND_DICT_BUF_SIZE
+	int "Buffer size"
+	default 1024
+	help
+	  Number of bytes dedicated for buffering data
+
+endif
+
 config LOG_FRONTEND_DICT_UART
 	bool "UART dictionary frontend"
 	select LOG_DICTIONARY_DB
