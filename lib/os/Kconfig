@@ -95,6 +95,11 @@ config MPSC_CLEAR_ALLOCATED
 	  When enabled packet space is zeroed before returning from allocation.
 endif
 
+config COBS
+	bool "Constant Overhead Byte Stuffing"
+	help
+	  Module for byte stream encoding using COBS.
+
 config REBOOT
 	bool "Reboot functionality"
 	help
