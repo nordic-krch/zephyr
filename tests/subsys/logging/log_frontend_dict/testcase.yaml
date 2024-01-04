@@ -1,0 +1,14 @@
+common:
+  platform_type:
+    - qemu
+  tags:
+    - logging
+  integration_platforms:
+    - qemu_x86
+tests:
+  logging.log_frontend_dict:
+    integration_platforms:
+      - qemu_x86
+  logging.log_frontend_dict.async:
+    extra_configs:
+      - CONFIG_LOG_FRONTEND_DICT_ASYNC=y
