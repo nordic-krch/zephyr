@@ -29,14 +29,11 @@ enum log_dict_output_msg_type {
  * Output header for one dictionary based log message.
  */
 struct log_dict_output_normal_msg_hdr_t {
-	uint8_t type;
-	uint32_t domain:3;
+	uint8_t type:2;
 	uint32_t level:3;
-	uint32_t package_len:10;
+	uint32_t ts_bytes:3;
 	uint32_t data_len:12;
-	uint32_t padding:4;
-	uintptr_t source;
-	log_timestamp_t timestamp;
+	uint32_t source:12;
 } __packed;
 
 /**
