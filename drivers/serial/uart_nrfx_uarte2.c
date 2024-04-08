@@ -20,6 +20,7 @@
 #include <nrfx_uarte.h>
 #include <helpers/nrfx_gppi.h>
 #include <haly/nrfy_uarte.h>
+#include <hal/nrf_gpio.h>
 #define LOG_MODULE_NAME uarte
 LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_UART_LOG_LEVEL);
 
@@ -78,7 +79,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_UART_LOG_LEVEL);
 #endif
 
 #if defined(NRF_UARTE_HAS_FRAME_TIMEOUT)
-#define UARTE_FRAME_TIMEOUT 1
+#define UARTE_FRAME_TIMEOUT 0
 #else
 #define UARTE_FRAME_TIMEOUT 0
 #endif
@@ -895,7 +896,9 @@ static int uarte_nrfx_init(const struct device *dev)
 			IS_ENABLED(UARTE_INT_ASYNC) ?
 				(IS_POLLING_API(dev) ? NULL : evt_handler) : NULL);
 	if (nerr == NRFX_SUCCESS && !IS_ASYNC_API(dev) && !(cfg->flags & UARTE_CFG_FLAG_NO_RX)) {
+		nrf_gpio_pin_set(9*32+1);
 		err = start_rx(dev);
+		nrf_gpio_pin_clear(9*32+1);
 	}
 
 	switch (nerr) {

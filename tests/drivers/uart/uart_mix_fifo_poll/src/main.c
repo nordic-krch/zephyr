@@ -15,6 +15,7 @@
 #include <zephyr/ztest.h>
 #include <zephyr/drivers/counter.h>
 #include <zephyr/random/random.h>
+#include <hal/nrf_gpio.h>
 /* RX and TX pins have to be connected together*/
 
 #if DT_NODE_EXISTS(DT_NODELABEL(dut))
@@ -94,22 +95,28 @@ static void process_byte(uint8_t b)
 
 	ok = ((b - src->prev) == 1) || (!b && (src->prev == 0x0F));
 
+	if (!ok) {
+		nrf_gpio_pin_set(9*32);
+		nrf_gpio_pin_clear(9*32);
+	}
 	zassert_true(ok, "Unexpected byte received:0x%02x, prev:0x%02x",
 			(base << 4) | b, (base << 4) | src->prev);
 	src->prev = b;
 }
 
+static uint8_t async_rx_buf[4];
 static void counter_top_handler(const struct device *dev, void *user_data)
 {
 	static bool enable = true;
-	static uint8_t async_rx_buf[4];
 
 	if (async && !async_rx_enabled) {
 		int err;
 
+			nrf_gpio_pin_set(9*32+2);
 		err = uart_rx_enable(uart_dev, async_rx_buf,
 				     sizeof(async_rx_buf), 1 * USEC_PER_MSEC);
 		zassert_true(err >= 0);
+			nrf_gpio_pin_clear(9*32+2);
 		async_rx_enabled = true;
 	} else if (int_driven) {
 		if (enable) {
@@ -207,12 +214,16 @@ static void async_callback(const struct device *dev,
 		k_sem_give(&async_tx_sem);
 		break;
 	case UART_RX_RDY:
+		nrf_gpio_pin_set(9*32+1);
 		for (int i = 0; i < evt->data.rx.len; i++) {
 			process_byte(evt->data.rx.buf[evt->data.rx.offset + i]);
 		}
+		nrf_gpio_pin_clear(9*32+1);
 		break;
 	case UART_RX_DISABLED:
+		nrf_gpio_pin_set(9*32+4);
 		async_rx_enabled = false;
+		nrf_gpio_pin_clear(9*32+4);
 		break;
 	default:
 		break;
@@ -322,6 +333,12 @@ ZTEST(uart_mix_fifo_poll, test_mixed_uart_access)
 	int err;
 	int num_of_contexts = ARRAY_SIZE(test_data);
 
+	nrf_gpio_cfg_output(9*32);
+	nrf_gpio_cfg_output(9*32+1);
+	nrf_gpio_cfg_output(9*32+2);
+	nrf_gpio_cfg_output(9*32+3);
+	nrf_gpio_cfg_output(9*32+4);
+	nrf_gpio_cfg_output(9*32+5);
 	for (int i = 0; i < ARRAY_SIZE(test_data); i++) {
 		init_buf(txbuf[i], sizeof(txbuf[i]), i);
 		init_test_data(&test_data[i], txbuf[i], repeat);
