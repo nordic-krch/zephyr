@@ -307,9 +307,7 @@ static void rx_timeout_handler(struct k_timer *timer)
 	} else {
 		adata->idle_cnt--;
 		if (adata->idle_cnt == 0) {
-			nrf_gpio_pin_set(9*32+3);
 			(void)nrfx_uarte_rx_abort(nrfx_dev, false, false);
-			nrf_gpio_pin_clear(9*32+3);
 			return;
 		}
 	}
@@ -435,6 +433,15 @@ static int api_tx(const struct device *dev, const uint8_t *buf, size_t len, int3
 	const nrfx_uarte_t *nrfx_dev = get_nrfx_dev(dev);
 	nrfx_err_t err;
 	bool hwfc;
+
+#if CONFIG_PM_DEVICE
+	enum pm_device_state state;
+
+	(void)pm_device_state_get(dev, &state);
+	if (state != PM_DEVICE_STATE_ACTIVE) {
+		return 0;
+	}
+#endif
 
 #if CONFIG_UART_USE_RUNTIME_CONFIGURE
 	hwfc = data->uart_config.flow_ctrl == UART_CFG_FLOW_CTRL_RTS_CTS;
@@ -616,6 +623,15 @@ static void api_poll_out(const struct device *dev, unsigned char out_char)
 {
 	const nrfx_uarte_t *nrfx_dev = get_nrfx_dev(dev);
 	nrfx_err_t err;
+
+#if CONFIG_PM_DEVICE
+	enum pm_device_state state;
+
+	(void)pm_device_state_get(dev, &state);
+	if (state != PM_DEVICE_STATE_ACTIVE) {
+		return;
+	}
+#endif
 
 	do {
 		/* When runtime PM is used we cannot use early return because then
@@ -881,7 +897,6 @@ static int uarte_nrfx_init(const struct device *dev)
 			}
 		}
 	}
-	nrf_gpio_cfg_output(9*32+1);
 
 	if (IS_ENABLED(UARTE_INT_ASYNC) && data->async) {
 #if !UARTE_FRAME_TIMEOUT
@@ -896,9 +911,7 @@ static int uarte_nrfx_init(const struct device *dev)
 			IS_ENABLED(UARTE_INT_ASYNC) ?
 				(IS_POLLING_API(dev) ? NULL : evt_handler) : NULL);
 	if (nerr == NRFX_SUCCESS && !IS_ASYNC_API(dev) && !(cfg->flags & UARTE_CFG_FLAG_NO_RX)) {
-		nrf_gpio_pin_set(9*32+1);
 		err = start_rx(dev);
-		nrf_gpio_pin_clear(9*32+1);
 	}
 
 	switch (nerr) {
