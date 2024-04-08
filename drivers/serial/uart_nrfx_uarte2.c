@@ -77,6 +77,12 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_UART_LOG_LEVEL);
 #define UARTE_ODD_PARITY_ALLOWED 0
 #endif
 
+#if defined(NRF_UARTE_HAS_FRAME_TIMEOUT)
+#define UARTE_FRAME_TIMEOUT 1
+#else
+#define UARTE_FRAME_TIMEOUT 0
+#endif
+
 /*
  * RX timeout is divided into time slabs, this define tells how many divisions
  * should be made. More divisions - higher timeout accuracy and processor usage.
@@ -110,6 +116,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_UART_LOG_LEVEL);
 
 #define UARTE_DATA_FLAG_TRAMPOLINE	BIT(0)
 #define UARTE_DATA_FLAG_RX_ENABLED	BIT(1)
+#define UARTE_DATA_FLAG_RX_TIMEOUT_ON	BIT(2)
 
 struct uarte_async_data {
 	uart_callback_t user_callback;
@@ -119,14 +126,18 @@ struct uarte_async_data {
 	size_t en_rx_len;
 
 	struct k_timer tx_timer;
+#if !UARTE_FRAME_TIMEOUT
 	struct k_timer rx_timer;
 
 	k_timeout_t rx_timeout;
+#endif
 
 	/* Keeps the most recent error mask. */
 	uint32_t err;
 
+#if !UARTE_FRAME_TIMEOUT
 	uint8_t idle_cnt;
+#endif
 };
 
 /* Device data structure */
@@ -159,6 +170,7 @@ struct uarte_nrfx_config {
 	nrfx_uarte_config_t nrfx_config;
 	const struct pinctrl_dev_config *pcfg;
 	uint32_t flags;
+	uint32_t baudrate;
 
 	LOG_INSTANCE_PTR_DECLARE(log);
 };
@@ -267,12 +279,43 @@ static void on_rx_done(const struct device *dev, const nrfx_uarte_event_t *event
 	data->async->user_callback(dev, &evt, data->async->user_data);
 }
 
+#if !UARTE_FRAME_TIMEOUT
 static void start_rx_timer(struct uarte_nrfx_data *data)
 {
 	struct uarte_async_data *adata = data->async;
 
+	atomic_or(&data->flags, UARTE_DATA_FLAG_RX_TIMEOUT_ON);
 	k_timer_start(&adata->rx_timer, adata->rx_timeout, K_NO_WAIT);
 }
+
+static void rx_timeout_handler(struct k_timer *timer)
+{
+	const struct device *dev = (const struct device *)k_timer_user_data_get(timer);
+	struct uarte_nrfx_data *data = dev->data;
+	struct uarte_async_data *adata = data->async;
+	const nrfx_uarte_t *nrfx_dev = get_nrfx_dev(dev);
+
+	if (!(atomic_and(&data->flags, ~UARTE_DATA_FLAG_RX_TIMEOUT_ON) &
+		UARTE_DATA_FLAG_RX_TIMEOUT_ON)) {
+		/* Timer already stopped in the higher priority context. */
+		return;
+	}
+
+	if (nrfx_uarte_rx_new_data_check(nrfx_dev)) {
+		adata->idle_cnt = RX_TIMEOUT_DIV - 1;
+	} else {
+		adata->idle_cnt--;
+		if (adata->idle_cnt == 0) {
+			nrf_gpio_pin_set(9*32+3);
+			(void)nrfx_uarte_rx_abort(nrfx_dev, false, false);
+			nrf_gpio_pin_clear(9*32+3);
+			return;
+		}
+	}
+
+	start_rx_timer(data);
+}
+
 
 static void on_rx_byte(const struct device *dev)
 {
@@ -284,6 +327,7 @@ static void on_rx_byte(const struct device *dev)
 	adata->idle_cnt = RX_TIMEOUT_DIV;
 	start_rx_timer(data);
 }
+#endif
 
 static void on_rx_buf_req(const struct device *dev)
 {
@@ -314,9 +358,11 @@ static void on_rx_buf_req(const struct device *dev)
 	/* If counter reached zero that indicates that timeout was reached and
 	 * reception of one buffer was terminated to restart another transfer.
 	 */
+#if !UARTE_FRAME_TIMEOUT
 	if (!K_TIMEOUT_EQ(adata->rx_timeout, K_NO_WAIT)) {
 		nrfx_uarte_rxdrdy_enable(nrfx_dev);
 	}
+#endif
 	data->async->user_callback(dev, &evt, data->async->user_data);
 }
 
@@ -326,8 +372,10 @@ static void on_rx_disabled(const struct device *dev, struct uarte_nrfx_data *dat
 		.type = UART_RX_DISABLED
 	};
 
-	atomic_and(&data->flags, ~UARTE_DATA_FLAG_RX_ENABLED);
+	atomic_and(&data->flags, ~(UARTE_DATA_FLAG_RX_ENABLED | UARTE_DATA_FLAG_RX_TIMEOUT_ON));
+#if !UARTE_FRAME_TIMEOUT
 	k_timer_stop(&data->async->rx_timer);
+#endif
 
 	data->async->user_callback(dev, &evt, data->async->user_data);
 }
@@ -355,9 +403,11 @@ static void evt_handler(nrfx_uarte_event_t const *event, void *context)
 	case NRFX_UARTE_EVT_RX_DONE:
 		on_rx_done(dev, event);
 		break;
+#if !UARTE_FRAME_TIMEOUT
 	case NRFX_UARTE_EVT_RX_BYTE:
 		on_rx_byte(dev);
 		break;
+#endif
 	case NRFX_UARTE_EVT_ERROR:
 		data->async->err = event->data.error.error_mask;
 		break;
@@ -421,26 +471,6 @@ static void tx_timeout_handler(struct k_timer *timer)
 	(void)api_tx_abort(dev);
 }
 
-static void rx_timeout_handler(struct k_timer *timer)
-{
-	const struct device *dev = (const struct device *)k_timer_user_data_get(timer);
-	struct uarte_nrfx_data *data = dev->data;
-	struct uarte_async_data *adata = data->async;
-	const nrfx_uarte_t *nrfx_dev = get_nrfx_dev(dev);
-
-	if (nrfx_uarte_rx_new_data_check(nrfx_dev)) {
-		adata->idle_cnt = RX_TIMEOUT_DIV - 1;
-	} else {
-		adata->idle_cnt--;
-		if (adata->idle_cnt == 0) {
-			(void)nrfx_uarte_rx_abort(nrfx_dev, false, false);
-			return;
-		}
-	}
-
-	start_rx_timer(data);
-}
-
 /* Determine if RX FIFO content shall be kept when device is being disabled.
  * When flow-control is used then we expect to keep RX FIFO content since HWFC
  * enforces lossless communication. However, when HWFC is not used (by any instance
@@ -483,6 +513,13 @@ static int api_rx_enable(const struct device *dev, uint8_t *buf, size_t len, int
 		return -ENOTSUP;
 	}
 
+#if UARTE_FRAME_TIMEOUT
+	uint32_t baudrate = COND_CODE_1(CONFIG_UART_USE_RUNTIME_CONFIGURE,
+					(data->uart_config.baudrate), (cfg->baudrate));
+	uint32_t timeout_bits = ((uint64_t)baudrate * timeout) / 1000000;
+
+	nrfx_uarte_frame_timeout_set(nrfx_dev, timeout_bits);
+#else
 	if (timeout != SYS_FOREVER_US) {
 		adata->idle_cnt = RX_TIMEOUT_DIV + 1;
 		adata->rx_timeout = K_USEC(timeout / RX_TIMEOUT_DIV);
@@ -490,6 +527,7 @@ static int api_rx_enable(const struct device *dev, uint8_t *buf, size_t len, int
 	} else {
 		adata->rx_timeout = K_NO_WAIT;
 	}
+#endif
 
 	/* Store the buffer. It will be passed to the driver in the event handler.
 	 * We do that instead of calling nrfx_uarte_rx_buffer_set here to ensure
@@ -535,9 +573,12 @@ static int api_rx_buf_rsp(const struct device *dev, uint8_t *buf, size_t len)
 
 static int api_rx_disable(const struct device *dev)
 {
+#if !UARTE_FRAME_TIMEOUT
 	struct uarte_nrfx_data *data = dev->data;
 
+	atomic_or(&data->flags, ~UARTE_DATA_FLAG_RX_TIMEOUT_ON);
 	k_timer_stop(&data->async->rx_timer);
+#endif
 
 	return (nrfx_uarte_rx_abort(get_nrfx_dev(dev), true, false) == NRFX_SUCCESS) ? 0 : -EFAULT;
 }
@@ -839,10 +880,13 @@ static int uarte_nrfx_init(const struct device *dev)
 			}
 		}
 	}
+	nrf_gpio_cfg_output(9*32+1);
 
 	if (IS_ENABLED(UARTE_INT_ASYNC) && data->async) {
+#if !UARTE_FRAME_TIMEOUT
 		k_timer_init(&data->async->rx_timer, rx_timeout_handler, NULL);
 		k_timer_user_data_set(&data->async->rx_timer, (void *)dev);
+#endif
 		k_timer_init(&data->async->tx_timer, tx_timeout_handler, NULL);
 		k_timer_user_data_set(&data->async->tx_timer, (void *)dev);
 	}
@@ -1007,6 +1051,7 @@ static int uarte_nrfx_pm_action(const struct device *dev,
 			.skip_gpio_cfg = true,							\
 		},										\
 		.pcfg = PINCTRL_DT_DEV_CONFIG_GET(UARTE(idx)),					\
+		.baudrate = UARTE_PROP(idx, current_speed),					\
 		.flags = (UARTE_PROP(idx, disable_rx) ? UARTE_CFG_FLAG_NO_RX : 0) |		\
 			(IS_ENABLED(CONFIG_UART_##idx##_GPIO_MANAGEMENT) ?			\
 				UARTE_CFG_FLAG_GPIO_MGMT : 0) |					\
