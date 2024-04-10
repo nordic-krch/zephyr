@@ -79,7 +79,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_UART_LOG_LEVEL);
 #endif
 
 #if defined(NRF_UARTE_HAS_FRAME_TIMEOUT)
-#define UARTE_FRAME_TIMEOUT 0
+#define UARTE_FRAME_TIMEOUT 1
 #else
 #define UARTE_FRAME_TIMEOUT 0
 #endif
@@ -118,6 +118,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_UART_LOG_LEVEL);
 #define UARTE_DATA_FLAG_TRAMPOLINE	BIT(0)
 #define UARTE_DATA_FLAG_RX_ENABLED	BIT(1)
 #define UARTE_DATA_FLAG_RX_TIMEOUT_ON	BIT(2)
+#define UARTE_DATA_FLAG_FLUSHED		BIT(3)
 
 struct uarte_async_data {
 	uart_callback_t user_callback;
@@ -127,18 +128,17 @@ struct uarte_async_data {
 	size_t en_rx_len;
 
 	struct k_timer tx_timer;
-#if !UARTE_FRAME_TIMEOUT
-	struct k_timer rx_timer;
-
-	k_timeout_t rx_timeout;
-#endif
 
 	/* Keeps the most recent error mask. */
 	uint32_t err;
+	struct k_timer rx_timer;
 
-#if !UARTE_FRAME_TIMEOUT
-	uint8_t idle_cnt;
+	k_timeout_t rx_timeout;
+#if UARTE_FRAME_TIMEOUT
+	uint8_t flushed[5];
+	uint8_t flushed_cnt;
 #endif
+	uint8_t idle_cnt;
 };
 
 /* Device data structure */
@@ -280,7 +280,6 @@ static void on_rx_done(const struct device *dev, const nrfx_uarte_event_t *event
 	data->async->user_callback(dev, &evt, data->async->user_data);
 }
 
-#if !UARTE_FRAME_TIMEOUT
 static void start_rx_timer(struct uarte_nrfx_data *data)
 {
 	struct uarte_async_data *adata = data->async;
@@ -295,6 +294,19 @@ static void rx_timeout_handler(struct k_timer *timer)
 	struct uarte_nrfx_data *data = dev->data;
 	struct uarte_async_data *adata = data->async;
 	const nrfx_uarte_t *nrfx_dev = get_nrfx_dev(dev);
+
+	if (UARTE_FRAME_TIMEOUT && !nrfx_uarte_rx_new_data_check(nrfx_dev)) {
+		int k = irq_lock();
+
+		if ((atomic_and(&data->flags, ~UARTE_DATA_FLAG_RX_TIMEOUT_ON) &
+			UARTE_DATA_FLAG_RX_TIMEOUT_ON)) {
+			(void)nrfx_uarte_rx_abort(nrfx_dev, false, false);
+		}
+
+		irq_unlock(k);
+
+		return;
+	}
 
 	if (!(atomic_and(&data->flags, ~UARTE_DATA_FLAG_RX_TIMEOUT_ON) &
 		UARTE_DATA_FLAG_RX_TIMEOUT_ON)) {
@@ -315,7 +327,7 @@ static void rx_timeout_handler(struct k_timer *timer)
 	start_rx_timer(data);
 }
 
-
+#if !UARTE_FRAME_TIMEOUT
 static void on_rx_byte(const struct device *dev)
 {
 	struct uarte_nrfx_data *data = dev->data;
@@ -345,8 +357,17 @@ static void on_rx_buf_req(const struct device *dev)
 		adata->en_rx_buf = NULL;
 		adata->en_rx_len = 0;
 
+		if (UARTE_FRAME_TIMEOUT && nrfx_uarte_rx_flushed_data_check(nrfx_dev)) {
+			/* Pending RX data from flushed. */
+			if (!K_TIMEOUT_EQ(adata->rx_timeout, K_NO_WAIT)) {
+				nrfx_uarte_rx_new_data_check(nrfx_dev);
+				start_rx_timer(data);
+			}
+		}
+
 		err = nrfx_uarte_rx_buffer_set(nrfx_dev, buf, len);
 		__ASSERT_NO_MSG(err == NRFX_SUCCESS);
+
 		return;
 	}
 
@@ -372,9 +393,7 @@ static void on_rx_disabled(const struct device *dev, struct uarte_nrfx_data *dat
 	};
 
 	atomic_and(&data->flags, ~(UARTE_DATA_FLAG_RX_ENABLED | UARTE_DATA_FLAG_RX_TIMEOUT_ON));
-#if !UARTE_FRAME_TIMEOUT
 	k_timer_stop(&data->async->rx_timer);
-#endif
 
 	data->async->user_callback(dev, &evt, data->async->user_data);
 }
@@ -527,15 +546,18 @@ static int api_rx_enable(const struct device *dev, uint8_t *buf, size_t len, int
 	uint32_t timeout_bits = ((uint64_t)baudrate * timeout) / 1000000;
 
 	nrfx_uarte_frame_timeout_set(nrfx_dev, timeout_bits);
-#else
+#endif
 	if (timeout != SYS_FOREVER_US) {
-		adata->idle_cnt = RX_TIMEOUT_DIV + 1;
-		adata->rx_timeout = K_USEC(timeout / RX_TIMEOUT_DIV);
-		nrfx_uarte_rxdrdy_enable(nrfx_dev);
+		if (UARTE_FRAME_TIMEOUT) {
+			adata->rx_timeout = K_USEC(timeout);
+		} else {
+			adata->idle_cnt = RX_TIMEOUT_DIV + 1;
+			adata->rx_timeout = K_USEC(timeout / RX_TIMEOUT_DIV);
+			nrfx_uarte_rxdrdy_enable(nrfx_dev);
+		}
 	} else {
 		adata->rx_timeout = K_NO_WAIT;
 	}
-#endif
 
 	/* Store the buffer. It will be passed to the driver in the event handler.
 	 * We do that instead of calling nrfx_uarte_rx_buffer_set here to ensure
@@ -899,10 +921,8 @@ static int uarte_nrfx_init(const struct device *dev)
 	}
 
 	if (IS_ENABLED(UARTE_INT_ASYNC) && data->async) {
-#if !UARTE_FRAME_TIMEOUT
 		k_timer_init(&data->async->rx_timer, rx_timeout_handler, NULL);
 		k_timer_user_data_set(&data->async->rx_timer, (void *)dev);
-#endif
 		k_timer_init(&data->async->tx_timer, tx_timeout_handler, NULL);
 		k_timer_user_data_set(&data->async->tx_timer, (void *)dev);
 	}
@@ -1061,6 +1081,8 @@ static int uarte_nrfx_pm_action(const struct device *dev,
 				IF_ENABLED(UARTE_HAS_STOP_CONFIG, (.stop = NRF_UARTE_STOP_ONE,))\
 				IF_ENABLED(UARTE_ODD_PARITY_ALLOWED,				\
 					(.paritytype = NRF_UARTE_PARITYTYPE_EVEN,))		\
+				IF_ENABLED(NRF_UARTE_HAS_FRAME_TIMEOUT,				\
+					(.frame_timeout = NRF_UARTE_FRAME_TIMEOUT_EN))		\
 			},									\
 			.tx_stop_on_end = IS_ENABLED(CONFIG_UART_##idx##_ENHANCED_POLL_OUT),	\
 			.skip_psel_cfg = true,							\
