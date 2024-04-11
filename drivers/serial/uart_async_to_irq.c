@@ -6,6 +6,7 @@
 #include <zephyr/drivers/serial/uart_async_to_irq.h>
 #include <string.h>
 #include <zephyr/logging/log.h>
+#include <hal/nrf_gpio.h>
 LOG_MODULE_REGISTER(UART_ASYNC_TO_IRQ_LOG_NAME, CONFIG_UART_LOG_LEVEL);
 
 /* Internal state flags. */
@@ -201,6 +202,14 @@ int z_uart_async_to_irq_fifo_read(const struct device *dev,
 		return 0;
 	}
 
+	    nrf_gpio_pin_set(9*32+2);
+	    nrf_gpio_pin_clear(9*32+2);
+	    nrf_gpio_pin_set(9*32+2);
+	    memset(buf, 0, 15);
+	    nrf_gpio_pin_clear(9*32+2);
+	    nrf_gpio_pin_set(9*32+2);
+	    memset(claim_buf, 0, 15);
+	    nrf_gpio_pin_clear(9*32+2);
 	memcpy(buf, claim_buf, claim_len);
 	bool buf_available = uart_async_rx_data_consume(async_rx, claim_len);
 

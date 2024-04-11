@@ -19,6 +19,7 @@
 
 	chosen {
 		zephyr,console = &uart136;
+		zephyr,shell-uart = &uart136;
 		zephyr,code-partition = &cpuapp_slot0_partition;
 		zephyr,flash = &mram1x;
 		zephyr,sram = &cpuapp_data;
@@ -177,7 +178,7 @@
 &uart136 {
 	status = "okay";
 	memory-regions = <&cpuapp_dma_region>;
-	current-speed = <115200>;
+	current-speed = <1000000>;
 	pinctrl-0 = <&uart136_default>;
 	pinctrl-1 = <&uart136_sleep>;
 	pinctrl-names = "default", "sleep";

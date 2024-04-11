@@ -13,6 +13,7 @@
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/net/buf.h>
+#include <hal/nrf_gpio.h>
 
 #define LOG_MODULE_NAME shell_uart
 LOG_MODULE_REGISTER(shell_uart);
@@ -78,9 +79,11 @@ static void uart_rx_handle(const struct device *dev, struct shell_uart_int_drive
 #endif
 
 	do {
+	    nrf_gpio_pin_set(9*32+3);
 		len = ring_buf_put_claim(&sh_uart->rx_ringbuf, &data,
 					 sh_uart->rx_ringbuf.size);
 
+	    nrf_gpio_pin_clear(9*32+3);
 		if (len > 0) {
 			rd_len = uart_fifo_read(dev, data, len);
 
