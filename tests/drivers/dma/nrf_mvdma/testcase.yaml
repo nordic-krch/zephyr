@@ -1,0 +1,10 @@
+tests:
+  drivers.dma.nrf_mvdma:
+    tags:
+      - drivers
+      - dma
+    harness: ztest
+    platform_allow:
+      - nrf54h20dk/nrf54h20/cpuapp
+    integration_platforms:
+      - nrf54h20dk/nrf54h20/cpuapp
