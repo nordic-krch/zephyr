@@ -9,77 +9,28 @@
 #include <hal/nrf_mvdma.h>
 #include <zephyr/cache.h>
 
-#define CH_CNT 8
-
-static atomic_t alloc_mask = BIT_MASK(CH_CNT);
+#define DBG_PIN_SET(x) NRF_P9->OUTSET = BIT(x)
+#define DBG_PIN_CLR(x) NRF_P9->OUTCLR = BIT(x)
+static atomic_t alloc_mask = CH_CNT == 1 ? 0 : BIT_MASK(CH_CNT);
 
 struct mvdma_handler {
 	nrf_mvdma_handler_t handler;
 	void *user_data;
 };
 
-static const void *sources[CH_CNT] __aligned(CONFIG_DCACHE_LINE_SIZE);
-static const void *sinks[CH_CNT] __aligned(CONFIG_DCACHE_LINE_SIZE);
-struct mvdma_handler handlers[CH_CNT];
-
-#define EARLY_EXIT 0
-#define USE_CACHE_DRV 1
-static inline void wait_for_cache(void)
-{
-	if (USE_CACHE_DRV) {
-		return;
-	}
-
-	while (nrf_cache_busy_check(NRF_DCACHE)) {
-		/* empty */
-	}
-}
-
-static void cache_flush(const void *addr, size_t size)
-{
-	if (size == 0) {
-		return;
-	}
-
-	if (USE_CACHE_DRV) {
-		sys_cache_data_flush_range(addr, size);
-		return;
-	}
-
-	uintptr_t line_addr = BIT(28) | (uintptr_t)addr;
-	uintptr_t end_addr = line_addr + size;
-
-	line_addr &= ~(CONFIG_DCACHE_LINE_SIZE - 1);
-
-	do {
-		bool cont;
-
-		wait_for_cache();
-
-		do {
-			nrf_cache_lineaddr_set(NRF_DCACHE, line_addr);
-			nrf_cache_task_trigger(NRF_DCACHE, NRF_CACHE_TASK_FLUSHLINE);
-
-			if (nrf_cache_lineaddr_get(NRF_DCACHE) == line_addr) {
-				cont = false;
-			} else {
-				cont = true;
-				wait_for_cache();
-			}
-		} while (cont);
-		line_addr += CONFIG_DCACHE_LINE_SIZE;
-	} while (line_addr < end_addr);
-
-	if (EARLY_EXIT) {
-		return;
-	}
-	wait_for_cache();
-}
+static uint32_t sources[CH_CNT] __aligned(CONFIG_DCACHE_LINE_SIZE);
+static uint32_t sinks[CH_CNT] __aligned(CONFIG_DCACHE_LINE_SIZE);
+static struct mvdma_handler handlers[CH_CNT];
+static sys_slist_t list;
 
 static int flag_alloc(atomic_t *mask)
 {
 	int idx;
 	uint32_t new_mask, prev_mask;
+
+	if (CH_CNT == 1) {
+		return atomic_cas(&alloc_mask, 0, 1) ? 0 : -ENOMEM;
+	}
 
 	do {
 		prev_mask = *mask;
@@ -102,6 +53,11 @@ void flag_free(atomic_t *mask, int flag)
 {
 	uint32_t new_mask, prev_mask;
 
+	if (CH_CNT == 1) {
+		atomic_set(&alloc_mask, 0);
+		return;
+	}
+
 	if ((BIT(flag) & *mask))
 	{
 		return;
@@ -113,32 +69,47 @@ void flag_free(atomic_t *mask, int flag)
 	} while (!atomic_cas(mask, prev_mask, new_mask));
 }
 
-int nrf_mvdma_xfer(const struct nrf_mvdma_jobs_desc *jobs_desc)
+static inline void set_desc(volatile uint32_t *dst, const uint32_t *desc, size_t len)
+{
+	sys_cache_data_flush_range((void *)desc, len);
+
+	*dst = (uint32_t)desc;
+
+	if (CH_CNT > 1) {
+		sys_cache_data_flush_range((void *)dst, sizeof(*dst));
+	}
+}
+
+int nrf_mvdma_xfer(struct nrf_mvdma_jobs_desc *jobs_desc)
 {
 	int rv;
 
-	rv = flag_alloc(&alloc_mask);
-	if (rv < 0) {
-		return rv;
+	if (CH_CNT == 1) {
+		int k = irq_lock();
+
+		if (alloc_mask) {
+			sys_slist_append(&list, &jobs_desc->node);
+			irq_unlock(k);
+			return 1;
+		} else {
+			rv = 0;
+			alloc_mask = 1;
+			irq_unlock(k);
+		}
+	} else {
+		rv = flag_alloc(&alloc_mask);
 	}
 
-	cache_flush(jobs_desc->source, jobs_desc->source_desc_size);
-	sources[rv] = jobs_desc->source;
-	cache_flush(&sources[rv], sizeof(sources[rv]));
-
-	cache_flush(jobs_desc->sink, jobs_desc->sink_desc_size);
-	sinks[rv] = jobs_desc->sink;
-
-	cache_flush(&sinks[rv], sizeof(sinks[rv]));
+	set_desc(CH_CNT == 1 ? &NRF_MVDMA->SOURCE.LISTPTR : &sources[rv],
+		 jobs_desc->source, jobs_desc->source_desc_size);
+	set_desc(CH_CNT == 1 ? &NRF_MVDMA->SINK.LISTPTR : &sinks[rv],
+		 jobs_desc->sink, jobs_desc->sink_desc_size);
 
 	handlers[rv].handler = jobs_desc->handler;
 	handlers[rv].user_data  = jobs_desc->user_data;
 
-	if (EARLY_EXIT) {
-		wait_for_cache();
-	}
-
-	NRF_MVDMA->TASKS_START[rv] = 1;
+	nrf_mvdma_task_t task = NRF_MVDMA_TASK_START0 + (rv * sizeof(uint32_t));
+	nrf_mvdma_task_trigger(NRF_MVDMA, task);
 
 	return 0;
 }
@@ -147,8 +118,7 @@ static void error_handler(void)
 {
 	nrf_mvdma_event_clear(NRF_MVDMA, NRF_MVDMA_EVENT_SOURCEBUSERROR);
 	nrf_mvdma_event_clear(NRF_MVDMA, NRF_MVDMA_EVENT_SINKBUSERROR);
-
-	printk("dma err\n");
+	printk("error");
 }
 
 static void ch_handler(uint32_t ch)
@@ -156,19 +126,47 @@ static void ch_handler(uint32_t ch)
 	nrf_mvdma_handler_t handler;
 	void *user_data;
 
-	NRF_MVDMA->EVENTS_COMPLETED[ch] = 0;
 	handler = handlers[ch].handler;
 	user_data = handlers[ch].user_data;
-	flag_free(&alloc_mask, ch);
+	if (CH_CNT == 1) {
+		int k = irq_lock();
+		sys_snode_t *node = sys_slist_get(&list);
+
+		alloc_mask = 0;
+		if (node) {
+			struct nrf_mvdma_jobs_desc *desc =
+				CONTAINER_OF(node, struct nrf_mvdma_jobs_desc, node);
+
+			irq_unlock(k);
+			(void)nrf_mvdma_xfer(desc);
+		} else {
+			irq_unlock(k);
+		}
+	} else {
+		flag_free(&alloc_mask, ch);
+	}
 
 	handler(user_data);
 }
 
 static void mvdma_isr(const void *arg)
 {
-	/*printk("is %08x\n", NRF_MVDMA->INTPEND);*/
-
 	uint32_t ints = nrf_mvdma_int_pending_get(NRF_MVDMA);
+
+	if (CH_CNT == 1) {
+		DBG_PIN_SET(0);
+		if (ints & NRF_MVDMA_INT_END_MASK) {
+			nrf_mvdma_event_clear(NRF_MVDMA, NRF_MVDMA_EVENT_END);
+			ch_handler(0);
+		}
+
+		if (ints &
+		   (NRF_MVDMA_INT_SOURCEBUSERROR_MASK | NRF_MVDMA_EVENT_SINKBUSERROR)) {
+			error_handler();
+		}
+		DBG_PIN_CLR(0);
+		return;
+	}
 
 	while (ints) {
 		uint32_t i = __builtin_ctz(ints);
@@ -178,6 +176,7 @@ static void mvdma_isr(const void *arg)
 		if (i < 8) {
 			error_handler();
 		} else {
+			NRF_MVDMA->EVENTS_COMPLETED[i] = 0;
 			ch_handler(i - 8);
 		}
 	}
@@ -186,14 +185,20 @@ static void mvdma_isr(const void *arg)
 static int nrf_mvdma_init(void)
 {
 	/* completed and bus errors. */
-	NRF_MVDMA->INTENSET = (BIT_MASK(CH_CNT) << 8) | BIT(4) | BIT(6);
-	/* Multimode. */
-	NRF_MVDMA->CONFIG.MODE = BIT(0);
-	NRF_MVDMA->SOURCE.LISTPTR = (uint32_t)sources;
-	NRF_MVDMA->SINK.LISTPTR = (uint32_t)sinks;
+	uint32_t int_mask = 0x50 | (CH_CNT == 1 ? 0x1 : (BIT_MASK(CH_CNT) << 8));
+
+	nrf_mvdma_int_enable(NRF_MVDMA, int_mask);
+
+	if (CH_CNT > 1) {
+		nrf_mvdma_mode_set(NRF_MVDMA, NRF_MVDMA_MODE_MULTI);
+		nrf_mvdma_source_list_ptr_set(NRF_MVDMA, (nrf_vdma_job_t *)sources);
+		nrf_mvdma_sink_list_ptr_set(NRF_MVDMA, (nrf_vdma_job_t *)sinks);
+	}
 
 	IRQ_CONNECT(MVDMA_IRQn, 2, mvdma_isr, 0, 0);
 	irq_enable(MVDMA_IRQn);
+
+	sys_slist_init(&list);
 
 	return 0;
 }

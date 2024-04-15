@@ -7,6 +7,7 @@
 #ifndef ZEPHYR_INCLUDE_DRIVERS_DMA_NRF_MVDMA_H_
 #define ZEPHYR_INCLUDE_DRIVERS_DMA_NRF_MVDMA_H_
 
+#include <zephyr/sys/slist.h>
 #include <stddef.h>
 #include <inttypes.h>
 
@@ -34,7 +35,10 @@ typedef void (*nrf_mvdma_handler_t)(void *user_data);
 
 #define NRF_MVDMA_JOB_TERMINATE 0
 
+#define CH_CNT 1
+
 struct nrf_mvdma_jobs_desc {
+	sys_snode_t node;
 	const uint32_t*source;
 	size_t source_desc_size;
 	const uint32_t *sink;
@@ -43,7 +47,7 @@ struct nrf_mvdma_jobs_desc {
 	void *user_data;
 };
 
-int nrf_mvdma_xfer(const struct nrf_mvdma_jobs_desc *jobs_desc);
+int nrf_mvdma_xfer(struct nrf_mvdma_jobs_desc *jobs_desc);
 
 
 #ifdef __cplusplus
