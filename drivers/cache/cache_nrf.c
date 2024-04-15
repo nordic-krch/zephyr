@@ -17,7 +17,9 @@ LOG_MODULE_REGISTER(cache_nrfx, CONFIG_CACHE_LOG_LEVEL);
 #define CACHE_LINE_SIZE		     32
 #define CACHE_BUSY_RETRY_INTERVAL_US 10
 
-static struct k_spinlock lock;
+/* Some SOCs has a bug that requires to set 28th bit in the address on Trustzone secure builds. */
+#define ADDR_PATCH COND_CODE_1(CONFIG_CACHE_NRF_PATCH_LINEADDR, \
+		(COND_CODE_1(CONFIG_TRUSTED_EXECUTION_NONSECURE, (0), (BIT(28)))), (0))
 
 enum k_nrf_cache_op {
 	/*
@@ -143,7 +145,7 @@ static inline void _cache_line(NRF_CACHE_Type *cache, enum k_nrf_cache_op op, ui
 static inline int _cache_range(NRF_CACHE_Type *cache, enum k_nrf_cache_op op, void *addr,
 			       size_t size)
 {
-	uintptr_t line_addr = (uintptr_t)addr;
+	uintptr_t line_addr = (uintptr_t)addr | ADDR_PATCH;
 	uintptr_t end_addr = line_addr + size;
 
 	/*
