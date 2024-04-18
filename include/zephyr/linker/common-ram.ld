@@ -144,6 +144,10 @@
 	ITERABLE_SECTION_RAM(bt_nus_inst, 4)
 #endif
 
+#if defined(CONFIG_DCACHE)
+	ITERABLE_SECTION_RAM(data_cache, CONFIG_DCACHE_LINE_SIZE)
+#endif
+
 #ifdef CONFIG_USERSPACE
 	_static_kernel_objects_end = .;
 #endif

@@ -274,6 +274,12 @@ do {                                                                    \
 #define __weak __attribute__((__weak__))
 #endif
 
+#ifndef __cacheline_alinged
+#define __cacheline_alinged \
+	__aligned(CONFIG_DCACHE_LINE_SIZE) \
+	__in_section(_data_cache, , )
+#endif
+
 #ifndef __attribute_nonnull
 #define __attribute_nonnull(...) __attribute__((nonnull(__VA_ARGS__)))
 #endif
