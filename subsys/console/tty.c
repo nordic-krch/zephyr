@@ -16,31 +16,31 @@ static void tty_uart_isr(const struct device *dev, void *user_data)
 {
 	struct tty_serial *tty = user_data;
 
-	uart_irq_update(dev);
+	while (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
+		if (uart_irq_rx_ready(dev)) {
+			uint8_t c;
 
-	if (uart_irq_rx_ready(dev)) {
-		uint8_t c;
-
-		while (1) {
-			if (uart_fifo_read(dev, &c, 1) == 0) {
-				break;
+			while (1) {
+				if (uart_fifo_read(dev, &c, 1) == 0) {
+					break;
+				}
+				tty_irq_input_hook(tty, c);
 			}
-			tty_irq_input_hook(tty, c);
 		}
-	}
 
-	if (uart_irq_tx_ready(dev)) {
-		if (tty->tx_get == tty->tx_put) {
-			/* Output buffer empty, don't bother
-			 * us with tx interrupts
-			 */
-			uart_irq_tx_disable(dev);
-		} else {
-			uart_fifo_fill(dev, &tty->tx_ringbuf[tty->tx_get++], 1);
-			if (tty->tx_get >= tty->tx_ringbuf_sz) {
-				tty->tx_get = 0U;
+		if (uart_irq_tx_ready(dev)) {
+			if (tty->tx_get == tty->tx_put) {
+				/* Output buffer empty, don't bother
+				 * us with tx interrupts
+				 */
+				uart_irq_tx_disable(dev);
+			} else {
+				uart_fifo_fill(dev, &tty->tx_ringbuf[tty->tx_get++], 1);
+				if (tty->tx_get >= tty->tx_ringbuf_sz) {
+					tty->tx_get = 0U;
+				}
+				k_sem_give(&tty->tx_sem);
 			}
-			k_sem_give(&tty->tx_sem);
 		}
 	}
 }
