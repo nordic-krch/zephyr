@@ -17,6 +17,10 @@ static void tty_uart_isr(const struct device *dev, void *user_data)
 	struct tty_serial *tty = user_data;
 
 	while (uart_irq_update(dev) && uart_irq_is_pending(dev)) {
+		if (uart_err_check(dev)) {
+			/* Called just to clear the error. */
+		}
+
 		if (uart_irq_rx_ready(dev)) {
 			uint8_t c;
 
@@ -272,6 +276,7 @@ int tty_set_rx_buf(struct tty_serial *tty, void *buf, size_t size)
 	if (size > 0) {
 		k_sem_init(&tty->rx_sem, 0, K_SEM_MAX_LIMIT);
 		uart_irq_rx_enable(tty->uart_dev);
+		uart_irq_err_enable(tty->uart_dev);
 	}
 
 	return 0;
