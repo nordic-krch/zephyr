@@ -13,6 +13,7 @@
 #include "ext_log_system_adapter.h"
 #include <zephyr/logging/log_ctrl.h>
 #include <zephyr/app_memory/app_memdomain.h>
+#include <zephyr/shell/shell.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
@@ -312,3 +313,31 @@ static void log_demo_supervisor(void *p1, void *p2, void *p3)
 K_THREAD_DEFINE(log_demo_thread_id, STACKSIZE, log_demo_supervisor,
 		NULL, NULL, NULL,
 		K_LOWEST_APPLICATION_THREAD_PRIO, 0, 1);
+
+static int instance_log_cmd(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(sh);
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	if (argc != 2) {
+		return -1;
+	}
+
+	struct sample_instance *inst;
+
+	if (strcmp(argv[1], "1") == 0) {
+		inst = &inst1;
+	} else {
+		inst = &inst2;
+	}
+
+	sample_instance_inline_call(inst);
+	sample_instance_call(inst);
+
+	return 0;
+}
+
+SHELL_CMD_REGISTER(instance_log, NULL,
+		"Demo logging instance level, use with 1 or 2 arg (e.g. 'instance_log 1')",
+		instance_log_cmd);
