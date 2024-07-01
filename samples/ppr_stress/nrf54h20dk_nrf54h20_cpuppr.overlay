@@ -1,0 +1,10 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+dut: &timer130 {
+    status = "okay";
+    interrupts = <418 (NRF_DEFAULT_IRQ_PRIORITY + 1)>;
+};
+
+&grtc {
+    interrupts = <108 (NRF_DEFAULT_IRQ_PRIORITY + 0)>;
+};
