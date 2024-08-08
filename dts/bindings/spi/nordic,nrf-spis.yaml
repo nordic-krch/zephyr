@@ -14,3 +14,7 @@ properties:
     description: |
         Default character. Character clocked out when the slave was not
         provided with buffers and is ignoring the transaction.
+
+  clock-pins:
+    type: array
+    description: Pins that require clock

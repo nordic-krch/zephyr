@@ -21,6 +21,10 @@ properties:
       Indicates if the SPIM instance has the capability of delaying MISO
       sampling. This property needs to be defined at SoC level DTS files.
 
+  clock-pins:
+    type: array
+    description: Pins that require clock
+
   rx-delay:
     type: int
     enum:

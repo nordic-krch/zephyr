@@ -8,6 +8,7 @@
 #include <zephyr/cache.h>
 #include <zephyr/pm/device.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/pinctrl/pinctrl_nrf.h>
 #include <zephyr/mem_mgmt/mem_attr.h>
 #include <soc.h>
 #ifdef CONFIG_SOC_NRF52832_ALLOW_SPIM_DESPITE_PAN_58
@@ -61,6 +62,8 @@ struct spi_nrfx_config {
 	void (*irq_connect)(void);
 	uint16_t max_chunk_len;
 	const struct pinctrl_dev_config *pcfg;
+	const uint32_t *clock_pins_data;
+	size_t clock_pins_cnt;
 #ifdef CONFIG_SOC_NRF52832_ALLOW_SPIM_DESPITE_PAN_58
 	bool anomaly_58_workaround;
 #endif
@@ -605,12 +608,21 @@ static int spim_nrfx_pm_action(const struct device *dev,
 }
 #endif /* CONFIG_PM_DEVICE */
 
-
 static int spi_nrfx_init(const struct device *dev)
 {
 	const struct spi_nrfx_config *dev_config = dev->config;
 	struct spi_nrfx_data *dev_data = dev->data;
 	int err;
+	uint32_t err_fun;
+
+	err = nrf_pinctrl_clock_pin_check(dev_config->pcfg,
+				dev_config->clock_pins_data, dev_config->clock_pins_cnt, &err_fun);
+	__ASSERT(err == 0, "Wrong nordic,clock-enable property setting for instance %p for pin "
+			"functionality %d (check in nrf-pinctrl.h).",
+			dev_config->spim.p_reg, err_fun);
+	if (err < 0) {
+		return err;
+	}
 
 	err = pinctrl_apply_state(dev_config->pcfg, PINCTRL_STATE_DEFAULT);
 	if (err < 0) {
@@ -670,6 +682,8 @@ static int spi_nrfx_init(const struct device *dev)
 			(0))),								 \
 		(0))
 
+#define SPIM_GET_CLOCK_PIN(node_id, prop, idx) DT_PROP_BY_IDX(node_id, prop, idx)
+
 #define SPI_NRFX_SPIM_DEFINE(idx)					       \
 	NRF_DT_CHECK_NODE_HAS_PINCTRL_SLEEP(SPIM(idx));			       \
 	static void irq_connect##idx(void)				       \
@@ -695,6 +709,8 @@ static int spi_nrfx_init(const struct device *dev)
 		.busy = false,						       \
 	};								       \
 	PINCTRL_DT_DEFINE(SPIM(idx));					       \
+	static const uint32_t spi_nrfx_clock_pins##idx[] = {\
+		DT_FOREACH_PROP_ELEM_SEP(SPIM(idx), clock_pins, DT_PROP_BY_IDX, (,))};\
 	static const struct spi_nrfx_config spi_##idx##z_config = {	       \
 		.spim = {						       \
 			.p_reg = (NRF_SPIM_Type *)DT_REG_ADDR(SPIM(idx)),      \
@@ -710,6 +726,8 @@ static int spi_nrfx_init(const struct device *dev)
 		},							       \
 		.irq_connect = irq_connect##idx,			       \
 		.pcfg = PINCTRL_DT_DEV_CONFIG_GET(SPIM(idx)),		       \
+		.clock_pins_data = spi_nrfx_clock_pins##idx,\
+		.clock_pins_cnt = ARRAY_SIZE(spi_nrfx_clock_pins##idx),\
 		.max_chunk_len = BIT_MASK(SPIM_PROP(idx, easydma_maxcnt_bits)),\
 		COND_CODE_1(CONFIG_SOC_NRF52832_ALLOW_SPIM_DESPITE_PAN_58,     \
 			(.anomaly_58_workaround =			       \

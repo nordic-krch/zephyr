@@ -372,3 +372,42 @@ int pinctrl_configure_pins(const pinctrl_soc_pin_t *pins, uint8_t pin_cnt,
 
 	return 0;
 }
+
+int nrf_pinctrl_clock_pin_check(const struct pinctrl_dev_config *pcfg,
+				const uint32_t *clock_pins,
+				size_t cnt,
+				uint32_t *err_fun)
+{
+#if NRF_GPIO_HAS_CLOCKPIN
+	for (int i = 0; i < pcfg->state_cnt; i++) {
+		if (pcfg->states[i].id == PINCTRL_STATE_DEFAULT) {
+			for (int j = 0; j < pcfg->states[i].pin_cnt; j++) {
+				uint32_t pin_state = pcfg->states[i].pins[j];
+				uint32_t pin_fun = (pin_state >> NRF_FUN_POS) & NRF_FUN_MSK;
+				bool clk_pin_req = false;
+				bool has_clk_pin = pin_state &
+					(NRF_CLOCK_ENABLE_MSK << NRF_CLOCK_ENABLE_POS);
+
+				for (int k = 0; k < cnt; k++) {
+					if (clock_pins[k] == pin_fun) {
+						clk_pin_req = true;
+						break;
+					}
+				}
+
+				if (clk_pin_req ^ has_clk_pin) {
+					if (err_fun) {
+						*err_fun = pin_fun;
+					}
+
+					return -EINVAL;
+				}
+			}
+
+			return 0;
+		}
+	}
+#endif
+
+	return 0;
+}
