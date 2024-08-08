@@ -30,9 +30,9 @@ typedef uint32_t pinctrl_soc_pin_t;
 
 #define CLOCK_ENABLE(node_id, prop, idx, p_node_id)			       \
 	COND_CODE_1(DT_NODE_HAS_PROP(p_node_id, nordic_clock_enable),	       \
-		    (DT_FOREACH_PROP_ELEM_VARGS(			       \
-			p_node_id, nordic_clock_enable, GET_CLOCK_PIN,	       \
-			NRF_GET_FUN(DT_PROP_BY_IDX(node_id, prop, idx))) 0),   \
+		    ((DT_FOREACH_PROP_ELEM_SEP_VARGS(			       \
+			p_node_id, nordic_clock_enable, GET_CLOCK_PIN, (),     \
+			NRF_GET_FUN(DT_PROP_BY_IDX(node_id, prop, idx))) 0)),  \
 		    (0))
 
 /**
