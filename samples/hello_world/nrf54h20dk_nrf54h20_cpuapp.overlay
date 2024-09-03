@@ -1,0 +1,25 @@
+&dppic133 {
+	compatible = "nordic,nrf-dppic-global";
+	owned-channels = <0 1>;
+	source-channels = <0 1>;
+	status = "okay";
+
+};
+
+&dppic130 {
+	compatible = "nordic,nrf-dppic-global";
+	owned-channels = <0 1>;
+	sink-channels = <0 1>;
+	source-channels = <0 1>;
+	nonsecure-channels = <0 1>;
+	status = "okay";
+};
+
+&gpiote130 {
+	status = "okay";
+	owned-channels = <0 1>;
+};
+
+&timer131 {
+	status = "okay";
+};
