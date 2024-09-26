@@ -1,0 +1,52 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+&timer131 {
+	status = "reserved";
+};
+
+&adc {
+	/* Reserve SAADC to ensure that it is assigned to cpuapp and can be used by nrfx_saadc. */
+	status = "reserved";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		/* We only need this to assign gpio pin to that core. */
+		zephyr,input-positive = <NRF_SAADC_AIN0>;
+		/* All properties below not used (but must be present) because
+		 * nrfx_saadc is used directly.
+		 */
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_2";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
+		zephyr,resolution = <10>;
+	};
+};
+
+&dppic130 {
+	compatible = "nordic,nrf-dppic-global";
+	/* Main domain DPPIC. One channel needed to connect DPPIC133 with DPPIC131. */
+	owned-channels = <0>;
+	sink-channels = <0>;
+	source-channels = <0>;
+	status = "okay";
+};
+
+&dppic133 {
+	compatible = "nordic,nrf-dppic-global";
+	/* DPPIC in domain where TIMER131 is located. Single channel for signal
+	   goes out of that domain. */
+	owned-channels = <0>;
+	source-channels = <0>;
+	status = "okay";
+};
+
+&dppic131 {
+	compatible = "nordic,nrf-dppic-global";
+	/* DPPIC in domain where SAADC is located. One channel for signal from TIMER131
+	   and one for SAADC_END->SAADC_START */
+	owned-channels = <0 1>;
+	sink-channels = <0 1>;
+	status = "okay";
+};

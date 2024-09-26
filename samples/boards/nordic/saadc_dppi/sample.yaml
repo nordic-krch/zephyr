@@ -1,0 +1,19 @@
+sample:
+  description: An example to showcase usage of the nrfx_saadc driver operating at its peak performance
+  name: nrfx_saadc maximum performance example
+tests:
+  samples.boards.nordic.saadc_dppi:
+    tags: saadc
+    filter: dt_compat_enabled("nordic,nrf-saadc")
+    platform_allow: |
+      nrf54h20dk/nrf54h20/cpuapp
+    integration_platforms:
+      - nrf54h20dk/nrf54h20/cpuapp
+  samples.boards.nordic.saadc_dppi.stm:
+    tags: saadc
+    filter: dt_compat_enabled("nordic,nrf-saadc")
+    platform_allow: |
+      nrf54h20dk/nrf54h20/cpuapp
+    integration_platforms:
+      - nrf54h20dk/nrf54h20/cpuapp
+    required_snippets: nordic-log-stm
