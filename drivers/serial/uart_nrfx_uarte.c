@@ -1047,6 +1047,7 @@ static int uarte_nrfx_rx_enable(const struct device *dev, uint8_t *buf,
 
 	nrf_uarte_event_clear(uarte, NRF_UARTE_EVENT_ENDRX);
 	nrf_uarte_event_clear(uarte, NRF_UARTE_EVENT_RXSTARTED);
+	nrf_uarte_event_clear(uarte, NRF_UARTE_EVENT_RXDRDY);
 
 	async_rx->enabled = true;
 
@@ -1503,6 +1504,13 @@ static uint8_t rx_flush(const struct device *dev, uint8_t *buf)
 		return 0;
 	}
 
+	/* If event is set that means it came after ENDRX so there was at least
+	 * one byte in the RX FIFO.
+	 */
+	if (nrf_uarte_event_check(uarte, NRF_UARTE_EVENT_RXDRDY)) {
+		return rx_amount;
+	}
+
 	if (IS_ENABLED(UARTE_ANY_CACHE) && (config->flags & UARTE_CFG_FLAG_CACHEABLE)) {
 		sys_cache_data_invd_range(buf, UARTE_HW_RX_FIFO_SIZE);
 	}
@@ -1560,12 +1568,8 @@ static void rxto_isr(const struct device *dev)
 		async_rx->flush_cnt = rx_flush(dev, config->rx_flush_buf);
 	}
 
-#ifdef CONFIG_UART_NRFX_UARTE_ENHANCED_RX
-	NRF_UARTE_Type *uarte = get_uarte_instance(dev);
 #ifdef UARTE_HAS_FRAME_TIMEOUT
-	nrf_uarte_shorts_disable(uarte, NRF_UARTE_SHORT_FRAME_TIMEOUT_STOPRX);
-#endif
-	nrf_uarte_event_clear(uarte, NRF_UARTE_EVENT_RXDRDY);
+	nrf_uarte_shorts_disable(get_uarte_instance(dev), NRF_UARTE_SHORT_FRAME_TIMEOUT_STOPRX);
 #endif
 
 	if (IS_ENABLED(CONFIG_PM_DEVICE_RUNTIME)) {
@@ -1701,19 +1705,44 @@ static void uarte_nrfx_isr_async(const void *arg)
 	struct uarte_nrfx_data *data = dev->data;
 	struct uarte_async_rx *async_rx = &data->async->rx;
 	uint32_t imask = nrf_uarte_int_enable_check(uarte, UINT32_MAX);
+	bool endrx = false;
+	bool rxdrdy = false;
+
+	/* Part of a workaround for RX FIFO flushing issue. One way to detect if
+	 * there was data in the RX FIFO is to check if RXDRDY event came after ENDRX.
+	 * To detect that we try to clear RXDRDY event immediately after detecting
+	 * that ENDRX event occur. Then in RXTO event handling when FIFO is flushed
+	 * RXDRDY event is checked and if it is set then it means that there was at
+	 * least one byte in the FIFO (that arrived after ENDRX). It is not perfect
+	 * because it will fail if ISR is handled with latency but together with
+	 * watermarking the buffer it should significantly reduce the chance of
+	 * failure.
+	 */
+	if (event_check_clear(uarte, NRF_UARTE_EVENT_ENDRX, NRF_UARTE_INT_ENDRX_MASK, imask)) {
+		if (RX_FLUSH_WORKAROUND) {
+			if (nrf_uarte_event_check(uarte, NRF_UARTE_EVENT_RXDRDY)) {
+				nrf_uarte_event_clear(uarte, NRF_UARTE_EVENT_RXDRDY);
+				rxdrdy = true;
+			}
+		}
+		endrx = true;
+	}
 
 	if (!(HW_RX_COUNTING_ENABLED(config) || IS_ENABLED(UARTE_HAS_FRAME_TIMEOUT))
-	    && event_check_clear(uarte, NRF_UARTE_EVENT_RXDRDY, NRF_UARTE_INT_RXDRDY_MASK, imask)) {
-		rxdrdy_isr(dev);
-
+	    && (imask & NRF_UARTE_INT_RXDRDY_MASK)) {
+		if (rxdrdy) {
+			rxdrdy_isr(dev);
+		} else if (nrf_uarte_event_check(uarte, NRF_UARTE_EVENT_RXDRDY)) {
+			nrf_uarte_event_clear(uarte, NRF_UARTE_EVENT_RXDRDY);
+			rxdrdy_isr(dev);
+		}
 	}
 
 	if (event_check_clear(uarte, NRF_UARTE_EVENT_ERROR, NRF_UARTE_INT_ERROR_MASK, imask)) {
 		error_isr(dev);
 	}
 
-	if (event_check_clear(uarte, NRF_UARTE_EVENT_ENDRX, NRF_UARTE_INT_ENDRX_MASK, imask)) {
-		nrf_uarte_event_clear(uarte, NRF_UARTE_EVENT_ENDRX);
+	if (endrx) {
 		endrx_isr(dev);
 	}
 
