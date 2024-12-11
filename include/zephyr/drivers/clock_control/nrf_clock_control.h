@@ -236,6 +236,28 @@ int nrf_clock_control_request(const struct device *dev,
 }
 
 /**
+ * @brief Synchronously request a reservation to use a given clock with specified attributes.
+ *
+ * It can only be called from a thread context.
+ *
+ * @param dev pointer to the clock device structure.
+ * @param spec specification of minimal acceptable attributes, like frequency,
+ *             accuracy, and precision, required for the clock.
+ *             Value of 0 has the meaning of "default" and can be passed
+ *             instead of a given attribute if there is no strict requirement
+ *             in this regard. If there is no specific requirement for any of
+ *             the attributes, this parameter can be NULL.
+ *
+ * @retval 0 if request is fulfilled.
+ * @retval -EIO if service has recorded an error.
+ * @retval -EINVAL if the function parameters are invalid or the clock
+ *                 attributes cannot be provided (e.g. the requested accuracy
+ *                 is unavailable).
+ * @retval -EAGAIN if request was not fulfilled on time or the reference count would overflow.
+ */
+int nrf_clock_control_request_sync(const struct device *dev, const struct nrf_clock_spec *spec);
+
+/**
  * @brief Release a reserved use of a clock.
  *
  * @param dev pointer to the clock device structure.

@@ -4,6 +4,7 @@
  */
 
 #include "clock_control_nrf2_common.h"
+#include <zephyr/drivers/clock_control/nrf_clock_control.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(clock_control_nrf2, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
@@ -23,6 +24,13 @@ LOG_MODULE_REGISTER(clock_control_nrf2, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
  * Used to access `clock_config_*` structures in a common way.
  */
 STRUCT_CLOCK_CONFIG(generic, ONOFF_CNT_MAX);
+
+/* Structure used for synchronous clock request. */
+struct clock_control_nrf_sync_req_data {
+	struct onoff_client cli;
+	struct k_sem *sem;
+	int res;
+};
 
 static void update_config(struct clock_config_generic *cfg)
 {
@@ -158,4 +166,38 @@ int api_nosys_on_off(const struct device *dev, clock_control_subsys_t sys)
 	ARG_UNUSED(sys);
 
 	return -ENOSYS;
+}
+
+static void sync_cb(struct onoff_manager *mgr, struct onoff_client *cli, uint32_t state, int res)
+{
+	struct clock_control_nrf_sync_req_data  *data =
+		CONTAINER_OF(cli, struct clock_control_nrf_sync_req_data, cli);
+
+	data->res = res;
+	k_sem_give(data->sem);
+}
+
+int nrf_clock_control_request_sync(const struct device *dev, const struct nrf_clock_spec *spec)
+{
+	struct clock_control_nrf_sync_req_data data;
+	struct k_sem sem;
+	int err;
+
+	__ASSERT_NO_MSG(!k_is_in_isr());
+
+	k_sem_init(&sem, 0, 1);
+	data.sem = &sem;
+	sys_notify_init_callback(&data.cli.notify, sync_cb);
+
+	err = nrf_clock_control_request(dev, spec, &data.cli);
+	if (err < 0) {
+		return err;
+	}
+
+	err = k_sem_take(&sem, K_MSEC(CONFIG_CLOCK_CONTROL_NRF2_NRFS_CLOCK_TIMEOUT_MS));
+	if (err < 0) {
+		return err;
+	}
+
+	return data.res;
 }
