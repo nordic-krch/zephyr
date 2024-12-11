@@ -4,8 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <zephyr/drivers/counter.h>
+#include <zephyr/drivers/clock_control/nrf_clock_control.h>
+#include <zephyr/devicetree.h>
 #include <hal/nrf_timer.h>
 #include <zephyr/sys/atomic.h>
+#ifdef CONFIG_SOC_NRF54H20_GPD
+#include <nrf/gpd.h>
+#endif
 
 #define LOG_LEVEL CONFIG_COUNTER_LOG_LEVEL
 #define LOG_MODULE_NAME counter_timer
@@ -32,6 +37,21 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, LOG_LEVEL);
 #define MAYBE_CONST_CONFIG const
 #endif
 
+#define NRF_CLOCKS_INSTANCE_IS_FAST(node)						\
+	COND_CODE_1(UTIL_AND(IS_ENABLED(CONFIG_SOC_NRF54H20_GPD),			\
+			     DT_NODE_HAS_PROP(node, power_domains)),			\
+		    (IS_EQ(DT_PHA(node, power_domains, id), NRF_GPD_FAST_ACTIVE1)),	\
+		    (0))
+
+/* Macro must resolve to literal 0 or 1 */
+#define INSTANCE_IS_FAST(idx) NRF_CLOCKS_INSTANCE_IS_FAST(DT_DRV_INST(idx))
+
+#define INSTANCE_IS_FAST_OR(idx) INSTANCE_IS_FAST(idx) ||
+
+#if (DT_INST_FOREACH_STATUS_OKAY(INSTANCE_IS_FAST_OR) 0)
+#define COUNTER_ANY_FAST 1
+#endif
+
 struct counter_nrfx_data {
 	counter_top_callback_t top_cb;
 	void *top_user_data;
@@ -48,6 +68,10 @@ struct counter_nrfx_config {
 	struct counter_config_info info;
 	struct counter_nrfx_ch_data *ch_data;
 	NRF_TIMER_Type *timer;
+#ifdef COUNTER_ANY_FAST
+	const struct device *clk_dev;
+	struct nrf_clock_spec clk_spec;
+#endif
 	LOG_INSTANCE_PTR_DECLARE(log);
 };
 
@@ -61,6 +85,16 @@ static int start(const struct device *dev)
 {
 	const struct counter_nrfx_config *config = dev->config;
 
+#ifdef COUNTER_ANY_FAST
+	if (config->clk_dev) {
+		int err;
+
+		err = nrf_clock_control_request_sync(config->clk_dev, &config->clk_spec);
+		if (err < 0) {
+			return err;
+		}
+	}
+#endif
 	nrf_timer_task_trigger(config->timer, NRF_TIMER_TASK_START);
 
 	return 0;
@@ -71,6 +105,16 @@ static int stop(const struct device *dev)
 	const struct counter_nrfx_config *config = dev->config;
 
 	nrf_timer_task_trigger(config->timer, NRF_TIMER_TASK_STOP);
+#ifdef COUNTER_ANY_FAST
+	if (config->clk_dev) {
+		int err;
+
+		err = nrf_clock_control_release(config->clk_dev, &config->clk_spec);
+		if (err < 0) {
+			return err;
+		}
+	}
+#endif
 
 	return 0;
 }
@@ -291,6 +335,11 @@ static int init_timer(const struct device *dev,
 {
 	MAYBE_CONST_CONFIG struct counter_nrfx_config *nrfx_config =
 			(MAYBE_CONST_CONFIG struct counter_nrfx_config *)dev->config;
+#ifdef COUNTER_ANY_FAST
+	struct counter_nrfx_data *data = dev->data;
+
+	data->hsfll_data = nrfx_config->hsfll_data;
+#endif
 
 #if defined(CONFIG_SOC_SERIES_BSIM_NRFXX)
 	/* For simulated devices we need to convert the hardcoded DT address from the real
@@ -419,13 +468,20 @@ static const struct counter_driver_api counter_nrfx_driver_api = {
 			    irq_handler, DEVICE_DT_INST_GET(idx), 0))		\
 	)
 
-#if !defined(CONFIG_SOC_SERIES_BSIM_NRFXX)
-#define CHECK_MAX_FREQ(idx)									\
-		BUILD_ASSERT(DT_INST_PROP(idx, max_frequency) ==				\
-			NRF_TIMER_BASE_FREQUENCY_GET((NRF_TIMER_Type *)DT_INST_REG_ADDR(idx)))
-#else
-#define CHECK_MAX_FREQ(idx)
-#endif
+#define NRF_CLOCKS_GET_MAX_SUPPORTED_FREQ(clk_node)				\
+	COND_CODE_1(DT_NODE_HAS_PROP(clk_node, supported_clock_frequencies),	\
+		    (DT_PROP_LAST(clk_node, supported_clock_frequencies)),	\
+		    (NRFX_MHZ_TO_HZ(16)))
+
+#define NRF_CLOCKS_GET_MAX_FREQ(clk_node)						\
+	COND_CODE_1(DT_NODE_HAS_PROP(clk_node, clock_frequency),	\
+		    (DT_PROP(clk_node, clock_frequency)),		\
+		    (NRF_CLOCKS_GET_MAX_SUPPORTED_FREQ(clk_node)))
+
+#define TIMER_GET_FREQ(node)							\
+	COND_CODE_1(DT_CLOCKS_HAS_IDX(node, 0),						\
+		(NRF_CLOCKS_GET_MAX_FREQ(DT_CLOCKS_CTLR(node))),\
+		(NRFX_MHZ_TO_HZ(16)))
 
 #define COUNTER_NRFX_TIMER_DEVICE(idx)								\
 	BUILD_ASSERT(DT_INST_PROP(idx, prescaler) <=						\
@@ -456,16 +512,23 @@ static const struct counter_driver_api counter_nrfx_driver_api = {
 	static MAYBE_CONST_CONFIG struct counter_nrfx_config nrfx_counter_##idx##_config = {	\
 		.info = {									\
 			.max_top_value = (uint32_t)BIT64_MASK(DT_INST_PROP(idx, max_bit_width)),\
-			.freq = DT_INST_PROP(idx, max_frequency) /				\
+			.freq = TIMER_GET_FREQ(DT_DRV_INST(idx)) /			\
 				BIT(DT_INST_PROP(idx, prescaler)),				\
 			.flags = COUNTER_CONFIG_INFO_COUNT_UP,					\
 			.channels = CC_TO_ID(DT_INST_PROP(idx, cc_num)),			\
 		},										\
 		.ch_data = counter##idx##_ch_data,						\
 		.timer = (NRF_TIMER_Type *)DT_INST_REG_ADDR(idx),				\
+		IF_ENABLED(INSTANCE_IS_FAST(idx),						\
+			(.clk_dev = DEVICE_DT_GET(DT_CLOCKS_CTLR(DT_DRV_INST(idx))),		\
+			 .clk_spec = {								\
+				.frequency = TIMER_GET_FREQ(DT_DRV_INST(idx)),			\
+				.accuracy = 0,							\
+				.precision = NRF_CLOCK_CONTROL_PRECISION_DEFAULT,		\
+				},								\
+			 ))									\
 		LOG_INSTANCE_PTR_INIT(log, LOG_MODULE_NAME, idx)				\
 	};											\
-	CHECK_MAX_FREQ(idx);									\
 	DEVICE_DT_INST_DEFINE(idx,								\
 			    counter_##idx##_init,						\
 			    NULL,								\
