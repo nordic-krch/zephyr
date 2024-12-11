@@ -88,6 +88,7 @@ static void hsfll_work_handler(struct k_work *work)
 	to_activate_idx = clock_config_update_begin(work);
 	required_setting = clock_options[to_activate_idx].setting;
 
+	printk("!!! %d\n", required_setting);
 	/* Notify the DVFS service about the required setting. */
 	rc = dvfs_service_handler_change_freq_setting(required_setting);
 	if (rc < 0) {
