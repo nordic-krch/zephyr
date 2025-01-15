@@ -95,7 +95,9 @@ static uint32_t *frame_buf = IS_ENABLED(CONFIG_DEBUG_NRF_ETR_DECODE) ?
 				frame_buf_decode : frame_buf0;
 
 K_KERNEL_STACK_DEFINE(etr_stack, CONFIG_DEBUG_NRF_ETR_STACK_SIZE);
+#ifndef CONFIG_NRF_ETR_SHELL
 static struct k_thread etr_thread;
+#endif
 
 BUILD_ASSERT((DT_REG_SIZE(ETR_BUFFER_NODE) % CONFIG_DCACHE_LINE_SIZE) == 0);
 BUILD_ASSERT((DT_REG_ADDR(ETR_BUFFER_NODE) % CONFIG_DCACHE_LINE_SIZE) == 0);
