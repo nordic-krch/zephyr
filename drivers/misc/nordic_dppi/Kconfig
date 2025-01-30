@@ -1,0 +1,8 @@
+config NORDIC_DPPI
+	select NRF_IRONSIDE_KRCH_SERVICE if SOC_NRF54H20_CPUAPP
+	bool "DPPI manager"
+
+config NORDIC_DPPI_MULTI_DOMAIN
+	bool "DPPI with multiple domains"
+	depends on $(dt_has_compat,$(DT_COMPAT_NORDIC_NRF_PPIB))
+	default y
