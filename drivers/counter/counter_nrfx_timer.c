@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <zephyr/drivers/counter.h>
+#include <zephyr/drivers/counter/nrf_counter.h>
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/devicetree.h>
 #include <hal/nrf_timer.h>
@@ -214,6 +215,22 @@ static int set_cc(const struct device *dev, uint8_t id, uint32_t val,
 	prev_val = nrf_timer_cc_get(reg, chan);
 	nrf_barrier_r();
 	nrf_timer_cc_set(reg, chan, now);
+	if (IS_ENABLED(CONFIG_COUNTER_NRF_TIMER_EXT)) {
+		uint32_t shorts_dis = nrf_timer_short_compare_clear_get(chan) |
+				      nrf_timer_short_compare_stop_get(chan);
+		uint32_t shorts = ((flags & COUNTER_ALARM_CFG_RESET_COUNTER) ?
+					nrf_timer_short_compare_clear_get(chan) : 0) |
+				  ((flags & COUNTER_ALARM_CFG_STOP_COUNTER) ?
+					nrf_timer_short_compare_stop_get(chan) : 0);
+		uint32_t key = irq_lock();
+
+		nrf_timer_shorts_disable(reg, shorts_dis);
+		if (shorts) {
+			nrf_timer_shorts_enable(reg, shorts);
+		}
+		irq_unlock(key);
+	}
+
 	nrf_timer_event_clear(reg, evt);
 
 	if (absolute) {
@@ -255,7 +272,10 @@ static int set_cc(const struct device *dev, uint8_t id, uint32_t val,
 			config->ch_data[id].callback = NULL;
 		}
 	} else {
-		nrf_timer_int_enable(reg, nrf_timer_compare_int_get(chan));
+		if (!IS_ENABLED(CONFIG_COUNTER_NRF_TIMER_EXT) ||
+		    !(flags & COUNTER_ALARM_CFG_NO_IRQ)) {
+			nrf_timer_int_enable(reg, nrf_timer_compare_int_get(chan));
+		}
 	}
 
 	return err;
@@ -439,6 +459,64 @@ static void irq_handler(const void *arg)
 	for (uint32_t i = 0; i < counter_get_num_of_channels(dev); i++) {
 		alarm_irq_handle(dev, i);
 	}
+}
+
+uint32_t nrf_counter_get_compare_evt_ep(const struct device *dev, uint8_t id)
+{
+	__ASSERT_NO_MSG(id < counter_get_num_of_channels(dev));
+
+	uint32_t cc = ID_TO_CC(id);
+	const struct counter_nrfx_config *config = dev->config;
+	NRF_TIMER_Type *reg = config->timer;
+
+	return (uint32_t)&reg->EVENTS_COMPARE[cc];
+}
+
+uint32_t nrf_counter_get_capture_tsk_ep(const struct device *dev, uint8_t id)
+{
+	__ASSERT_NO_MSG(id < counter_get_num_of_channels(dev));
+
+	uint32_t cc = ID_TO_CC(id);
+	const struct counter_nrfx_config *config = dev->config;
+	NRF_TIMER_Type *reg = config->timer;
+
+	return (uint32_t)&reg->TASKS_CAPTURE[cc];
+}
+
+uint32_t nrf_counter_get_tsk_ep(const struct device *dev, enum nrf_counter_tsk_ep tsk_ep)
+{
+	const struct counter_nrfx_config *config = dev->config;
+	NRF_TIMER_Type *reg = config->timer;
+
+	switch (tsk_ep) {
+	case NRF_COUNTER_TSK_EP_START:
+		return (uint32_t)&reg->TASKS_START;
+	case NRF_COUNTER_TSK_EP_STOP:
+		return (uint32_t)&reg->TASKS_START;
+	case NRF_COUNTER_TSK_EP_COUNT:
+		return (uint32_t)&reg->TASKS_COUNT;
+	default:
+		return (uint32_t)&reg->TASKS_CLEAR;
+	}
+}
+
+uint32_t nrf_counter_get_capture(const struct device *dev, uint8_t id)
+{
+	__ASSERT_NO_MSG(id < counter_get_num_of_channels(dev));
+
+	uint32_t cc = ID_TO_CC(id);
+	const struct counter_nrfx_config *config = dev->config;
+	NRF_TIMER_Type *reg = config->timer;
+
+	return nrf_timer_cc_get(reg, cc);
+}
+
+void nrf_counter_set_mode(const struct device *dev, bool counter)
+{
+	const struct counter_nrfx_config *config = dev->config;
+	NRF_TIMER_Type *reg = config->timer;
+
+	nrf_timer_mode_set(reg, counter ? NRF_TIMER_MODE_COUNTER : NRF_TIMER_MODE_TIMER);
 }
 
 static DEVICE_API(counter, counter_nrfx_driver_api) = {

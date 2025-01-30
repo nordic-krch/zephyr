@@ -15,6 +15,11 @@ config COUNTER_NRFX_TIMER_USE_CLOCK_CONTROL
 		 $(dt_nodelabel_enabled,timer121)
 	select CLOCK_CONTROL
 
+config COUNTER_NRF_TIMER_EXT
+	bool "(D)PPI support in TIMER counter"
+	depends on COUNTER_NRF_TIMER
+	imply NRFX_GPPI
+
 # Internal flag which detects if PPI wrap feature is enabled for any instance
 config COUNTER_RTC_WITH_PPI_WRAP
 	def_bool $(dt_nodelabel_bool_prop,rtc0,ppi-wrap) || \

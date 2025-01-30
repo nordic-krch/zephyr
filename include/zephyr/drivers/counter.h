@@ -94,6 +94,8 @@ extern "C" {
  */
 #define COUNTER_ALARM_CFG_EXPIRE_WHEN_LATE  BIT(1)
 
+#define COUNTER_ALARM_CFG_BITS 2
+
 /**@} */
 
 /**
