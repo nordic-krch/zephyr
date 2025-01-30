@@ -1,6 +1,18 @@
-#include <zephyr/drivers/misc/ppi/nrfx_dppi.h>
-#include "nrfx_dppi_routes.h"
-#include "nrfx_dppi_nrf54l.h"
+/*
+ * Copyright (c) 2025 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <ppi/gppi.h>
+#include "dppi_routes.h"
+
+enum {
+	DPPI_LUMOS_DOMAIN_MCU = 0,
+	DPPI_LUMOS_DOMAIN_RAD = 1,
+	DPPI_LUMOS_DOMAIN_PERI = 2,
+	DPPI_LUMOS_DOMAIN_LP = 3,
+};
 
 /* All nodes in the system. */
 enum nrf_dppi_node_id {
@@ -105,7 +117,7 @@ const struct nrf_dppi_route **dppi_route_map[] = {
 	mcu_routes, rad_routes, peri_routes, lp_routes
 };
 
-uint32_t nrf_dppi_get_domain_id(uint32_t addr)
+uint32_t gppi_get_domain_id(uint32_t addr)
 {
 	return ((addr >> 18) & 0x7) - 1;
 }

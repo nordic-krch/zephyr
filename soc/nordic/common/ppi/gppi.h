@@ -1,11 +1,17 @@
-#ifndef ZEPHYR_INCLUDE_DRIVERS_MISC_PPI_NRFX_DPPI_H_
-#define ZEPHYR_INCLUDE_DRIVERS_MISC_PPI_NRFX_DPPI_H_
+/*
+ * Copyright (c) 2025 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#ifndef SOC_NORDIC_COMMON_PPI_GPPI_H_
+#define SOC_NORDIC_COMMON_PPI_GPPI_H_
 
 #include <nrf.h>
 #include <zephyr/kernel.h>
 
-typedef uint32_t nrf_dppi_handle_t;
-typedef uint32_t nrf_dppi_group_handle_t;
+typedef uint32_t gppi_handle_t;
+typedef uint32_t gppi_group_handle_t;
 
 
 /** @brief Get the domain ID from the group handle.
@@ -15,9 +21,9 @@ typedef uint32_t nrf_dppi_group_handle_t;
  * @return Domain ID.
  */
 #ifdef CONFIG_NORDIC_DPPI_MULTI_DOMAIN
-uint32_t nrf_dppi_group_domain_id(nrf_dppi_group_handle_t handle);
+uint32_t gppi_group_domain_id(gppi_group_handle_t handle);
 #else
-static inline uint32_t nrf_dppi_group_domain_id(nrf_dppi_group_handle_t handle)
+static inline uint32_t gppi_group_domain_id(gppi_group_handle_t handle)
 {
 	return 0;
 }
@@ -30,9 +36,9 @@ static inline uint32_t nrf_dppi_group_domain_id(nrf_dppi_group_handle_t handle)
  * @return Domain ID.
  */
 #ifdef CONFIG_NORDIC_DPPI_MULTI_DOMAIN
-uint32_t nrf_dppi_get_domain_id(uint32_t addr);
+uint32_t gppi_get_domain_id(uint32_t addr);
 #else
-static inline uint32_t nrf_dppi_get_domain_id(uint32_t addr) {
+static inline uint32_t gppi_get_domain_id(uint32_t addr) {
 	return 0;
 }
 #endif
@@ -43,7 +49,7 @@ static inline uint32_t nrf_dppi_get_domain_id(uint32_t addr) {
  * @retval non-negative Configured channel.
  * @retval -EINVAL endpoint does not have channel.
  */
-static inline int nrf_dppi_ep_channel(uint32_t ep)
+static inline int gppi_ep_channel(uint32_t ep)
 {
 	uint32_t sub_pub;
 #if defined(NRF_RADIO) && defined(RADIO_SUBSCRIBE_TXEN_ResetValue)
@@ -70,7 +76,7 @@ static inline int nrf_dppi_ep_channel(uint32_t ep)
  * @retval 0 on successful connection allocation.
  * @retval -ENOMEM if there is not enough resources to allocate the connection.
  */
-int nrf_dppi_domain_conn_alloc(uint32_t producer, uint32_t consumer, nrf_dppi_handle_t *handle);
+int gppi_domain_conn_alloc(uint32_t producer, uint32_t consumer, gppi_handle_t *handle);
 
 /** @brief Attach an endpoint to the connection.
  *
@@ -83,7 +89,7 @@ int nrf_dppi_domain_conn_alloc(uint32_t producer, uint32_t consumer, nrf_dppi_ha
  * @retval 0 Endpoint attached.
  * @retval -EINVAL Endpoint does not belong to the route and cannot be attached.
  */
-int nrf_dppi_ep_attach(nrf_dppi_handle_t handle, uint32_t ep);
+int gppi_ep_attach(gppi_handle_t handle, uint32_t ep);
 
 /** @brief Allocate a connection between Task and Event.
  *
@@ -94,18 +100,18 @@ int nrf_dppi_ep_attach(nrf_dppi_handle_t handle, uint32_t ep);
  * @retval 0 on successful connection allocation.
  * @retval -ENOMEM if there is not enough resources to allocate the connection.
  */
-static inline int nrf_dppi_conn_alloc(uint32_t eep, uint32_t tep, nrf_dppi_handle_t *handle)
+static inline int gppi_conn_alloc(uint32_t eep, uint32_t tep, gppi_handle_t *handle)
 {
-	int ret = nrf_dppi_domain_conn_alloc(nrf_dppi_get_domain_id(eep),
-					     nrf_dppi_get_domain_id(tep),
+	int ret = gppi_domain_conn_alloc(gppi_get_domain_id(eep),
+					     gppi_get_domain_id(tep),
 					     handle);
 
 	if (ret < 0) {
 		return ret;
 	}
 
-	nrf_dppi_ep_attach(*handle, eep);
-	nrf_dppi_ep_attach(*handle, tep);
+	gppi_ep_attach(*handle, eep);
+	gppi_ep_attach(*handle, tep);
 
 	return 0;
 }
@@ -115,19 +121,19 @@ static inline int nrf_dppi_conn_alloc(uint32_t eep, uint32_t tep, nrf_dppi_handl
  * @param handle Connection handle.
  * @param enable True to enable all (D)PPI channels in the connection. False to disable all.
  */
-void nrf_dppi_conn_enable(nrf_dppi_handle_t handle);
+void gppi_conn_enable(gppi_handle_t handle);
 
 /** @brief Disable a connection.
  *
  * @param handle Connection handle.
  */
-void nrf_dppi_conn_disable(nrf_dppi_handle_t handle);
+void gppi_conn_disable(gppi_handle_t handle);
 
 /** @brief Enable a channel in the domain.
  *
  * @param handle Connection handle.
  */
-void nrf_dppi_chan_enable(uint32_t domain_id, uint32_t ch);
+void gppi_chan_enable(uint32_t domain_id, uint32_t ch);
 
 /** @brief Enable a channel used by the endpoint.
  *
@@ -136,14 +142,14 @@ void nrf_dppi_chan_enable(uint32_t domain_id, uint32_t ch);
  * @retval 0 successful operation.
  * @retval -EINVAL Endpoint has no channel.
  */
-static inline int nrf_dppi_ep_enable(uint32_t ep)
+static inline int gppi_ep_enable(uint32_t ep)
 {
-	int ch = nrf_dppi_ep_channel(ep);
+	int ch = gppi_ep_channel(ep);
 
 	if (ch < 0) {
 		return -EINVAL;
 	}
-	nrf_dppi_chan_enable(nrf_dppi_get_domain_id(ep), ch);
+	gppi_chan_enable(gppi_get_domain_id(ep), ch);
 	return 0;
 }
 
@@ -151,7 +157,7 @@ static inline int nrf_dppi_ep_enable(uint32_t ep)
  *
  * @param handle Connection handle.
  */
-void nrf_dppi_chan_disable(uint32_t domain_id, uint32_t ch);
+void gppi_chan_disable(uint32_t domain_id, uint32_t ch);
 
 /** @brief Disable a channel used by the endpoint.
  *
@@ -160,14 +166,14 @@ void nrf_dppi_chan_disable(uint32_t domain_id, uint32_t ch);
  * @retval 0 successful operation.
  * @retval -EINVAL Endpoint has no channel.
  */
-static inline int nrf_dppi_ep_disable(uint32_t ep)
+static inline int gppi_ep_disable(uint32_t ep)
 {
-	int ch = nrf_dppi_ep_channel(ep);
+	int ch = gppi_ep_channel(ep);
 
 	if (ch < 0) {
 		return -EINVAL;
 	}
-	nrf_dppi_chan_disable(nrf_dppi_get_domain_id(ep), ch);
+	gppi_chan_disable(gppi_get_domain_id(ep), ch);
 	return 0;
 }
 
@@ -178,7 +184,7 @@ static inline int nrf_dppi_ep_disable(uint32_t ep)
  *
  * @param handle Connection handle.
  */
-void nrf_dppi_domain_conn_free(nrf_dppi_handle_t handle);
+void gppi_domain_conn_free(gppi_handle_t handle);
 
 /** @brief Clear endpoint.
  *
@@ -186,7 +192,7 @@ void nrf_dppi_domain_conn_free(nrf_dppi_handle_t handle);
  *
  * @param ep Endpoint.
  */
-void nrf_dppi_ep_clear(uint32_t ep);
+void gppi_ep_clear(uint32_t ep);
 
 /** @brief Clear and free the connection.
  *
@@ -197,12 +203,16 @@ void nrf_dppi_ep_clear(uint32_t ep);
  * @param tep Task endpoint.
  * @param handle Connection handle.
  */
-static inline void nrf_dppi_conn_free(uint32_t eep, uint32_t tep, nrf_dppi_handle_t handle)
+#ifdef PPI_PRESENT
+void gppi_conn_free(uint32_t eep, uint32_t tep, gppi_handle_t handle);
+#else
+static inline void gppi_conn_free(uint32_t eep, uint32_t tep, gppi_handle_t handle)
 {
-	nrf_dppi_ep_clear(eep);
-	nrf_dppi_ep_clear(tep);
-	nrf_dppi_domain_conn_free(handle);
+	gppi_ep_clear(eep);
+	gppi_ep_clear(tep);
+	gppi_domain_conn_free(handle);
 }
+#endif
 
 /** @brief Allocate group for given endpoints.
  *
@@ -217,21 +227,21 @@ static inline void nrf_dppi_conn_free(uint32_t eep, uint32_t tep, nrf_dppi_handl
  * @retval 0 Successful allocation of a group. @p handle can be used.
  * @retval negative Failed to allocate.
  */
-int nrf_dppi_group_alloc(uint32_t *ep, size_t ep_cnt, nrf_dppi_group_handle_t *handle);
+int gppi_group_alloc(uint32_t *ep, size_t ep_cnt, gppi_group_handle_t *handle);
 
 /** @brief Add a channel to a group.
  *
  * @param handle Group handle.
  * @param channel Channel.
  */
-void nrf_dppi_group_ch_add(nrf_dppi_group_handle_t handle, uint32_t channel);
+void gppi_group_ch_add(gppi_group_handle_t handle, uint32_t channel);
 
 /** @brief Remove a channel from a group.
  *
  * @param handle Group handle.
  * @param channel Channel.
  */
-void nrf_dppi_group_ch_remove(nrf_dppi_group_handle_t handle, uint32_t channel);
+void gppi_group_ch_remove(gppi_group_handle_t handle, uint32_t channel);
 
 /** @brief Add a configured endpoint to a group.
  *
@@ -244,13 +254,13 @@ void nrf_dppi_group_ch_remove(nrf_dppi_group_handle_t handle, uint32_t channel);
  * @retval 0 Successful operation.
  * @retval negative Failed to extend the group.
  */
-static inline int nrf_dppi_group_ep_add(nrf_dppi_group_handle_t handle, uint32_t ep)
+static inline int gppi_group_ep_add(gppi_group_handle_t handle, uint32_t ep)
 {
-	if (nrf_dppi_group_domain_id(handle) != nrf_dppi_get_domain_id(ep)) {
+	if (gppi_group_domain_id(handle) != gppi_get_domain_id(ep)) {
 		return -EINVAL;
 	}
 
-	nrf_dppi_group_ch_add(handle, nrf_dppi_ep_channel(ep));
+	gppi_group_ch_add(handle, gppi_ep_channel(ep));
 	return 0;
 }
 
@@ -265,13 +275,13 @@ static inline int nrf_dppi_group_ep_add(nrf_dppi_group_handle_t handle, uint32_t
  * @retval 0 Successful operation.
  * @retval negative Failed to extend the group.
  */
-static inline int nrf_dppi_group_ep_remove(nrf_dppi_group_handle_t handle, uint32_t ep)
+static inline int gppi_group_ep_remove(gppi_group_handle_t handle, uint32_t ep)
 {
-	if (nrf_dppi_group_domain_id(handle) != nrf_dppi_get_domain_id(ep)) {
+	if (gppi_group_domain_id(handle) != gppi_get_domain_id(ep)) {
 		return -EINVAL;
 	}
 
-	nrf_dppi_group_ch_remove(handle, nrf_dppi_ep_channel(ep));
+	gppi_group_ch_remove(handle, gppi_ep_channel(ep));
 	return 0;
 }
 
@@ -279,13 +289,13 @@ static inline int nrf_dppi_group_ep_remove(nrf_dppi_group_handle_t handle, uint3
  *
  * @param handle Group handle.
  */
-void nrf_dppi_group_en(nrf_dppi_group_handle_t handle);
+void gppi_group_en(gppi_group_handle_t handle);
 
 /** @brief Disable a group.
  *
  * @param handle Group handle.
  */
-void nrf_dppi_group_dis(nrf_dppi_group_handle_t handle);
+void gppi_group_dis(gppi_group_handle_t handle);
 
 /** @brief Get enable group task address.
  *
@@ -293,7 +303,7 @@ void nrf_dppi_group_dis(nrf_dppi_group_handle_t handle);
  *
  * @retval Address of the task register.
  */
-uint32_t nrf_dppi_group_task_en_addr(nrf_dppi_group_handle_t handle);
+uint32_t gppi_group_task_en_addr(gppi_group_handle_t handle);
 
 /** @brief Get disable group task address.
  *
@@ -301,12 +311,12 @@ uint32_t nrf_dppi_group_task_en_addr(nrf_dppi_group_handle_t handle);
  *
  * @retval Address of the task register.
  */
-uint32_t nrf_dppi_group_task_dis_addr(nrf_dppi_group_handle_t handle);
+uint32_t gppi_group_task_dis_addr(gppi_group_handle_t handle);
 
 /* Release group.
  *
  * @param handle Group handle.
  */
-void nrf_dppi_group_free(nrf_dppi_group_handle_t handle);
+void gppi_group_free(gppi_group_handle_t handle);
 
-#endif /* ZEPHYR_INCLUDE_DRIVERS_MISC_PPI_NRFX_DPPI_H_ */
+#endif /* SOC_NORDIC_COMMON_PPI_GPPI_H_ */

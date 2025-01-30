@@ -1,0 +1,11 @@
+if(CONFIG_NORDIC_GPPI_PPI)
+  zephyr_library_sources(gppi_ppi.c)
+else()
+  zephyr_library_sources_ifdef(CONFIG_NORDIC_GPPI gppi.c)
+  if(CONFIG_NORDIC_DPPI_MULTI_DOMAIN)
+    zephyr_library_sources_ifdef(CONFIG_SOC_SERIES_NRF54LX dppi_nrf54l.c)
+    zephyr_library_sources_ifdef(CONFIG_SOC_NRF54H20_CPUAPP dppi_nrf54h_global.c)
+    zephyr_library_sources_ifdef(CONFIG_SOC_NRF54H20 dppi_nrf54h.c)
+  endif()
+endif()
+

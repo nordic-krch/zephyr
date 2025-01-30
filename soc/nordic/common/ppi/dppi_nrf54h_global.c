@@ -1,5 +1,12 @@
-#include <zephyr/drivers/misc/ppi/nrfx_dppi.h>
-#include "nrfx_dppi_routes.h"
+/*
+ * Copyright (c) 2025 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <ppi/gppi.h>
+#include <ppi/dppi_nrf54h.h>
+#include "dppi_routes.h"
 
 enum nrf_dppi_node_id {
 	NRF_DPPI_NODE_DPPIC120,
@@ -29,21 +36,6 @@ enum nrf_dppi_node_id {
 	NRF_DPPI_NODE_PPIB136_131,
 	NRF_DPPI_NODE_PPIB137_131,
 	NRF_DPPI_NODE_PPIB121_131,
-};
-
-enum nrf_dppi_domain {
-	/* Global domain */
-	NRF_DPPI_DOMAIN_APB22,
-	NRF_DPPI_DOMAIN_APB32,
-	NRF_DPPI_DOMAIN_APB38,
-	NRF_DPPI_DOMAIN_APB39,
-	NRF_DPPI_DOMAIN_APB3A,
-	NRF_DPPI_DOMAIN_APB3B,
-	NRF_DPPI_DOMAIN_APB3C,
-	NRF_DPPI_DOMAIN_APB3D,
-	/* Radio domain */
-	NRF_DPPI_DOMAIN_APB2,
-	NRF_DPPI_DOMAIN_APB3,
 };
 
 static atomic_t channels[] = {
@@ -327,3 +319,31 @@ const struct nrf_dppi_route **dppi_route_map[] = {
 	apb22_routes, apb32_routes, apb38_routes, apb39_routes,
 	apb3a_routes, apb3b_routes, apb3c_routes, apb3d_routes
 };
+
+void gppi_set_channel_resource(uint32_t domain_id, uint32_t ch_mask)
+{
+	__ASSERT_NO_MSG(domain_id < ARRAY_SIZE(channels));
+	channels[domain_id] = ch_mask;
+}
+
+void gppi_set_group_channel_resource(uint32_t domain_id, uint32_t ch_mask)
+{
+	__ASSERT_NO_MSG(domain_id < ARRAY_SIZE(group_channels));
+	group_channels[domain_id] = ch_mask;
+}
+
+uint32_t gppi_get_domain_id(uint32_t addr)
+{
+	uint32_t apb = (addr >> 16) & 0xff;
+	uint32_t domain = (addr >> 24) & 0xf;
+
+	(void)domain;
+	__ASSERT_NO_MSG(domain == 0xf);
+
+	if (apb < 0x92) {
+		return NRF_DPPI_DOMAIN_APB22;
+	} else if (apb <= 0x93) {
+		return NRF_DPPI_DOMAIN_APB32;
+	}
+	return apb - 0x98 + NRF_DPPI_DOMAIN_APB38;
+}
