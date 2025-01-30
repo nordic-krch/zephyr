@@ -1,0 +1,3 @@
+config NORDIC_DPPI
+	bool "DPPI manager"
+

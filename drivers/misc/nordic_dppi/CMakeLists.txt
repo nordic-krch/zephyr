@@ -1,0 +1,4 @@
+zephyr_library_sources(nrfx_dppi.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_SERIES_NRF54LX nrfx_dppi_nrf54l.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_NRF54H20_CPURAD nrfx_dppi_nrf54h_cpurad.c)
+zephyr_library_sources_ifdef(CONFIG_SOC_NRF54H20 nrfx_dppi_nrf54h.c)
