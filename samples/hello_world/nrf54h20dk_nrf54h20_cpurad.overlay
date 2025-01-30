@@ -1,0 +1,6 @@
+&timer020 {
+	status = "okay";
+};
+&timer021 {
+	status = "okay";
+};
