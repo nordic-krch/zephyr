@@ -48,6 +48,53 @@ config IPC_SERVICE_BACKEND_ICMSG_ME_FOLLOWER
 	  on circular packet buffer. This enables enpoint discovery follower
 	  role.
 
+config IPC_SERVICE_BACKEND_MPSC
+	bool "MPSC backend with Shared MPSC packet buffer"
+	default y
+	select SHMPSC_PBUF
+	select SYS_HASH_FUNC32
+	depends on MBOX
+	depends on DT_HAS_ZEPHYR_IPC_MPSC_ENABLED
+
+if IPC_SERVICE_BACKEND_MPSC
+
+config IPC_SERVICE_BACKEND_MPSC_EP_MAX
+	int "Number of supported endpoints"
+	default 8
+
+choice IPC_SERVICE_BACKEND_MPSC_MODE
+	prompt "Operation mode"
+	default IPC_SERVICE_BACKEND_MPSC_THREAD if MULTITHREADING
+	default IPC_SERVICE_BACKEND_MPSC_IRQ if !MULTITHREADING
+
+config IPC_SERVICE_BACKEND_MPSC_THREAD
+	bool "Own thread"
+	depends on MULTITHREADING
+
+config IPC_SERVICE_BACKEND_MPSC_SYS_WORKQ
+	bool "System workqueue"
+	depends on MULTITHREADING
+
+config IPC_SERVICE_BACKEND_MPSC_IRQ
+	bool "Interrupt context"
+
+endchoice
+
+config IPC_SERVICE_BACKEND_MPSC_STACK_SIZE
+	int "Stack size"
+	depends on IPC_SERVICE_BACKEND_MPSC_THREAD
+	default 1024
+
+config IPC_SERVICE_BACKEND_MPSC_PRIO
+	int "Thread priority"
+	depends on IPC_SERVICE_BACKEND_MPSC_THREAD
+	default 0
+
+config IPC_SERVICE_BACKEND_MPSC_NO_COPY
+	bool "TX No copy"
+
+endif # IPC_SERVICE_BACKEND_MPSC
+
 rsource "Kconfig.icmsg_me"
 rsource "Kconfig.icbmsg"
 rsource "Kconfig.rpmsg"
