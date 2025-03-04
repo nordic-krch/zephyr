@@ -1,0 +1,7 @@
+
+source "Kconfig.zephyr"
+
+config TEST_MULTI_ENDPOINT
+	bool
+	depends on !IPC_SERVICE_BACKEND_ICMSG
+	default y
