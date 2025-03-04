@@ -1,0 +1,9 @@
+&ipc0 {
+	compatible = "zephyr,ipc-mpsc";
+	/delete-property/tx-blocks;
+	/delete-property/rx-blocks;
+};
+
+&uart136 {
+	current-speed = <1000000>;
+};

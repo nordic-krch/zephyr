@@ -1,0 +1,6 @@
+&ipc0 {
+	compatible = "zephyr,ipc-mpsc";
+	/delete-property/tx-blocks;
+	/delete-property/rx-blocks;
+};
+
