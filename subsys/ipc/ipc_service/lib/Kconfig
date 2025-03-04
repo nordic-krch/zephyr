@@ -19,6 +19,13 @@ config IPC_SERVICE_STATIC_VRINGS_MEM_ALIGNMENT
 	  Static VRINGs alignment. This should take into account the cache line
 	  alignment if the cache is enabled.
 
+config SHMPSC_PBUF
+	bool "MPSC Packet buffer for shared memory"
+	help
+	  The packet buffer implements lightweight unidirectional variable
+	  length packet buffer. Packets can be produced from multiple contexts on
+	  the producer core and consumed by a single context on the consumer core.
+
 menuconfig IPC_SERVICE_ICMSG
 	bool "icmsg IPC library"
 	select PBUF
