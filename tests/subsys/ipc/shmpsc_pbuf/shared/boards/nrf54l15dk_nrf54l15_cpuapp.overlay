@@ -1,0 +1,26 @@
+/*
+ * Copyright (c) 2024 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+	soc {
+		reserved-memory {
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			sram_rx: memory@20018000 {
+				reg = <0x20018000 0x0800>;
+			};
+
+			sram_tx: memory@20020000 {
+				reg = <0x20020000 0x0800>;
+			};
+		};
+	};
+};
+
+&uart20 {
+	current-speed = <1000000>;
+};

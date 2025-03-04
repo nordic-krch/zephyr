@@ -1,0 +1,18 @@
+sample:
+  name: MPSC Packet Buffer test using shared memory
+common:
+  timeout: 30
+  sysbuild: true
+  tags: ipc
+tests:
+  ipc.lib.shmpsc_pbuf_shared:
+    platform_allow:
+      - nrf54h20dk/nrf54h20/cpuapp
+    integration_platforms:
+      - nrf54h20dk/nrf54h20/cpuapp
+  ipc.lib.shmpsc_pbuf_shared.nrf54l15:
+    platform_allow:
+      - nrf54l15dk/nrf54l15/cpuapp
+    integration_platforms:
+      - nrf54l15dk/nrf54l15/cpuapp
+    extra_args: shared_SNIPPET=nordic-flpr
