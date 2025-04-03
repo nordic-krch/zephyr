@@ -142,7 +142,7 @@ bool pm_state_force(uint8_t cpu, const struct pm_state_info *info)
 
 bool pm_system_suspend(int32_t kernel_ticks)
 {
-	uint8_t id = _current_cpu->id;
+	uint8_t id = IS_ENABLED(CONFIG_SMP) ? _current_cpu->id : 0;
 	k_spinlock_key_t key;
 	int32_t ticks, events_ticks;
 
@@ -153,7 +153,8 @@ bool pm_system_suspend(int32_t kernel_ticks)
 	 * We need to find out first the ticks to the next event
 	 */
 	events_ticks = pm_policy_next_event_ticks();
-	ticks = ticks_expiring_sooner(kernel_ticks, events_ticks);
+	ticks = (events_ticks != -1) ?
+		ticks_expiring_sooner(kernel_ticks, events_ticks) : kernel_ticks;
 
 	key = k_spin_lock(&pm_forced_state_lock);
 	if (z_cpus_pm_forced_state[id].state != PM_STATE_ACTIVE) {
