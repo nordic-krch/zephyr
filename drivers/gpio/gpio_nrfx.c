@@ -26,8 +26,8 @@ struct gpio_nrfx_data {
 
 struct gpio_nrfx_cfg {
 	/* gpio_driver_config needs to be first */
-	struct gpio_driver_config common;
 	NRF_GPIO_Type *port;
+	struct gpio_driver_config common;
 	uint32_t edge_sense;
 	uint8_t port_num;
 	nrfx_gpiote_t gpiote;
