@@ -180,15 +180,123 @@ ZTEST(spi_loopback, test_spi_complete_multiple)
 				  buffer_print_tx2, buffer_print_rx2);
 }
 
-ZTEST(spi_loopback, test_spi_complete_loop)
+#include <hal/nrf_gpio.h>
+#include <zephyr/debug/cpu_load.h>
+#include <zephyr/drivers/counter.h>
+#include <nrfx_gpiote.h>
+#include <helpers/nrfx_gppi.h>
+static uint32_t tcyc;
+#if CONFIG_SOC_NRF54L15
+#define DBG_PIN0 (1*32+14)
+#define DBG_PIN1 (2*32+7)
+#define DBG_PIN2 (2*32+10)
+#else
+#define DBG_PIN0 (26)
+#define DBG_PIN1 (27)
+#define DBG_PIN2 (2)
+#endif
+
+static void dppi_setup(uint32_t pin, uint32_t eep)
+{
+	nrfx_gpiote_t gpiote = NRFX_GPIOTE_INSTANCE(20);
+	uint8_t gch;
+	if (nrfx_gpiote_channel_alloc(&gpiote, &gch)  != NRFX_SUCCESS) {
+		printk("Failed to allocate GPIOTE channel.");
+		return;
+	}
+
+	nrf_gpiote_task_configure(gpiote.p_reg, gch, pin,
+				  NRF_GPIOTE_POLARITY_TOGGLE,
+				  NRF_GPIOTE_INITIAL_VALUE_LOW);
+	nrf_gpiote_task_enable(gpiote.p_reg, gch);
+	uint32_t tep = nrf_gpiote_task_address_get(gpiote.p_reg, nrf_gpiote_out_task_get(gch));
+	uint8_t gppi_ch = UINT8_MAX;
+
+	if (NRFX_SUCCESS != nrfx_gppi_channel_alloc(&gppi_ch)) {
+		printk("Failed to allocate GPPI channel.");
+		return;
+	}
+
+	nrfx_gppi_channel_endpoints_setup(gppi_ch, eep, tep);
+	nrfx_gppi_channels_enable(BIT(gppi_ch));
+}
+
+static const struct device *counter = COND_CODE_1(CONFIG_CPU_LOAD_USE_COUNTER,
+				(DEVICE_DT_GET(DT_CHOSEN(zephyr_cpu_load_counter))), (NULL));
+
+static volatile bool tout;
+struct k_sem sem;
+static void timeout(struct k_timer *timer)
+{
+	NRF_P2->OUTSET=BIT(10);
+	k_sem_give(&sem);
+	NRF_P2->OUTCLR=BIT(10);
+}
+
+K_TIMER_DEFINE(tmr, timeout, NULL);
+static void start_load_measurement(void)
+{
+	uint32_t eep0 = (uint32_t)&NRF_SPIM00->EVENTS_END;
+	uint32_t pin0 = 32 + 9;
+	uint32_t eep1 = (uint32_t)&NRF_POWER->EVENTS_SLEEPEXIT;
+	uint32_t pin1 = 32 + 11;
+	dppi_setup(pin0, eep0);
+	dppi_setup(pin1, eep1);
+
+	NRF_POWER->TASKS_CONSTLAT=1;
+	printk("c:%08x\n", NRF_RRAMC->POWER.LOWPOWERCONFIG);
+	NRF_RRAMC->POWER.LOWPOWERCONFIG = 1;
+	nrf_gpio_cfg_output(DBG_PIN0);
+	nrf_gpio_cfg_output(DBG_PIN1);
+	nrf_gpio_cfg_output(DBG_PIN2);
+	k_sem_init(&sem, 0, 1);
+	k_timer_start(&tmr, K_MSEC(5), K_NO_WAIT);
+	k_sem_take(&sem, K_FOREVER);
+	/*NRF_P2->OUTSET=BIT(7);*/
+	(void)cpu_load_get(true);
+	if (IS_ENABLED(CONFIG_CPU_LOAD_USE_COUNTER)) {
+		counter_get_value(counter, &tcyc);
+	} else {
+		tcyc = k_cycle_get_32();
+	}
+}
+static void stop_load_measurement(void)
+{
+	if (IS_ENABLED(CONFIG_CPU_LOAD_USE_COUNTER)) {
+		uint32_t val;
+		counter_get_value(counter, &val);
+		tcyc = val - tcyc;
+		tcyc = (uint32_t)counter_ticks_to_us(counter, tcyc);
+	} else {
+		tcyc = k_cycle_get_32() - tcyc;
+		tcyc = k_cyc_to_us_floor32(tcyc);
+	}
+	/*NRF_P2->OUTCLR=BIT(7);*/
+	uint32_t load = cpu_load_get(true);
+	uint32_t active_time = tcyc * load / 1000;
+	printk("1st transfer %d us (active time:%d), load:%d.%d\n",
+			tcyc, active_time, load/ 10, load % 10);
+}
+
+bool in_test;
+ZTEST(_spi_loopback, test_spi_complete_loop)
 {
 	struct spi_dt_spec *spec = loopback_specs[spec_idx];
 	const struct spi_buf_set tx = spi_loopback_setup_xfer(tx_bufs_pool, 1,
 							      buffer_tx, BUF_SIZE);
 	const struct spi_buf_set rx = spi_loopback_setup_xfer(rx_bufs_pool, 1,
 							      buffer_rx, BUF_SIZE);
-
+	in_test=true;
+	start_load_measurement();
 	spi_loopback_transceive(spec, &tx, &rx);
+	stop_load_measurement();
+
+	spi_loopback_compare_bufs(buffer_tx, buffer_rx, BUF_SIZE,
+				  buffer_print_tx, buffer_print_rx);
+
+	start_load_measurement();
+	spi_loopback_transceive(spec, &tx, &rx);
+	stop_load_measurement();
 
 	spi_loopback_compare_bufs(buffer_tx, buffer_rx, BUF_SIZE,
 				  buffer_print_tx, buffer_print_rx);
@@ -465,16 +573,19 @@ static void run_after_lock(void *unused)
 	spi_fast.config.operation &= ~SPI_LOCK_ON;
 }
 
-ZTEST_SUITE(spi_loopback, NULL, spi_loopback_setup, NULL, NULL, run_after_suite);
-ZTEST_SUITE(spi_extra_api_features, NULL, spi_loopback_common_setup, NULL, NULL, run_after_lock);
+ZTEST_SUITE(_spi_loopback, NULL, spi_loopback_setup, NULL, NULL, run_after_suite);
+ZTEST_SUITE(_spi_extra_api_features, NULL, spi_loopback_common_setup, NULL, NULL, run_after_lock);
 
 struct k_thread async_thread;
 k_tid_t async_thread_id;
 #define STACK_SIZE (512 + CONFIG_TEST_EXTRA_STACK_SIZE)
 K_THREAD_STACK_DEFINE(spi_async_stack, STACK_SIZE);
 
+#include <zephyr/timing/timing.h>
 void test_main(void)
 {
+	timing_init();
+	timing_start();
 	printf("SPI test on buffers TX/RX %p/%p, frame size = %d"
 #ifdef CONFIG_DMA
 		", DMA enabled"
