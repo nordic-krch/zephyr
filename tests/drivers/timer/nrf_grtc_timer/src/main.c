@@ -5,7 +5,14 @@
  */
 #include <zephyr/ztest.h>
 #include <zephyr/drivers/timer/nrf_grtc_timer.h>
+#include <zephyr/drivers/counter.h>
+#include <zephyr/drivers/timer/system_timer.h>
+#include <zephyr/random/random.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/busy_sim.h>
+#include <nrfx_grtc.h>
 #include <hal/nrf_grtc.h>
+LOG_MODULE_REGISTER(test, 4);
 
 #define GRTC_SLEW_TICKS 10
 #define NUMBER_OF_TRIES 2000
@@ -148,6 +155,188 @@ ZTEST(nrf_grtc_timer, test_timer_abort_in_compare_mode)
 	zassert_equal(compare_isr_call_counter, 0, "Compare isr call counter: %d",
 		      compare_isr_call_counter);
 	z_nrf_grtc_timer_chan_free(channel);
+}
+
+enum test_timer_state {
+	TIMER_IDLE,
+	TIMER_PREPARE,
+	TIMER_ACTIVE
+};
+
+struct test_grtc_timer {
+	struct k_timer timer;
+	uint32_t expire;
+	uint32_t start_cnt;
+	uint32_t expire_cnt;
+	uint32_t abort_cnt;
+	uint32_t exp_expire;
+	uint32_t max_late;
+	uint32_t avg_late;
+	enum test_timer_state state;
+};
+
+static struct test_grtc_timer timers[8];
+static uint32_t test_end;
+static k_tid_t test_tid;
+static volatile bool test_run;
+
+#define MAIN_CHAN 0
+
+static void stress_test_action(int ctx, int id)
+{
+	struct test_grtc_timer *timer = &timers[id];
+
+	if (timer->state == TIMER_ACTIVE) {
+		if (timer->abort_cnt < timer->expire_cnt / 2) {
+			timer->state = TIMER_PREPARE;
+			k_timer_stop(&timer->timer);
+			timer->abort_cnt++;
+			LOG_DBG("timer:%p ctx:%d abort %d", timer, ctx, timer->abort_cnt);
+			timer->state = TIMER_IDLE;
+		}
+	} else if (timer->state == TIMER_IDLE) {
+		int ticks = 10 + (sys_rand32_get() & 0x3F);
+		uint32_t elapsed = sys_clock_elapsed();
+		uint32_t base;
+
+		if (elapsed == 0) {
+			nrfx_err_t err;
+			uint64_t val;
+
+			err = nrfx_grtc_syscounter_cc_value_read(MAIN_CHAN, &val);
+			zassert_equal(err, NRFX_SUCCESS);
+
+			base = (uint32_t)val;
+		} else {
+			base = sys_clock_cycle_get_32();
+			if (base > test_end) {
+				test_run = false;
+			}
+		}
+
+		uint32_t cyc = k_ticks_to_cyc_floor32(ticks);
+		timer->exp_expire = base + cyc;
+		k_timeout_t t = K_TICKS(ticks);
+
+		LOG_DBG("timer:%p ctx:%d start ticks:%d cyc:%d", timer, ctx, ticks, cyc);
+		timer->state = TIMER_PREPARE;
+		k_timer_start(&timer->timer, t, K_NO_WAIT);
+		timer->start_cnt++;
+		timer->state = TIMER_ACTIVE;
+	}
+}
+
+static void stress_test_actions(int ctx)
+{
+	uint32_t r = sys_rand32_get();
+	int action_cnt = Z_MAX(r & 0x3, 1);
+	int tmr_id = (r >> 8) % ARRAY_SIZE(timers);
+
+	if (((r >> 2) & 0x3) == 0) {
+		LOG_DBG("ctx:%d thread wakeup", ctx);
+		k_wakeup(test_tid);
+	}
+
+	for (int i = 0; i < action_cnt; i++) {
+		stress_test_action(ctx, tmr_id);
+	}
+}
+
+static void timer_cb(struct k_timer *timer)
+{
+	struct test_grtc_timer *test_timer = CONTAINER_OF(timer, struct test_grtc_timer, timer);
+	uint32_t now = k_cycle_get_32();
+	int diff = now - test_timer->exp_expire;
+
+	LOG_DBG("timer %p expired diff:%d", test_timer, diff);
+	zassert_true(diff >= 0);
+	test_timer->max_late = MAX(diff, test_timer->max_late);
+
+	if (test_timer->expire_cnt == 0) {
+		test_timer->avg_late = diff;
+	} else {
+		test_timer->avg_late = (test_timer->avg_late * test_timer->expire_cnt + diff) /
+				test_timer->expire_cnt + 1;
+	}
+
+	test_timer->expire_cnt++;
+	test_timer->state = TIMER_IDLE;
+
+	if (test_run) {
+		stress_test_actions(1);
+	}
+}
+
+static void counter_set(const struct device *dev, struct counter_alarm_cfg *cfg)
+{
+	int err;
+
+	cfg->ticks = 10 + (sys_rand32_get() & 0x1f);
+	err = counter_set_channel_alarm(dev, 0, cfg);
+	zassert_equal(err, 0);
+}
+
+static void counter_cb(const struct device *dev, uint8_t chan_id, uint32_t ticks, void *user_data)
+{
+	struct counter_alarm_cfg *config = user_data;
+
+	if (test_run) {
+		stress_test_actions(0);
+		counter_set(dev, config);
+	}
+}
+
+static void grtc_stress_test(bool busy_sim_en)
+{
+	static struct counter_alarm_cfg alarm_cfg;
+	const struct device *const counter_dev = DEVICE_DT_GET(DT_NODELABEL(test_timer));
+	uint32_t test_ms = 20;
+
+	test_end = k_cycle_get_32() + k_ms_to_cyc_floor32(test_ms);
+	test_tid = k_current_get();
+
+	for (size_t i = 0; i < ARRAY_SIZE(timers); i++) {
+		k_timer_init(&timers[i].timer, timer_cb, NULL);
+	}
+
+	counter_start(counter_dev);
+
+	alarm_cfg.callback = counter_cb;
+	alarm_cfg.user_data = &alarm_cfg;
+	test_run = true;
+	/*counter_set(counter_dev, &alarm_cfg);*/
+
+	if (busy_sim_en) {
+		busy_sim_start(500, 200, 1000, 400, NULL);
+	}
+
+	LOG_DBG("Starting test, will end at %d", test_end);
+	while (k_uptime_get_32() < test_end) {
+		stress_test_actions(2);
+		k_sleep(K_MSEC(test_ms));
+	}
+
+	test_run = false;
+	k_msleep(10);
+
+	for (size_t i = 0; i < ARRAY_SIZE(timers); i++) {
+		zassert_equal(timers[i].state, TIMER_IDLE);
+		TC_PRINT("Timer%d\r\n\tstart_cnt:%d abort_cnt:%d expire_cnt:%d\n",
+			i, timers[i].start_cnt, timers[i].abort_cnt, timers[i].expire_cnt);
+		TC_PRINT("\tavarage late:%d ticks, max late:%d\n",
+				timers[i].avg_late, timers[i].max_late);
+	}
+
+	if (busy_sim_en) {
+		busy_sim_stop();
+	}
+
+	counter_stop(counter_dev);
+}
+
+ZTEST(nrf_grtc_timer, test_stress)
+{
+	grtc_stress_test(false);
 }
 
 ZTEST_SUITE(nrf_grtc_timer, NULL, NULL, NULL, NULL, NULL);
