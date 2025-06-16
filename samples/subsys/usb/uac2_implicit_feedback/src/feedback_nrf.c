@@ -41,6 +41,47 @@ static inline void feedback_target_start(bool microframes)
 #endif
 
 #elif IS_ENABLED(CONFIG_SOC_SERIES_NRF54HX)
+#include <nrfx_gpiote.h>
+#include <nrfx_timer.h>
+#include <helpers/nrfx_gppi.h>
+
+static const nrfx_gpiote_t gpiote = NRFX_GPIOTE_INSTANCE(130);
+
+#define GPIOTE_PPI_SOF_PIN    (9 * 32)
+#define GPIOTE_PPI_MAXCNT_PIN (9 * 32) + 1
+
+static uint32_t gpiote_setup(uint32_t pin)
+{
+	uint8_t gpiote_ch;
+	nrfx_err_t err;
+
+	err = nrfx_gpiote_channel_alloc(&gpiote, &gpiote_ch);
+	if (err != NRFX_SUCCESS) {
+		LOG_ERR("failed to allocate gpiote");
+		return 0;
+	}
+
+	nrfx_gpiote_task_config_t task_config = {
+		.task_ch = gpiote_ch,
+		.polarity = NRF_GPIOTE_POLARITY_TOGGLE,
+		.init_val = NRF_GPIOTE_INITIAL_VALUE_LOW
+	};
+	nrfx_gpiote_output_config_t out_config = {
+		.drive = NRF_GPIO_PIN_S0S1,
+		.input_connect = NRF_GPIO_PIN_INPUT_DISCONNECT,
+		.pull = NRF_GPIO_PIN_NOPULL
+	};
+
+	err = nrfx_gpiote_output_configure(&gpiote, pin, &out_config, &task_config);
+	if (err != NRFX_SUCCESS) {
+		LOG_ERR("failed to configure pin");
+		return 0;
+	}
+
+	nrfx_gpiote_out_task_enable(&gpiote, pin);
+
+	return nrfx_gpiote_out_task_address_get(&gpiote, pin);
+}
 
 #include <hal/nrf_tdm.h>
 
@@ -184,8 +225,14 @@ struct feedback_ctx *feedback_init(void)
 		return &fb_ctx;
 	}
 
+	/* GPIOTE needs to hop through bridge, so we have to set it up first.
+	 * The "forks" are not hopping through, and the GPIOTE would fail if
+	 * setup was called with USB SOF to TIMER CAPTURE.
+	 */
 	nrfx_gppi_channel_endpoints_setup(usbd_sof_gppi_channel,
 		USB_SOF_EVENT_ADDRESS,
+		gpiote_setup(GPIOTE_PPI_SOF_PIN));
+	nrfx_gppi_fork_endpoint_setup(usbd_sof_gppi_channel,
 		nrfx_timer_capture_task_address_get(&feedback_timer_instance,
 			FEEDBACK_TIMER_USBD_SOF_CAPTURE));
 	nrfx_gppi_fork_endpoint_setup(usbd_sof_gppi_channel,
@@ -205,6 +252,8 @@ struct feedback_ctx *feedback_init(void)
 		I2S_FRAMESTART_EVENT_ADDRESS,
 		nrfx_timer_capture_task_address_get(&feedback_timer_instance,
 			FEEDBACK_TIMER_I2S_FRAMESTART_CAPTURE));
+	nrfx_gppi_fork_endpoint_setup(i2s_framestart_gppi_channel,
+		gpiote_setup(GPIOTE_PPI_MAXCNT_PIN));
 
 	nrfx_gppi_channels_enable(BIT(i2s_framestart_gppi_channel));
 
