@@ -76,3 +76,11 @@
 		};
 	};
 };
+
+&gpio9 {
+	status = "reserved";
+};
+
+&cpuflpr_vpr {
+	status = "okay";
+};
