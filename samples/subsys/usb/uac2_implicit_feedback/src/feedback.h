@@ -8,6 +8,7 @@
 #define FEEDBACK_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/usb/usbd.h>
 

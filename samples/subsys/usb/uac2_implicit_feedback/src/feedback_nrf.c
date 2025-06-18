@@ -3,16 +3,26 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+#include "feedback.h"
+#include <zephyr/sys/util.h>
 
+#if IS_ENABLED(CONFIG_SOC_NRF54H20_CPUFLPR)
+#define DO_INIT 0
+#else
+#define DO_INIT 1
+#endif
+
+#if DO_INIT
 #include <stdlib.h>
 #include <zephyr/logging/log.h>
-#include "feedback.h"
-
 #include <nrfx_dppi.h>
 #include <nrfx_timer.h>
 #include <helpers/nrfx_gppi.h>
-
 LOG_MODULE_REGISTER(feedback, LOG_LEVEL_INF);
+#else
+#include <hal/nrf_timer.h>
+#endif
+
 
 #define FEEDBACK_TIMER_USBD_SOF_CAPTURE 0
 #define FEEDBACK_TIMER_I2S_FRAMESTART_CAPTURE 1
@@ -41,6 +51,8 @@ static inline void feedback_target_start(bool microframes)
 #endif
 
 #elif IS_ENABLED(CONFIG_SOC_SERIES_NRF54HX)
+
+#if DO_INIT
 #include <nrfx_gpiote.h>
 #include <nrfx_timer.h>
 #include <helpers/nrfx_gppi.h>
@@ -169,12 +181,16 @@ static inline void feedback_target_init(void)
 
 	sof_decimator_init();
 }
+#endif
+
 #else
 #error "Unsupported target"
 #endif
 
+#if DO_INIT
 static const nrfx_timer_t feedback_timer_instance =
 	NRFX_TIMER_INSTANCE(FEEDBACK_TIMER_INSTANCE_NUMBER);
+#endif
 
 /* While it might be possible to determine I2S FRAMESTART to USB SOF offset
  * entirely in software, the I2S API lacks appropriate timestamping. Therefore
@@ -200,6 +216,7 @@ static struct feedback_ctx {
 
 struct feedback_ctx *feedback_init(void)
 {
+#if DO_INIT
 	nrfx_err_t err;
 	uint8_t usbd_sof_gppi_channel;
 	uint8_t i2s_framestart_gppi_channel;
@@ -212,9 +229,11 @@ struct feedback_ctx *feedback_init(void)
 	};
 
 	feedback_target_init();
+#endif
 
 	feedback_reset_ctx(&fb_ctx);
 
+#if DO_INIT
 	err = nrfx_timer_init(&feedback_timer_instance, &cfg, NULL);
 	if (err != NRFX_SUCCESS) {
 		LOG_ERR("nrfx timer init error - Return value: %d", err);
@@ -262,6 +281,7 @@ struct feedback_ctx *feedback_init(void)
 
 	/* Enable feedback timer */
 	nrfx_timer_enable(&feedback_timer_instance);
+#endif
 
 	return &fb_ctx;
 }
@@ -313,10 +333,15 @@ void feedback_process(struct feedback_ctx *ctx)
 	uint32_t sof_cc;
 	uint32_t framestart_cc;
 
+#if DO_INIT
 	sof_cc = nrfx_timer_capture_get(&feedback_timer_instance,
 		FEEDBACK_TIMER_USBD_SOF_CAPTURE);
 	framestart_cc = nrfx_timer_capture_get(&feedback_timer_instance,
 		FEEDBACK_TIMER_I2S_FRAMESTART_CAPTURE);
+#else
+	sof_cc = nrf_timer_cc_get(NRF_TIMER131, FEEDBACK_TIMER_USBD_SOF_CAPTURE);
+	framestart_cc = nrf_timer_cc_get(NRF_TIMER131, FEEDBACK_TIMER_I2S_FRAMESTART_CAPTURE);
+#endif
 
 	update_sof_offset(ctx, sof_cc, framestart_cc);
 }
