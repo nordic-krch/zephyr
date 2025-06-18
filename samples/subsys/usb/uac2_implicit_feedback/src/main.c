@@ -14,6 +14,7 @@
 #include <zephyr/usb/usbd.h>
 #include <zephyr/usb/class/usbd_uac2.h>
 #include <zephyr/drivers/i2s.h>
+#include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/linker/devicetree_regions.h>
 
@@ -50,6 +51,8 @@ K_MEM_SLAB_DEFINE_IN_SECT_STATIC(i2s_tx_slab, I2S_MEMORY_SECTION,
 	ROUND_UP(MAX_BLOCK_SIZE, UDC_BUF_GRANULARITY), I2S_BLOCKS, UDC_BUF_ALIGN);
 K_MEM_SLAB_DEFINE_IN_SECT_STATIC(i2s_rx_slab, I2S_MEMORY_SECTION,
 	ROUND_UP(MAX_BLOCK_SIZE, UDC_BUF_GRANULARITY), I2S_BLOCKS, UDC_BUF_ALIGN);
+
+#define I2S_ENABLED IS_ENABLED(CONFIG_I2S)
 
 struct usb_i2s_ctx {
 	const struct device *i2s_dev;
@@ -97,7 +100,7 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
 	} else if (terminal == MICROPHONE_IN_TERMINAL_ID) {
 		ctx->microphone_enabled = enabled;
 	}
-
+#if I2S_ENABLED
 	if (ctx->i2s_started && !ctx->headphones_enabled &&
 	    !ctx->microphone_enabled) {
 		i2s_trigger(ctx->i2s_dev, I2S_DIR_BOTH, I2S_TRIGGER_DROP);
@@ -111,8 +114,10 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
 			ctx->pending_mic_samples = 0;
 		}
 	}
+#endif
 }
 
+#if I2S_ENABLED
 static int nominal_samples_per_sof(struct usb_i2s_ctx *ctx)
 {
 	if (USBD_SUPPORTS_HIGH_SPEED && ctx->microframes) {
@@ -121,6 +126,7 @@ static int nominal_samples_per_sof(struct usb_i2s_ctx *ctx)
 
 	return FS_SAMPLES_PER_SOF;
 }
+#endif
 
 static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
 			       uint16_t size, void *user_data)
@@ -128,7 +134,6 @@ static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
 	ARG_UNUSED(dev);
 	struct usb_i2s_ctx *ctx = user_data;
 	void *buf = NULL;
-	int ret;
 
 	if (terminal == HEADPHONES_OUT_TERMINAL_ID) {
 		__ASSERT_NO_MSG(size <= MAX_BLOCK_SIZE);
@@ -137,11 +142,12 @@ static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
 			LOG_ERR("Buffer request on disabled terminal");
 			return NULL;
 		}
-
-		ret = k_mem_slab_alloc(&i2s_tx_slab, &buf, K_NO_WAIT);
+#if I2S_ENABLED
+		int ret = k_mem_slab_alloc(&i2s_tx_slab, &buf, K_NO_WAIT);
 		if (ret != 0) {
 			buf = NULL;
 		}
+#endif
 	}
 
 	return buf;
@@ -150,6 +156,7 @@ static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
 static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 			      void *buf, uint16_t size, void *user_data)
 {
+#if I2S_ENABLED
 	struct usb_i2s_ctx *ctx = user_data;
 	int nominal = nominal_samples_per_sof(ctx);
 	int ret;
@@ -190,6 +197,7 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 	LOG_DBG("Received %d data to input terminal %d", size, terminal);
 
 	ret = i2s_write(ctx->i2s_dev, buf, size);
+
 	if (ret < 0) {
 		ctx->i2s_started = false;
 		ctx->rx_started = false;
@@ -214,16 +222,20 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 	if (ret == 0) {
 		ctx->i2s_counter++;
 	}
+#endif
 }
 
 static void uac2_buf_release_cb(const struct device *dev, uint8_t terminal,
 				void *buf, void *user_data)
 {
+#if I2S_ENABLED
 	if (terminal == MICROPHONE_IN_TERMINAL_ID) {
 		k_mem_slab_free(&i2s_rx_slab, buf);
 	}
+#endif
 }
 
+#if I2S_ENABLED
 /* Determine next number of samples to send, called at most once every SOF */
 static int next_mic_num_samples(struct usb_i2s_ctx *ctx)
 {
@@ -455,10 +467,12 @@ static void process_mic_data(const struct device *dev, struct usb_i2s_ctx *ctx)
 		k_mem_slab_free(&i2s_rx_slab, mic_buf);
 	}
 }
+#endif
 
 static void uac2_sof(const struct device *dev, void *user_data)
 {
 	ARG_UNUSED(dev);
+#if I2S_ENABLED
 	struct usb_i2s_ctx *ctx = user_data;
 
 	if (ctx->i2s_started) {
@@ -529,6 +543,7 @@ static void uac2_sof(const struct device *dev, void *user_data)
 	if (ctx->rx_started) {
 		process_mic_data(dev, ctx);
 	}
+#endif
 }
 
 static struct uac2_ops usb_audio_ops = {
@@ -541,13 +556,22 @@ static struct uac2_ops usb_audio_ops = {
 
 static struct usb_i2s_ctx main_ctx;
 
+#if !I2S_ENABLED
+static void clock_started_callback(struct onoff_manager *mgr, struct onoff_client *cli,
+				   uint32_t state, int res)
+{
+	LOG_INF("Clock ok");
+}
+#endif
+
 int main(void)
 {
 	const struct device *dev = DEVICE_DT_GET(DT_NODELABEL(uac2_headset));
 	struct usbd_context *sample_usbd;
-	struct i2s_config config;
 	int ret;
 
+#if I2S_ENABLED
+	struct i2s_config config;
 	main_ctx.i2s_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_rxtx));
 
 	if (!device_is_ready(main_ctx.i2s_dev)) {
@@ -576,6 +600,23 @@ int main(void)
 		printk("Failed to configure RX stream: %d\n", ret);
 		return 0;
 	}
+#else
+#define NODE_ACLK      DT_NODELABEL(audiopll)
+#define ACLK_FREQUENCY DT_PROP_OR(NODE_ACLK, frequency, 0)
+
+	static const struct device *audiopll = DEVICE_DT_GET(NODE_ACLK);
+	static const struct nrf_clock_spec aclk_spec = {
+		.frequency = ACLK_FREQUENCY,
+	};
+	struct onoff_client clk_cli;
+
+	sys_notify_init_callback(&clk_cli.notify, clock_started_callback);
+	ret = nrf_clock_control_request(audiopll, &aclk_spec, &clk_cli);
+	if (ret < 0) {
+		printk("Failed to request clock: %d\n", ret);
+		return 0;
+	}
+#endif
 
 	main_ctx.fb = feedback_init();
 

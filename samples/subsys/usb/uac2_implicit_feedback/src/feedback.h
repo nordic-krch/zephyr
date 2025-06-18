@@ -8,6 +8,7 @@
 #define FEEDBACK_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /* This sample is currently supporting only 48 kHz sample rate. */
 #define SAMPLE_RATE         48000
