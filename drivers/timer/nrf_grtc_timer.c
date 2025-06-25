@@ -14,6 +14,7 @@
 #include <zephyr/drivers/timer/system_timer.h>
 #include <zephyr/drivers/timer/nrf_grtc_timer.h>
 #include <nrfx_grtc.h>
+#include <helpers/nrfx_gppi.h>
 #include <zephyr/sys/math_extras.h>
 
 #define GRTC_NODE DT_NODELABEL(grtc)
@@ -64,6 +65,8 @@
  */
 #define LATENCY_THR_TICKS 200
 
+#define GRTC_RRAMC_WAKEUP 1
+
 #if defined(CONFIG_TEST)
 const int32_t z_sys_timer_irq_for_test = DT_IRQN(GRTC_NODE);
 #endif
@@ -76,6 +79,7 @@ static uint64_t cc_value; /* Value that is expected to be in CC register. */
 static uint64_t expired_cc; /* Value that is expected to be in CC register. */
 static atomic_t int_mask;
 static uint8_t ext_channels_allocated;
+static uint8_t rramc_wakeup_ch;
 static nrfx_grtc_channel_t system_clock_channel_data = {
 	.handler = sys_clock_timeout_handler,
 	.p_context = NULL,
@@ -452,6 +456,33 @@ uint32_t sys_clock_elapsed(void)
 	return last_elapsed / CYC_PER_TICK;
 }
 
+static int rramc_wakeup_setup(void)
+{
+	uint8_t ppi_ch;
+	nrfx_err_t err_code;
+
+	err_code = nrfx_gppi_channel_alloc(&ppi_ch);
+	if (err_code != NRFX_SUCCESS) {
+		return -ENOMEM;
+	}
+
+	err_code = nrfx_grtc_channel_alloc(&rramc_wakeup_ch);
+	if (err_code != NRFX_SUCCESS) {
+		return -ENOMEM;
+	}
+
+	uint32_t rramc_tsk = (uint32_t)&NRF_RRAMC->TASKS_WAKEUP;
+	uint32_t evt = nrfx_grtc_event_compare_address_get(rramc_wakeup_ch);
+
+	nrfx_gppi_channel_endpoints_setup(ppi_ch, evt, rramc_tsk);
+	nrfx_gppi_channels_enable(BIT(ppi_ch));
+
+	NRF_GPIOTE20->CONFIG[2]= (1 << 9) | (12 <<4) | 3 | (3 << 16);
+	NRF_GPIOTE20->SUBSCRIBE_OUT[2] = NRF_GRTC->PUBLISH_COMPARE[rramc_wakeup_ch];
+
+	return 0;
+}
+
 static int sys_clock_driver_init(void)
 {
 	nrfx_err_t err_code;
@@ -487,6 +518,13 @@ static int sys_clock_driver_init(void)
 		return -ENOMEM;
 	}
 #endif /* CONFIG_NRF_GRTC_START_SYSCOUNTER */
+
+	if (IS_ENABLED(GRTC_RRAMC_WAKEUP)) {
+		int err = rramc_wakeup_setup();
+		if (err != 0) {
+			return err;
+		}
+	}
 
 	nrfx_grtc_channel_callback_set(system_clock_channel_data.channel,
 				       sys_clock_timeout_handler, NULL);
@@ -562,6 +600,10 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 		 * is short so fast method can be used which utilizes relative CC configuration.
 		 */
 		cc_value += cyc;
+		if (IS_ENABLED(GRTC_RRAMC_WAKEUP)) {
+			nrfx_grtc_syscounter_cc_rel_set(rramc_wakeup_ch, cyc,
+				NRFX_GRTC_CC_RELATIVE_COMPARE);
+		}
 		nrfx_grtc_syscounter_cc_rel_set(ch, cyc, NRFX_GRTC_CC_RELATIVE_COMPARE);
 		return;
 	}
@@ -585,6 +627,9 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 		safe_setting = (prev_cc_val - now) < LATENCY_THR_TICKS;
 	}
 
+	if (IS_ENABLED(GRTC_RRAMC_WAKEUP)) {
+		nrfx_grtc_syscounter_cc_abs_set(rramc_wakeup_ch, cc_value - 16, safe_setting);
+	}
 	nrfx_grtc_syscounter_cc_abs_set(ch, cc_value, safe_setting);
 }
 
