@@ -209,6 +209,9 @@ uint64_t z_nrf_grtc_timer_startup_value_get(void);
  */
 int nrf_grtc_timer_clock_driver_init(void);
 
+int rramc_wakeup_request(uint32_t us, bool force);
+void rramc_wakeup_release(int handle);
+
 #ifdef __cplusplus
 }
 #endif
