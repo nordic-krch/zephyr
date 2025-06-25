@@ -84,20 +84,31 @@ static const nrfx_timer_t feedback_timer_instance =
  * Full-Speed isochronous feedback is Q10.10 unsigned integer left-justified in
  * the 24-bits so it has Q10.14 format. This sample application puts zeroes to
  * the 4 least significant bits (does not use the bits for extra precision).
+ *
+ * High-Speed isochronous feedback is Q12.13 unsigned integer aligned in the
+ * 32-bits so the binary point is located between second and third byte so it
+ * has Q16.16 format. This sample applications puts zeroes to the 3 least
+ * significant bits (does not use the bits for extra precision).
  */
-#define FEEDBACK_K		10
+#define FEEDBACK_FS_K		10
+#define FEEDBACK_HS_K		13
 #if defined(CONFIG_APP_USE_I2S_LRCLK_EDGES_COUNTER)
-#define FEEDBACK_P		1
+#define FEEDBACK_FS_P		1
+#define FEEDBACK_HS_P		1
 #else
-#define FEEDBACK_P		5
+#define FEEDBACK_FS_P		5
+#define FEEDBACK_HS_P		5
 #endif
 
 #define FEEDBACK_FS_SHIFT	4
+#define FEEDBACK_HS_SHIFT	3
 
 static struct feedback_ctx {
 	uint32_t fb_value;
 	int32_t rel_sof_offset;
 	int32_t base_sof_offset;
+	int counts_per_sof;
+	bool high_speed;
 	union {
 		/* For edge counting */
 		struct {
@@ -190,7 +201,7 @@ struct feedback_ctx *feedback_init(void)
 
 	feedback_target_init();
 
-	feedback_reset_ctx(&fb_ctx);
+	feedback_reset_ctx(&fb_ctx, false);
 
 	if (IS_ENABLED(CONFIG_APP_USE_I2S_LRCLK_EDGES_COUNTER)) {
 		err = feedback_edge_counter_setup();
@@ -239,6 +250,24 @@ struct feedback_ctx *feedback_init(void)
 	return &fb_ctx;
 }
 
+static uint32_t nominal_feedback_value(struct feedback_ctx *ctx)
+{
+	if (ctx->high_speed) {
+		return (SAMPLE_RATE / 8000) << (FEEDBACK_HS_K + FEEDBACK_HS_SHIFT);
+	}
+
+	return (SAMPLE_RATE / 1000) << (FEEDBACK_FS_K + FEEDBACK_FS_SHIFT);
+}
+
+static uint32_t feedback_period(struct feedback_ctx *ctx)
+{
+	if (ctx->high_speed) {
+		return BIT(FEEDBACK_HS_K - FEEDBACK_HS_P);
+	}
+
+	return BIT(FEEDBACK_FS_K - FEEDBACK_FS_P);
+}
+
 static void update_sof_offset(struct feedback_ctx *ctx, uint32_t sof_cc,
 			      uint32_t framestart_cc)
 {
@@ -255,7 +284,7 @@ static void update_sof_offset(struct feedback_ctx *ctx, uint32_t sof_cc,
 		 * when regulated and therefore the relative clock frequency
 		 * discrepancies are essentially negligible.
 		 */
-		clks_per_edge = sof_cc / (SAMPLES_PER_SOF << FEEDBACK_P);
+		clks_per_edge = sof_cc / ctx->counts_per_sof;
 		sof_cc /= MAX(clks_per_edge, 1);
 		framestart_cc /= MAX(clks_per_edge, 1);
 	}
@@ -263,8 +292,8 @@ static void update_sof_offset(struct feedback_ctx *ctx, uint32_t sof_cc,
 	/* /2 because we treat the middle as a turning point from being
 	 * "too late" to "too early".
 	 */
-	if (framestart_cc > (SAMPLES_PER_SOF << FEEDBACK_P)/2) {
-		sof_offset = framestart_cc - (SAMPLES_PER_SOF << FEEDBACK_P);
+	if (framestart_cc > ctx->counts_per_sof/2) {
+		sof_offset = framestart_cc - ctx->counts_per_sof;
 	} else {
 		sof_offset = framestart_cc;
 	}
@@ -279,17 +308,17 @@ static void update_sof_offset(struct feedback_ctx *ctx, uint32_t sof_cc,
 
 		if (sof_offset >= 0) {
 			abs_diff = sof_offset - ctx->rel_sof_offset;
-			base_change = -(SAMPLES_PER_SOF << FEEDBACK_P);
+			base_change = -ctx->counts_per_sof;
 		} else {
 			abs_diff = ctx->rel_sof_offset - sof_offset;
-			base_change = SAMPLES_PER_SOF << FEEDBACK_P;
+			base_change = ctx->counts_per_sof;
 		}
 
 		/* Adjust base offset only if the change happened through the
 		 * outer bound. The actual changes should be significantly lower
 		 * than the threshold here.
 		 */
-		if (abs_diff > (SAMPLES_PER_SOF << FEEDBACK_P)/2) {
+		if (abs_diff > ctx->counts_per_sof/2) {
 			ctx->base_sof_offset += base_change;
 		}
 	}
@@ -297,22 +326,28 @@ static void update_sof_offset(struct feedback_ctx *ctx, uint32_t sof_cc,
 	ctx->rel_sof_offset = sof_offset;
 }
 
-static inline int32_t offset_to_correction(int32_t offset)
+static inline int32_t offset_to_correction(struct feedback_ctx *ctx, int32_t offset)
 {
-	return -(offset / BIT(FEEDBACK_P)) * BIT(FEEDBACK_FS_SHIFT);
+	if (ctx->high_speed) {
+		return -(offset / BIT(FEEDBACK_HS_P)) * BIT(FEEDBACK_HS_SHIFT);
+	}
+
+	return -(offset / BIT(FEEDBACK_FS_P)) * BIT(FEEDBACK_FS_SHIFT);
 }
 
 static int32_t pi_update(struct feedback_ctx *ctx)
 {
+	const uint32_t scaling = ctx->high_speed ? BIT(13 - FEEDBACK_HS_P) :
+		BIT(10 - FEEDBACK_FS_P);
 	int32_t sof_offset = ctx->rel_sof_offset + ctx->base_sof_offset;
-	/* SOF offset is measured in pow(2, -FEEDBACK_P) samples, i.e. when
-	 * FEEDBACK_P is 0, offset is in samples, and for 1 -> half-samples,
+	/* SOF offset is measured in pow(2, -FEEDBACK_FS_P) samples, i.e. when
+	 * FEEDBACK_FS_P is 0, offset is in samples, and for 1 -> half-samples,
 	 * 2 -> quarter-samples, 3 -> eightth-samples and so on.
 	 * In order to simplify the PI controller description here, normalize
 	 * the offset to 1/1024 samples (alternatively it can be treated as
 	 * samples in Q10 fixed point format) and use it as Process Variable.
 	 */
-	int32_t PV = BIT(10 - FEEDBACK_P) * sof_offset;
+	int32_t PV = scaling * sof_offset;
 	/* The control goal is to keep I2S FRAMESTART as close as possible to
 	 * USB SOF and therefore Set Point is 0.
 	 */
@@ -374,17 +409,21 @@ void feedback_process(struct feedback_ctx *ctx)
 		ctx->fb_counter += sof_cc;
 		ctx->fb_periods++;
 
-		if (ctx->fb_periods == BIT(FEEDBACK_K - FEEDBACK_P)) {
+		if (ctx->fb_periods == feedback_period(ctx)) {
 
-			/* fb_counter holds Q10.10 value, left-justify it */
-			fb = ctx->fb_counter << FEEDBACK_FS_SHIFT;
+			if (ctx->high_speed) {
+				fb = ctx->fb_counter << FEEDBACK_HS_SHIFT;
+			} else {
+				/* fb_counter holds Q10.10 value, left-justify it */
+				fb = ctx->fb_counter << FEEDBACK_FS_SHIFT;
+			}
 
 			/* Align I2S FRAMESTART to USB SOF by adjusting reported
 			 * feedback value. This is endpoint specific correction
 			 * mentioned but not specified in USB 2.0 Specification.
 			 */
-			if (abs(offset) > BIT(FEEDBACK_P)) {
-				fb += offset_to_correction(offset);
+			if (abs(offset) > BIT(ctx->high_speed ? FEEDBACK_HS_P : FEEDBACK_FS_P)) {
+				fb += offset_to_correction(ctx, offset);
 			}
 
 			ctx->fb_value = fb;
@@ -392,22 +431,25 @@ void feedback_process(struct feedback_ctx *ctx)
 			ctx->fb_periods = 0;
 		}
 	} else {
+		const uint32_t zero_lsb_mask = ctx->high_speed ? 0x7 : 0xF;
+
 		/* Use PI controller to generate required feedback deviation
 		 * from nominal feedback value.
 		 */
-		fb = SAMPLES_PER_SOF << (FEEDBACK_K + FEEDBACK_FS_SHIFT);
+		fb = nominal_feedback_value(ctx);
 		/* Clear the additional LSB bits in feedback value, i.e. do not
 		 * use the optional extra resolution.
 		 */
-		fb += pi_update(ctx) & ~0xF;
+		fb += pi_update(ctx) & ~zero_lsb_mask;
 		ctx->fb_value = fb;
 	}
 }
 
-void feedback_reset_ctx(struct feedback_ctx *ctx)
+void feedback_reset_ctx(struct feedback_ctx *ctx, bool microframes)
 {
 	/* Reset feedback to nominal value */
-	ctx->fb_value = SAMPLES_PER_SOF << (FEEDBACK_K + FEEDBACK_FS_SHIFT);
+	ctx->high_speed = microframes;
+	ctx->fb_value = nominal_feedback_value(ctx);
 	if (IS_ENABLED(CONFIG_APP_USE_I2S_LRCLK_EDGES_COUNTER)) {
 		ctx->fb_counter = 0;
 		ctx->fb_periods = 0;
@@ -416,19 +458,28 @@ void feedback_reset_ctx(struct feedback_ctx *ctx)
 	}
 }
 
-void feedback_start(struct feedback_ctx *ctx, int i2s_blocks_queued)
+void feedback_start(struct feedback_ctx *ctx, int i2s_blocks_queued,
+		    bool microframes)
 {
+	ctx->high_speed = microframes;
+	ctx->fb_value = nominal_feedback_value(ctx);
+
+	if (microframes) {
+		ctx->counts_per_sof = (SAMPLE_RATE / 8000) << FEEDBACK_HS_P;
+	} else {
+		ctx->counts_per_sof = (SAMPLE_RATE / 1000) << FEEDBACK_FS_P;
+	}
+
 	/* I2S data was supposed to go out at SOF, but it is inevitably
 	 * delayed due to triggering I2S start by software. Set relative
 	 * SOF offset value in a way that ensures that values past "half
 	 * frame" are treated as "too late" instead of "too early"
 	 */
-	ctx->rel_sof_offset = (SAMPLES_PER_SOF << FEEDBACK_P) / 2;
+	ctx->rel_sof_offset = ctx->counts_per_sof / 2;
 	/* If there are more than 2 I2S blocks queued, use feedback regulator
 	 * to correct the situation.
 	 */
-	ctx->base_sof_offset = (i2s_blocks_queued - 2) *
-		(SAMPLES_PER_SOF << FEEDBACK_P);
+	ctx->base_sof_offset = (i2s_blocks_queued - 2) * ctx->counts_per_sof;
 }
 
 uint32_t feedback_value(struct feedback_ctx *ctx)
