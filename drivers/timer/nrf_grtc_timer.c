@@ -437,7 +437,7 @@ int z_nrf_grtc_wakeup_prepare(uint64_t wake_time_us)
 
 uint32_t sys_clock_cycle_get_32(void)
 {
-	return (uint32_t)counter();
+	return nrf_grtc_sys_counter_low_get(NRF_GRTC);
 }
 
 uint64_t sys_clock_cycle_get_64(void)
