@@ -78,6 +78,14 @@ config UART_ASYNC_TX_CACHE_SIZE
 	  in RAM, because EasyDMA in UARTE peripherals can only transfer data
 	  from RAM.
 
+config UART_NRFX_UARTE_BOUNCE_BUF_LEN
+	int "RX bounce buffer size"
+	depends on UART_ASYNC_API
+	depends on UART_NRFX_UARTE_LEGACY_SHIM
+	default 256
+	help
+	  Buffer is used when workaround with bounce buffers is applied
+
 config UART_NRFX_UARTE_DIRECT_ISR
 	bool "Use direct ISR"
 
