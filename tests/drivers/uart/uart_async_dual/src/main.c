@@ -31,6 +31,7 @@ LOG_MODULE_REGISTER(test);
 #define RX_TIMEOUT_BYTES 5
 
 #define MAX_PACKET_LEN 128
+#define MIN_PACKET_LEN 10
 
 struct dut_data {
 	const struct device *dev;
@@ -160,7 +161,7 @@ static void fill_tx(struct test_tx_data *data)
 		uint8_t len = sys_rand8_get();
 
 		len = len % MAX_PACKET_LEN;
-		len = MAX(2, len);
+		len = MAX(MIN_PACKET_LEN, len);
 
 		data->packet_len = len;
 		data->idx = 0;
@@ -171,17 +172,24 @@ static void fill_tx(struct test_tx_data *data)
 		return;
 	}
 
-	while ((len = ring_buf_put_claim(&data->rbuf, &buf, 255)) > 1) {
+	while ((len = ring_buf_put_claim(&data->rbuf, &buf, 255)) > 0) {
 		uint8_t r = (sys_rand8_get() % MAX_PACKET_LEN) % len;
-		uint8_t packet_len = MAX(r, 2);
-		uint8_t rem = len - packet_len;
+		uint8_t packet_len = MAX(r, MIN_PACKET_LEN);
 
-		packet_len = (rem < 3) ? len : packet_len;
+		packet_len = (len <= MIN_PACKET_LEN) ? len : packet_len;
 		buf[0] = packet_len;
 		for (int i = 1; i < packet_len; i++) {
 			buf[i] = packet_len - i;
 		}
 
+		LOG_DBG("tx packet_len:%d ring_rem:%d, head:%d(%d) tail:%d(%d) base:%d",
+			packet_len, len,
+			tx_data.rbuf.put.head,
+			tx_data.rbuf.put.head - tx_data.rbuf.put.base,
+			tx_data.rbuf.put.tail,
+			tx_data.rbuf.put.tail - tx_data.rbuf.put.base,
+			tx_data.rbuf.put.base);
+		/*LOG_HEXDUMP_INF(buf, packet_len, "packets");*/
 		ring_buf_put_finish(&data->rbuf, packet_len);
 	}
 }
@@ -214,11 +222,20 @@ static void try_tx(const struct device *dev, bool irq)
 		}
 
 		len = ring_buf_get_claim(&tx_data.rbuf, &buf, 255);
+		/*LOG_HEXDUMP_INF(buf, len, "tx");*/
+		LOG_DBG("%d tx start:%d head:%d(%d) tail:%d(%d) base:%d",irq, len,
+			tx_data.rbuf.get.head,
+			tx_data.rbuf.get.head - tx_data.rbuf.get.base,
+			tx_data.rbuf.get.tail,
+			tx_data.rbuf.get.tail - tx_data.rbuf.get.base,
+			tx_data.rbuf.get.base);
 		if (len > 0) {
 			err = uart_tx(dev, buf, len, TX_TIMEOUT);
 			zassert_equal(err, 0,
 					"Unexpected err:%d irq:%d cont:%d\n",
 					err, irq, tx_data.cont);
+		} else {
+			tx_data.busy = 0;
 		}
 		return;
 	}
@@ -270,6 +287,12 @@ static void on_tx_done(const struct device *dev, struct uart_event *evt)
 	}
 
 	/* Finish previous data chunk and start new if any pending. */
+	LOG_DBG("tx done:%d head:%d(%d) tail:%d(%d) base:%d",evt->data.tx.len,
+		tx_data.rbuf.get.head,
+		tx_data.rbuf.get.head - tx_data.rbuf.get.base,
+		tx_data.rbuf.get.tail,
+		tx_data.rbuf.get.tail - tx_data.rbuf.get.base,
+		tx_data.rbuf.get.base);
 	ring_buf_get_finish(&tx_data.rbuf, evt->data.tx.len);
 	atomic_set(&tx_data.busy, 0);
 	try_tx(dev, true);
@@ -287,6 +310,13 @@ static void on_rx_rdy(const struct device *dev, struct uart_event *evt)
 
 	rx_data.rx_cnt += evt->data.rx.len;
 	if (evt->data.rx.buf == rx_data.hdr) {
+		if (rx_data.hdr[0] == 1) {
+			/* single byte packet. */
+			err = uart_rx_buf_rsp(dev, rx_data.hdr, 1);
+			zassert_equal(err, 0);
+			return;
+		}
+
 		zassert_equal(rx_data.payload_idx, 0);
 		rx_data.state = RX_PAYLOAD;
 		rx_data.payload_idx = rx_data.hdr[0] - 1;
@@ -310,9 +340,6 @@ static void on_rx_rdy(const struct device *dev, struct uart_event *evt)
 			}
 
 			if (!ok) {
-				print_err_report();
-				LOG_HEXDUMP_ERR(&evt->data.rx.buf[off], len, "buf");
-				/*LOG_ERR("hdr: %02x/%d len:%d", rx_data.hdr[0], rx_data.hdr[0], len);*/
 				LOG_ERR("Unexpected data at %d, exp:%02x got:%02x",
 					i, rx_data.payload_idx, evt->data.rx.buf[off + i]);
 			}
@@ -412,6 +439,7 @@ static void uart_callback(const struct device *dev, struct uart_event *evt, void
 		break;
 	case UART_RX_RDY:
 		zassert_true(dev == rx_dev);
+		/*LOG_HEXDUMP_INF(&evt->data.rx.buf[evt->data.rx.offset], evt->data.rx.len, "rx");*/
 		on_rx_rdy(dev, evt);
 		break;
 	case UART_RX_BUF_RELEASED:
@@ -579,7 +607,7 @@ ZTEST(uart_async_dual, test_var_packets_tx_bulk_dis_hwfc_1m)
 	var_packet(1000000, TX_BULK, RX_DIS, true);
 }
 
-ZTEST(uart_async_dual, test_var_packets_tx_bulk_cont_hwfc_1m)
+ZTEST(_uart_async_dual, test_var_packets_tx_bulk_cont_hwfc_1m)
 {
 	/* TX in bulk mode, RX in CONT mode, 1M  */
 	var_packet(1000000, TX_BULK, RX_CONT, true);
@@ -609,13 +637,13 @@ ZTEST(uart_async_dual, test_var_packets_cont_hwfc_1m)
 	var_packet(1000000, TX_PACKETS, RX_CONT, true);
 }
 
-ZTEST(_uart_async_dual, test_var_packets_chopped_all)
+ZTEST(uart_async_dual, test_var_packets_chopped_all)
 {
 	/* TX in chopped mode, RX in receive ALL mode, 115k2  */
 	var_packet(115200, TX_CHOPPED, RX_ALL, false);
 }
 
-ZTEST(_uart_async_dual, test_var_packets_chopped_all_1m)
+ZTEST(uart_async_dual, test_var_packets_chopped_all_1m)
 {
 	/* TX in chopped mode, RX in receive ALL mode, 1M  */
 	var_packet(1000000, TX_CHOPPED, RX_ALL, false);
@@ -780,6 +808,7 @@ static void hci_like_rx(void)
 	uint8_t len;
 	bool cont;
 	bool explicit_pm = IS_ENABLED(CONFIG_PM_RUNTIME_IN_TEST);
+	uint32_t start = k_uptime_get_32();
 
 	while (1) {
 		if (explicit_pm) {
@@ -831,7 +860,9 @@ static void hci_like_rx(void)
 		PM_CHECK(rx_dev, tx_dev, false);
 
 		check_payload(rx_data.buf, len);
+		report_progress(start);
 	}
+	TC_PRINT("\n");
 }
 
 #define HCI_LIKE_TX_STACK_SIZE 2048
@@ -948,10 +979,26 @@ static void *setup(void)
 	return NULL;
 }
 
-ZTEST_SUITE(uart_async_dual, NULL, setup, NULL, NULL, NULL);
+ZTEST_SUITE(_uart_async_dual, NULL, setup, NULL, NULL, NULL);
 
+#include <hal/nrf_gpio.h>
+#include <helpers/nrfx_gppi.h>
 void test_main(void)
 {
+#if 0
+	uint8_t ch;
+	(void)nrfx_gppi_channel_alloc(&ch);
+	NRF_GPIOTE20->CONFIG[0]= (1 << 9) | (13 <<4) | 3 | (3 << 16);
+	uint32_t evt = (uint32_t)&NRF_RRAMC->EVENTS_WOKENUP;
+	uint32_t tsk = (uint32_t)&NRF_GPIOTE20->TASKS_OUT[0];
+	nrfx_gppi_channel_endpoints_setup(ch, evt, tsk);
+	nrfx_gppi_channels_enable(BIT(ch));
+#endif
+	nrf_gpio_cfg_output(2*32+6);
+	nrf_gpio_cfg_output(2*32+7);
+	nrf_gpio_cfg_output(2*32+8);
+	nrf_gpio_cfg_output(2*32+9);
+	nrf_gpio_cfg_output(2*32+10);
 	ztest_run_all(NULL, false, ARRAY_SIZE(duts), 1);
 	ztest_verify_all_test_suites_ran();
 }

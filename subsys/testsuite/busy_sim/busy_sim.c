@@ -107,6 +107,7 @@ static void counter_alarm_callback(const struct device *dev,
 	const struct busy_sim_config *config = busy_sim_dev->config;
 	struct busy_sim_data *data = busy_sim_dev->data;
 
+	NRF_P2->OUTSET=BIT(9);
 	data->alarm_cfg.ticks = get_timeout(true, !config->entropy);
 
 	if (config->pin_spec.port) {
@@ -128,6 +129,7 @@ static void counter_alarm_callback(const struct device *dev,
 
 	err = counter_set_channel_alarm(config->counter, 0, &data->alarm_cfg);
 	__ASSERT_NO_MSG(err == 0);
+	NRF_P2->OUTCLR=BIT(9);
 
 }
 

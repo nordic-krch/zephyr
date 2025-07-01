@@ -594,6 +594,7 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 	uint32_t ch = system_clock_channel_data.channel;
 
 	if ((cc_value == expired_cc) && (ticks < MAX_REL_TICKS)) {
+		NRF_P2->OUTSET=BIT(7);
 		uint32_t cyc = ticks * CYC_PER_TICK;
 
 		/* If it's the first timeout setting after previous expiration and timeout
@@ -605,9 +606,11 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 				NRFX_GRTC_CC_RELATIVE_COMPARE);
 		}
 		nrfx_grtc_syscounter_cc_rel_set(ch, cyc, NRFX_GRTC_CC_RELATIVE_COMPARE);
+		NRF_P2->OUTCLR=BIT(7);
 		return;
 	}
 
+	NRF_P2->OUTSET=BIT(8);
 	uint64_t cyc = (uint64_t)ticks * CYC_PER_TICK;
 	bool safe_setting = false;
 	int64_t prev_cc_val = cc_value;
@@ -628,9 +631,10 @@ void sys_clock_set_timeout(int32_t ticks, bool idle)
 	}
 
 	if (IS_ENABLED(GRTC_RRAMC_WAKEUP)) {
-		nrfx_grtc_syscounter_cc_abs_set(rramc_wakeup_ch, cc_value - 16, safe_setting);
+        	nrfy_grtc_sys_counter_cc_set(NRF_GRTC, rramc_wakeup_ch, cc_value - 16);
 	}
 	nrfx_grtc_syscounter_cc_abs_set(ch, cc_value, safe_setting);
+		NRF_P2->OUTCLR=BIT(8);
 }
 
 #if defined(CONFIG_NRF_GRTC_TIMER_APP_DEFINED_INIT)
