@@ -46,16 +46,16 @@ i2s_tx: &tdm130 {
 /* PPI channel 1 for GPIOTE used for feedback in edge counter mode */
 &gpiote130 {
 	status = "okay";
-	owned-channels = <1>;
+	owned-channels = <0 1 2>;
 };
 
 /* GPIOTE130 and TDM130 PPI needs routing to TIMER131 through main APB */
 &dppic130 {
 	compatible = "nordic,nrf-dppic-global";
-	owned-channels = <0 1>;
-	sink-channels = <0 1>;
-	source-channels = <0 1>;
-	nonsecure-channels = <0 1>;
+	owned-channels = <0 1 2>;
+	sink-channels = <0 1 2>;
+	source-channels = <0 1 2>;
+	nonsecure-channels = <0 1 2>;
 	status = "okay";
 };
 
@@ -63,7 +63,8 @@ i2s_tx: &tdm130 {
 &dppic133 {
 	compatible = "nordic,nrf-dppic-global";
 	owned-channels = <0 1 2>;
-	sink-channels = <0 1 2>;
+	sink-channels = <0 1>;
+	source-channels = <2>;
 	status = "okay";
 };
 
