@@ -79,6 +79,10 @@ i2s_rxtx: &tdm130 {
 	status = "okay";
 };
 
+&uart136 {
+	current-speed = <1000000>;
+};
+
 &gpiote130 {
 	status = "okay";
 	owned-channels = <0 2>;

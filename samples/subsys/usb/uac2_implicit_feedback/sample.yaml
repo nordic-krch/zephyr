@@ -12,3 +12,5 @@ tests:
       - nrf5340dk/nrf5340/cpuapp
       - nrf54h20dk/nrf54h20/cpuapp
     harness: TBD
+    sysbuild: true
+    required_snippets: nordic-log-stm
