@@ -31,8 +31,24 @@ i2s_rxtx: &tdm130 {
 	status = "okay";
 };
 
+/* Reduce app dma region to allow RAM3x space for FLPR (TDM). */
 &cpuapp_dma_region {
 	status = "okay";
+	reg = <0x2fc12000 3584>;
+};
+
+/ {
+	reserved-memory {
+		cpuflpr_dma_region: memory@2fc12e00 {
+			compatible = "nordic,owned-memory", "zephyr,memory-region";
+			reg = <0x2fc12e00 512>;
+			status = "okay";
+			#memory-region-cells = <0>;
+			nordic,access = <NRF_OWNER_ID_APPLICATION NRF_PERM_RW>;
+			zephyr,memory-region = "DMA_RAM3x_FLPR";
+			zephyr,memory-attr = <( DT_MEM_DMA )>;
+		};
+	};
 };
 
 /* PPI channel 0 for TDM130 MAXCNT */
@@ -70,4 +86,9 @@ i2s_rxtx: &tdm130 {
 
 &timer131 {
 	status = "okay";
+};
+
+/* To allow use of 9.4 and 9.5 pins for debugging. */
+&can120 {
+	status = "disabled";
 };
