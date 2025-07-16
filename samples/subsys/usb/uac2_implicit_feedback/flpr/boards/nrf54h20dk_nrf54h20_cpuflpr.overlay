@@ -1,1 +1,24 @@
+/* Reserve memory in RAM3x that can be used by TDM on FLPR. Current <128 bytes is needed. */
+&cpuapp_dma_region {
+	status = "okay";
+	reg = <0x2fc12000 3584>;
+};
 
+/ {
+	reserved-memory {
+		cpuflpr_dma_region: memory@2fc12e00 {
+			compatible = "nordic,owned-memory", "zephyr,memory-region";
+			reg = <0x2fc12e00 512>;
+			status = "okay";
+			#memory-region-cells = <0>;
+			nordic,access = <NRF_OWNER_ID_APPLICATION NRF_PERM_RW>;
+			zephyr,memory-region = "DMA_RAM3x_FLPR";
+			zephyr,memory-attr = <( DT_MEM_DMA )>;
+		};
+	};
+};
+
+&tdm130 {
+	status = "reserved";
+	memory-regions = <&cpuflpr_dma_region>;
+};
