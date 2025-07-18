@@ -501,6 +501,9 @@ void uac2_update(struct usbd_class_data *const c_data,
 		return;
 	}
 
+	/* FLPR handles streaming */
+	return;
+
 	atomic_set_bit(&ctx->as_active, as_idx);
 
 	data_ep = get_as_data_ep(c_data, as_idx);
@@ -870,6 +873,11 @@ static void uac2_sof(struct usbd_class_data *const c_data)
 	const struct uac2_cfg *cfg = dev->config;
 	struct uac2_ctx *ctx = dev->data;
 	int as_idx;
+
+	if (1) {
+		/* FLPR handles isochronous streaming */
+		return;
+	}
 
 	ctx->ops->sof_cb(dev, ctx->user_data);
 

@@ -74,13 +74,7 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
 
 	ctx->microframes = microframes;
 
-	ctx->terminal_enabled = enabled;
-	if (ctx->i2s_started && !enabled) {
-		i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
-		ctx->i2s_started = false;
-		ctx->i2s_blocks_written = 0;
-		feedback_reset_ctx(ctx->fb, ctx->microframes);
-	}
+	/* TODO: let FLPR know terminal state */
 }
 
 static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
