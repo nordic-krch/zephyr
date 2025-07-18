@@ -10,7 +10,6 @@
 	uac2_headset: usb_audio2 {
 		compatible = "zephyr,uac2";
 		status = "okay";
-		full-speed;
 		high-speed;
 		audio-function = <AUDIO_FUNCTION_HEADSET>;
 
@@ -48,6 +47,11 @@
 			 * assoc-terminal = <&headphones_output>;
 			 */
 			front-left;
+			front-right;
+			back-left;
+			back-right;
+			side-left;
+			side-right;
 		};
 
 		in_terminal: in_terminal {
@@ -61,16 +65,18 @@
 			compatible = "zephyr,uac2-audio-streaming";
 			linked-terminal = <&out_terminal>;
 			implicit-feedback;
-			subslot-size = <2>;
-			bit-resolution = <16>;
+			subslot-size = <4>;
+			bit-resolution = <32>;
+			polling-period-us = <500>;
 		};
 
 		as_iso_in: in_interface {
 			compatible = "zephyr,uac2-audio-streaming";
 			linked-terminal = <&in_terminal>;
 			implicit-feedback;
-			subslot-size = <2>;
-			bit-resolution = <16>;
+			subslot-size = <4>;
+			bit-resolution = <32>;
+			polling-period-us = <500>;
 		};
 	};
 };

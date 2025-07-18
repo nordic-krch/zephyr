@@ -17,7 +17,7 @@
 
 #if IS_ENABLED(CONFIG_SOC_NRF54H20_CPUFLPR)
 /* FIXME: This needs to match USB descriptors when USB streaming is added */
-#define HIGH_SPEED_SOF_PERIODS 1
+#define HIGH_SPEED_SOF_PERIODS 4
 #define FULL_SPEED_SOF_PERIODS 1
 #else
 
