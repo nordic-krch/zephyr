@@ -34,16 +34,16 @@ i2s_rxtx: &tdm130 {
 /* Reduce app dma region to allow RAM3x space for FLPR (TDM). */
 &cpuapp_dma_region {
 	status = "okay";
-	reg = <0x2fc12000 3584>;
+	reg = <0x2fc12000 512>;
 };
 
 #include <zephyr/dt-bindings/reserved-memory/nordic-owned-memory.h>
 
 / {
 	reserved-memory {
-		cpuflpr_dma_region: memory@2fc12e00 {
+		cpuflpr_dma_region: memory@2fc12200 {
 			compatible = "nordic,owned-memory", "zephyr,memory-region";
-			reg = <0x2fc12e00 1024>;
+			reg = <0x2fc12200 3584>;
 			status = "okay";
 			#memory-region-cells = <0>;
 			nordic,access = <NRF_OWNER_ID_APPLICATION NRF_PERM_RW>;

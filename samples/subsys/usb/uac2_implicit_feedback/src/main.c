@@ -35,11 +35,7 @@ LOG_MODULE_REGISTER(uac2_sample, LOG_LEVEL_INF);
 #define BLOCK_SIZE          (MAX_SAMPLES_PER_SOF * BYTES_PER_SLOT)
 #define MAX_BLOCK_SIZE      ((MAX_SAMPLES_PER_SOF + 1) * BYTES_PER_SLOT)
 
-#define I2S_MEMORY_SECTION							\
-       COND_CODE_1(DT_NODE_HAS_PROP(DT_NODELABEL(i2s_rxtx), memory_regions),	\
-               (Z_GENERIC_SECTION(LINKER_DT_NODE_REGION_NAME_TOKEN(		\
-                       DT_PHANDLE(DT_NODELABEL(i2s_rxtx), memory_regions)))),	\
-               (__noinit))
+#define I2S_MEMORY_SECTION __noinit
 
 /* Absolute minimum is 5 TX buffers (1 actively consumed by I2S, 2nd queued as
  * next buffer, 3rd acquired by USB stack to receive data to, and 2 to handle
