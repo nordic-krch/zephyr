@@ -152,6 +152,7 @@ struct udc_dwc2_data {
 	uint8_t setup[8];
 };
 
+static bool dwc2_ep_is_iso(struct udc_ep_config *const cfg);
 static void udc_dwc2_ep_disable(const struct device *dev,
 				struct udc_ep_config *const cfg,
 				bool stall, bool wait);
@@ -371,6 +372,11 @@ static void dwc2_set_epint(const struct device *dev,
 	mem_addr_t reg = (mem_addr_t)&base->daintmsk;
 	uint8_t ep_idx = USB_EP_GET_IDX(cfg->addr);
 	uint32_t epmsk;
+
+	if (dwc2_ep_is_iso(cfg)) {
+		/* FLPR handles isochronous endpoints */
+		return;
+	}
 
 	if (USB_EP_DIR_IS_IN(cfg->addr)) {
 		epmsk = USB_DWC2_DAINT_INEPINT(ep_idx);
@@ -2666,7 +2672,8 @@ static inline void dwc2_handle_iepint(const struct device *dev)
 	uint32_t epint;
 
 	diepmsk = sys_read32((mem_addr_t)&base->diepmsk);
-	epint = usb_dwc2_get_daint_inepint(sys_read32((mem_addr_t)&base->daint));
+	epint = usb_dwc2_get_daint_inepint(sys_read32((mem_addr_t)&base->daint) &
+					   sys_read32((mem_addr_t)&base->daintmsk));
 
 	while (epint) {
 		uint8_t n = find_lsb_set(epint) - 1;
@@ -2823,7 +2830,8 @@ static inline void dwc2_handle_oepint(const struct device *dev)
 	uint32_t epint;
 
 	doepmsk = sys_read32((mem_addr_t)&base->doepmsk);
-	epint = usb_dwc2_get_daint_outepint(sys_read32((mem_addr_t)&base->daint));
+	epint = usb_dwc2_get_daint_outepint(sys_read32((mem_addr_t)&base->daint) &
+					    sys_read32((mem_addr_t)&base->daintmsk));
 
 	while (epint) {
 		uint8_t n = find_lsb_set(epint) - 1;
