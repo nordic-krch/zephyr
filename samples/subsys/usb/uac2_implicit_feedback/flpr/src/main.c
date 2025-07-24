@@ -9,15 +9,20 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main, 1);
 /* === BUFFERS === */
-
-#define ISO_IN_CH_CNT  1
-#define TDM_RX_CH_CNT  2
-
+/* buffers configuration */
+#define ISO_IN_CH_CNT  4
 #define ISO_OUT_CH_CNT 2
-#define TDM_TX_CH_CNT  2
+#define TDM_WORD_SIZE 32
+
+#if ISO_IN_CH_CNT > ISO_OUT_CH_CNT
+#define TDM_CH_CNT ISO_IN_CH_CNT
+#else
+#define TDM_CH_CNT ISO_OUT_CH_CNT
+#endif
+#define TDM_RX_CH_CNT ISO_IN_CH_CNT
+#define TDM_TX_CH_CNT ISO_OUT_CH_CNT
 
 #define SAMPLES_NUM    6
-#define CHANNELS_NUM   2
 #define BUFFERS_NUM    3
 #define NEXT_BUFFER(x) ((x + 1) % BUFFERS_NUM)
 
@@ -38,9 +43,20 @@ LOG_MODULE_REGISTER(main, 1);
 #define DBG_PIN_INIT(x)
 #endif
 
+#define TDM_GET_MAX_LEN(buf_len, num_of_channels) ((buf_len * TDM_CH_CNT) / num_of_channels)
+
 static struct feedback_ctx * mp_fbck;
 
+typedef enum {
+	tdm_tx,
+	tdm_rx
+} tdm_dir_t;
+
+#if TDM_WORD_SIZE > 16
+typedef uint32_t sample_t;
+#else
 typedef uint16_t sample_t;
+#endif
 
 typedef struct {
 	void * ptr;
@@ -57,6 +73,15 @@ static uint8_t m_iso_out_idx;
 /*static uint32_t m_fake_sample_tx[SAMPLES_NUM + 1] __aligned(4);*/
 /*static uint32_t m_fake_sample_rx[SAMPLES_NUM + 1] __aligned(4);*/
 
+#define NRFX_TDM_NUM_OF_CHANNELS (TDM_CONFIG_CHANNEL_NUM_NUM_Max + 1)
+
+#define NRFX_TDM_TX_CHANNELS_MASK                                                                  \
+	GENMASK(TDM_CONFIG_CHANNEL_MASK_Tx0Enable_Pos + TDM_CONFIG_CHANNEL_NUM_NUM_Max,            \
+		TDM_CONFIG_CHANNEL_MASK_Tx0Enable_Pos)
+#define NRFX_TDM_RX_CHANNELS_MASK                                                                  \
+	GENMASK(TDM_CONFIG_CHANNEL_MASK_Rx0Enable_Pos + TDM_CONFIG_CHANNEL_NUM_NUM_Max,            \
+		TDM_CONFIG_CHANNEL_MASK_Rx0Enable_Pos)
+
 static void buffers_flush(void)
 {
 	m_iso_in_idx = 0;
@@ -68,23 +93,24 @@ static void buffers_flush(void)
 /* === TDM === */
 #define MCKCONST       1048576UL
 #define AUDIOPLL_FREQ  12287963UL
-#define WORD_SIZE      16UL
+#define WORD_SIZE      CONCAT(TDM_WORD_SIZE, UL)
 #define FRAME_CLK_FREQ 48000UL
-#define SCK_FREQ       WORD_SIZE * FRAME_CLK_FREQ * CHANNELS_NUM
-#define SCK_VALUE      ((uint32_t)(((uint64_t)SCK_FREQ * MCKCONST) / (AUDIOPLL_FREQ + (SCK_FREQ / 2) )* 4096))
+#define SCK_FREQ       WORD_SIZE * FRAME_CLK_FREQ * TDM_CH_CNT
+#define SCK_DIV_VALUE  ((uint32_t)(((uint64_t)SCK_FREQ * MCKCONST) / (AUDIOPLL_FREQ + (SCK_FREQ / 2) )* 4096))
 
 static const nrf_tdm_config_t m_cfg = {
 	.mode = NRF_TDM_MODE_MASTER,
-	.alignment = NRF_TDM_ALIGN_LEFT,
-	.sample_width = NRF_TDM_SWIDTH_16BIT,
-	.channels = NRF_TDM_CHANNEL_TX0_MASK | NRF_TDM_CHANNEL_TX1_MASK | NRF_TDM_CHANNEL_RX0_MASK | NRF_TDM_CHANNEL_RX1_MASK,
-	.num_of_channels = NRF_TDM_CHANNELS_COUNT_2,
-	.channel_delay = NRF_TDM_CHANNEL_DELAY_1CK,
+	.sample_width = CONCAT(NRF_TDM_SWIDTH_, TDM_WORD_SIZE, BIT),
+	.channels = FIELD_PREP(NRFX_TDM_RX_CHANNELS_MASK, BIT_MASK(TDM_RX_CH_CNT)) | FIELD_PREP(NRFX_TDM_TX_CHANNELS_MASK, BIT_MASK(TDM_TX_CH_CNT)),
+	.num_of_channels = CONCAT(NRF_TDM_CHANNELS_COUNT_, TDM_CH_CNT),
 	.mck_setup = 0,
-	.sck_setup = SCK_VALUE,
-	.sck_polarity = NRF_TDM_POLARITY_POSEDGE,
-	.fsync_polarity = NRF_TDM_POLARITY_NEGEDGE,
-	.fsync_duration = NRF_TDM_FSYNC_DURATION_CHANNEL,
+	.sck_setup = SCK_DIV_VALUE,
+	// Set PCM long format
+	.alignment = NRF_TDM_ALIGN_LEFT,
+	.fsync_polarity = NRF_TDM_POLARITY_POSEDGE,
+	.sck_polarity = NRF_TDM_POLARITY_NEGEDGE,
+	.fsync_duration = NRF_TDM_FSYNC_DURATION_SCK,
+	.channel_delay = NRF_TDM_CHANNEL_DELAY_NONE,
 };
 
 static const nrf_tdm_pins_t m_pins = {
@@ -128,8 +154,10 @@ K_MEM_SLAB_DEFINE_STATIC(iso_out_slab,
 			 ROUND_UP((SAMPLES_NUM + 1) * ISO_OUT_CH_CNT * sizeof(sample_t), BUF_ALIGN),
 			 BUF_COUNT, BUF_ALIGN);
 
-/* Buffers for TDM, 2 for each direction. */
-static sample_t tdm_buffers[4][TDM_RX_CH_CNT * (SAMPLES_NUM + 1)]
+static sample_t tdm_tx_buffers[2][TDM_TX_CH_CNT * (SAMPLES_NUM + 1)]
+	__aligned(sizeof(uint32_t)) DMM_MEMORY_SECTION(DT_NODELABEL(tdm130));
+
+static sample_t tdm_rx_buffers[2][TDM_RX_CH_CNT * (SAMPLES_NUM + 1)]
 	__aligned(sizeof(uint32_t)) DMM_MEMORY_SECTION(DT_NODELABEL(tdm130));
 
 struct tdm_data {
@@ -263,6 +291,7 @@ static void tdm_init(void)
 
 	nrf_gpio_cfg(NRF_GPIO_PIN_MAP(1,3), NRF_GPIO_PIN_DIR_OUTPUT, NRF_GPIO_PIN_INPUT_DISCONNECT,
 		     NRF_GPIO_PIN_NOPULL, NRF_GPIO_PIN_S0S1, NRF_GPIO_PIN_NOSENSE);
+	nrf_gpio_pin_clock_set(NRF_GPIO_PIN_MAP(1,3), true);
 	nrf_gpio_cfg(NRF_GPIO_PIN_MAP(1,6), NRF_GPIO_PIN_DIR_OUTPUT, NRF_GPIO_PIN_INPUT_DISCONNECT,
 		     NRF_GPIO_PIN_NOPULL, NRF_GPIO_PIN_S0S1, NRF_GPIO_PIN_NOSENSE);
 	nrf_gpio_cfg(NRF_GPIO_PIN_MAP(1,4), NRF_GPIO_PIN_DIR_OUTPUT, NRF_GPIO_PIN_INPUT_DISCONNECT,
@@ -288,18 +317,28 @@ static void context_init(void)
 	}
 
 	/* Initialize context with buffers from RAM3x space. */
-	context.tdm_tx.buf[0] = tdm_buffers[0];
-	context.tdm_tx.buf[1] = tdm_buffers[1];
-	context.tdm_rx.buf[0] = tdm_buffers[2];
-	context.tdm_rx.buf[1] = tdm_buffers[3];
+	context.tdm_tx.buf[0] = tdm_tx_buffers[0];
+	context.tdm_tx.buf[1] = tdm_tx_buffers[1];
+	context.tdm_rx.buf[0] = tdm_rx_buffers[0];
+	context.tdm_rx.buf[1] = tdm_rx_buffers[1];
 }
 
-static uint32_t tdm_get_len(struct tdm_data *data, struct tdm_data *propagate)
+static uint32_t tdm_get_len(struct tdm_data *data, struct tdm_data *propagate, tdm_dir_t dir)
 {
 	uint32_t len;
+	uint32_t num_of_channels;
+
+	if (dir == tdm_rx) {
+		num_of_channels = TDM_RX_CH_CNT;
+	} else if (dir == tdm_tx) {
+		num_of_channels = TDM_TX_CH_CNT;
+	} else {
+		LOG_ERR("invalid dir value");
+		return 0;
+	}
 
 	if (data->len_offset == 0) {
-		return (SAMPLES_NUM * sizeof(sample_t) * TDM_RX_CH_CNT) / sizeof(uint32_t);
+		return (SAMPLES_NUM * sizeof(sample_t) * num_of_channels) / sizeof(uint32_t);
 	}
 
 	len = SAMPLES_NUM + data->len_offset;
@@ -308,7 +347,7 @@ static uint32_t tdm_get_len(struct tdm_data *data, struct tdm_data *propagate)
 	}
 	data->len_offset = 0;
 
-	return (len * sizeof(sample_t) * TDM_RX_CH_CNT) / sizeof(uint32_t);
+	return (len * sizeof(sample_t) * num_of_channels) / sizeof(uint32_t);
 }
 
 static void tdm_set_rx_ptr(bool first)
@@ -317,14 +356,14 @@ static void tdm_set_rx_ptr(bool first)
 	int ret;
 
 	if (!first) {
-		ret = ringbuf_put(&context.to_usb, buf, context.tdm_rx.len[context.tdm_rx.idx]);
+		ret = ringbuf_put(&context.to_usb, buf, context.tdm_rx.len[context.tdm_rx.idx] / sizeof(sample_t));
 		if (ret < 0) {
 			LOG_WRN("No room in ring buffer for TDM data.");
 		}
 	}
 
-	context.tdm_rx.len[context.tdm_rx.idx] = tdm_get_len(&context.tdm_rx, NULL);
-	nrf_tdm_rx_count_set(NRF_TDM130, context.tdm_rx.len[context.tdm_rx.idx]);
+	context.tdm_rx.len[context.tdm_rx.idx] = tdm_get_len(&context.tdm_rx, NULL, tdm_rx);
+	nrf_tdm_rx_count_set(NRF_TDM130, TDM_GET_MAX_LEN(context.tdm_rx.len[context.tdm_rx.idx], TDM_RX_CH_CNT));
 	nrf_tdm_rx_buffer_set(NRF_TDM130, (uint32_t *)buf);
 
 	context.tdm_rx.idx = (context.tdm_rx.idx + 1) & 0x1;
@@ -337,19 +376,19 @@ static void tdm_set_tx_ptr(void)
 	int ret;
 
 	/* Length correction propagates from TDM TX to TDM RX. */
-	len = tdm_get_len(&context.tdm_tx, &context.tdm_rx);
-	ret = ringbuf_get(&context.from_usb, tx_buf, len);
+	len = tdm_get_len(&context.tdm_tx, &context.tdm_rx, tdm_tx);
+	ret = ringbuf_get(&context.from_usb, tx_buf, len / sizeof(sample_t));
 	if (ret < 0) {
 		memset(tx_buf, 0, len * sizeof(uint32_t));
 		LOG_WRN("No TDM data to send.");
 	}
 
 	context.tdm_tx.idx = (context.tdm_tx.idx + 1) & 0x1;
-	nrf_tdm_tx_count_set(NRF_TDM130, len);
+	nrf_tdm_tx_count_set(NRF_TDM130, TDM_GET_MAX_LEN(len, TDM_TX_CH_CNT));
 	nrf_tdm_tx_buffer_set(NRF_TDM130, (uint32_t *)tx_buf);
 }
 
-static void tdm_start(buf_t * p_in, buf_t * p_out)
+static void tdm_start(void)
 {
 	nrf_tdm_enable(NRF_TDM130);
 	nrf_tdm_configure(NRF_TDM130, &m_cfg);
@@ -567,7 +606,7 @@ int main(void)
 	DBG_PIN_INIT(3);
 
 	LOG_INF("FLPR started");
-
+	//LOG_ERR("sample_width = %u channels = %x num_of_channels = %u", m_cfg.sample_width, m_cfg.channels, m_cfg.num_of_channels);
 	while (1 || rpt) {
 		if (usb_sof_changed())
 		{
@@ -612,7 +651,7 @@ int main(void)
 			DBG_PIN_SET(3);
 			context_init();
 			/*tdm_start(&m_iso_in_buffers[0], &m_iso_out_buffers[0]);*/
-			tdm_start(&m_iso_in_buffers[0], &m_iso_out_buffers[0]);
+			tdm_start();
 			feedback_start(mp_fbck, m_tdm_counter, true);
 			m_tdm_started = true;
 			DBG_PIN_CLR(3);
