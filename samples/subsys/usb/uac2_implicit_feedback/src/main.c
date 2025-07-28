@@ -22,8 +22,8 @@ LOG_MODULE_REGISTER(uac2_sample, LOG_LEVEL_INF);
 #define HEADPHONES_OUT_TERMINAL_ID UAC2_ENTITY_ID(DT_NODELABEL(out_terminal))
 #define MICROPHONE_IN_TERMINAL_ID UAC2_ENTITY_ID(DT_NODELABEL(in_terminal))
 
-#define FS_SAMPLES_PER_SOF  48
-#define HS_SAMPLES_PER_SOF  6
+#define FS_SAMPLES_PER_SOF  (48 * FULL_SPEED_SOF_PERIODS)
+#define HS_SAMPLES_PER_SOF  (6 * HIGH_SPEED_SOF_PERIODS)
 #define MAX_SAMPLES_PER_SOF MAX(FS_SAMPLES_PER_SOF, HS_SAMPLES_PER_SOF)
 #define SAMPLE_FREQUENCY    (FS_SAMPLES_PER_SOF * 1000)
 #define SAMPLE_BIT_WIDTH    16
@@ -57,8 +57,9 @@ struct usb_i2s_ctx {
 	bool microphone_enabled;
 	bool i2s_started;
 	bool rx_started;
-	bool usb_data_received;
 	bool microframes;
+	uint8_t sofs_after_data_recv;
+	uint8_t sofs_after_in;
 	/* Counter used to determine when to start I2S and then when to start
 	 * sending RX packets to host. Overflows are not a problem because this
 	 * variable is not necessary after both I2S and RX is started.
@@ -82,6 +83,12 @@ struct usb_i2s_ctx {
 	 */
 	uint32_t plus_ones;
 	uint32_t minus_ones;
+
+	enum {
+		ISO_IN_NOT_SYNCHRONIZED,
+		ISO_IN_ZLP_QUEUED,
+		ISO_IN_SYNCHRONIZED,
+	} iso_in_sync;
 };
 
 static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
@@ -110,6 +117,8 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
 			ctx->pending_mic_buf = NULL;
 			ctx->pending_mic_samples = 0;
 		}
+		feedback_reset_ctx(ctx->fb);
+		ctx->iso_in_sync = ISO_IN_NOT_SYNCHRONIZED;
 	}
 }
 
@@ -154,7 +163,7 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 	int nominal = nominal_samples_per_sof(ctx);
 	int ret;
 
-	ctx->usb_data_received = true;
+	ctx->sofs_after_data_recv = 0;
 
 	if (!ctx->headphones_enabled && !ctx->microphone_enabled) {
 		k_mem_slab_free(&i2s_tx_slab, buf);
@@ -219,7 +228,17 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 static void uac2_buf_release_cb(const struct device *dev, uint8_t terminal,
 				void *buf, void *user_data)
 {
+	struct usb_i2s_ctx *ctx = user_data;
+
 	if (terminal == MICROPHONE_IN_TERMINAL_ID) {
+		if (ctx->iso_in_sync == ISO_IN_ZLP_QUEUED) {
+			if (ctx->microphone_enabled) {
+				ctx->iso_in_sync = ISO_IN_SYNCHRONIZED;
+			} else {
+				ctx->iso_in_sync = ISO_IN_NOT_SYNCHRONIZED;
+			}
+		}
+		ctx->sofs_after_in = 0;
 		k_mem_slab_free(&i2s_rx_slab, buf);
 	}
 }
@@ -456,37 +475,83 @@ static void process_mic_data(const struct device *dev, struct usb_i2s_ctx *ctx)
 	}
 }
 
-static void uac2_sof(const struct device *dev, void *user_data)
+static uint32_t get_sof_periods(struct usb_i2s_ctx *ctx)
 {
-	ARG_UNUSED(dev);
-	struct usb_i2s_ctx *ctx = user_data;
-
-	if (ctx->i2s_started) {
-		feedback_process(ctx->fb);
+	if (USBD_SUPPORTS_HIGH_SPEED && ctx->microframes) {
+		return HIGH_SPEED_SOF_PERIODS;
 	}
 
-	/* If we didn't receive data since last SOF but either terminal is
-	 * enabled, then we have to come up with the buffer ourself to keep
-	 * I2S going.
+	return FULL_SPEED_SOF_PERIODS;
+}
+
+static bool is_zero_fill_needed(const struct device *dev, struct usb_i2s_ctx *ctx)
+{
+	uint32_t sof_periods = get_sof_periods(ctx);
+
+	if (!ctx->microphone_enabled && !ctx->headphones_enabled) {
+		/* Streaming is not active, zero fill is not necessary */
+		return false;
+	}
+
+	/* Should the isochronous IN synchronization be handled here?
+	 * Currently the USB stack is not (micro-)frame aware at all.
+	 * What type of interface should we have?
 	 */
-	if (!ctx->usb_data_received &&
-	    (ctx->microphone_enabled || ctx->headphones_enabled)) {
-		/* No data received since last SOF but we have to keep going */
+	if (sof_periods > 1 && ctx->microphone_enabled &&
+	    ctx->iso_in_sync == ISO_IN_NOT_SYNCHRONIZED) {
 		void *buf;
 		int ret;
 
-		ret = k_mem_slab_alloc(&i2s_tx_slab, &buf, K_NO_WAIT);
-		if (ret != 0) {
-			buf = NULL;
+		ret = k_mem_slab_alloc(&i2s_rx_slab, &buf, K_NO_WAIT);
+		if (ret == 0) {
+			if (usbd_uac2_send(dev, MICROPHONE_IN_TERMINAL_ID,
+					   buf, 0) < 0) {
+				k_mem_slab_free(&i2s_rx_slab, buf);
+			} else {
+				ctx->iso_in_sync = ISO_IN_ZLP_QUEUED;
+			}
 		}
 
-		if (buf) {
-			/* Use size 0 to utilize zero-fill functionality */
-			uac2_data_recv_cb(dev, HEADPHONES_OUT_TERMINAL_ID,
-					  buf, 0, user_data);
-		}
+		/* We don't know when we should expect the data - do not zero
+		 * fill. USB hosts tend to write zeroes first before real data,
+		 * so we should be fine with delaying I2S startup.
+		 */
+		return false;
 	}
-	ctx->usb_data_received = false;
+
+	if (sof_periods > 1) {
+		/* bInterval is higher than one which means there is some wiggle
+		 * room as to when we have to supply missing data. Use this to
+		 * actually supply missing data one SOF later than expected.
+		 * This mitigates an issue where data receive callback is called
+		 * after subsequent SOF, i.e. out of order. This can happen for
+		 * example on DWC2 when both isochronous OUT XferCompl and SOF
+		 * interrupt bits are set when the interrupt handler executes
+		 * (it is impossible to tell which one happened first).
+		 */
+		sof_periods += 1;
+	}
+
+	return ctx->sofs_after_data_recv >= sof_periods;
+}
+
+static bool is_i2s_start_needed(const struct device *dev, struct usb_i2s_ctx *ctx)
+{
+	const uint32_t sof_periods = get_sof_periods(ctx);
+
+	/* For bInterval=1 we are always "IN synchronized" */
+	if (sof_periods == 1 || ctx->iso_in_sync == ISO_IN_SYNCHRONIZED) {
+		ctx->sofs_after_data_recv++;
+		ctx->sofs_after_in = (ctx->sofs_after_in + 1) % sof_periods;
+	} else {
+		/* Wait for host to start polling isochronous IN endpoint */
+		return false;
+	}
+
+	if (ctx->i2s_started) {
+		/* We are already started, no need to trigger start */
+		return false;
+	}
 
 	/* We want to maintain 3 SOFs delay, i.e. samples received from host
 	 * during SOF n should be transmitted on I2S during SOF n+3. This
@@ -509,9 +574,62 @@ static void uac2_sof(const struct device *dev, void *user_data)
 	 *   DATA0 n+2 is copied; i2s_counter is no longer relevant
 	 *   OUT DATA0 n+3 received from host
 	 */
-	if (!ctx->i2s_started &&
-	    (ctx->headphones_enabled || ctx->microphone_enabled) &&
-	    ctx->i2s_counter >= 2) {
+	if ((ctx->headphones_enabled || ctx->microphone_enabled) &&
+	    ctx->i2s_counter >= 2 && ctx->sofs_after_in == 0) {
+		return true;
+	}
+
+	return false;
+}
+
+static bool is_mic_processing_needed(struct usb_i2s_ctx *ctx)
+{
+	const uint32_t sof_periods = get_sof_periods(ctx);
+
+	if (!ctx->rx_started) {
+		return false;
+	}
+
+	if (sof_periods == 1) {
+		/* We have to process microphone data on every SOF */
+		return true;
+	}
+
+	/* Process microphone data after first SOF within interval */
+	return ctx->sofs_after_in == 1;
+}
+
+static void uac2_sof(const struct device *dev, void *user_data)
+{
+	ARG_UNUSED(dev);
+	struct usb_i2s_ctx *ctx = user_data;
+
+	if (ctx->i2s_started) {
+		feedback_process(ctx->fb);
+	}
+
+	/* If we didn't receive data since last SOF but either terminal is
+	 * enabled, then we have to come up with the buffer ourself to keep
+	 * I2S going.
+	 */
+	if (is_zero_fill_needed(dev, ctx)) {
+		/* No data received since last SOF but we have to keep going */
+		void *buf;
+		int ret;
+
+		ret = k_mem_slab_alloc(&i2s_tx_slab, &buf, K_NO_WAIT);
+		if (ret != 0) {
+			buf = NULL;
+		}
+
+		if (buf) {
+			/* Use size 0 to utilize zero-fill functionality */
+			uac2_data_recv_cb(dev, HEADPHONES_OUT_TERMINAL_ID,
+					  buf, 0, user_data);
+		}
+	}
+
+	if (is_i2s_start_needed(dev, ctx)) {
 		i2s_trigger(ctx->i2s_dev, I2S_DIR_BOTH, I2S_TRIGGER_START);
 		ctx->i2s_started = true;
 		feedback_start(ctx->fb, ctx->i2s_counter, ctx->microframes);
@@ -526,7 +644,7 @@ static void uac2_sof(const struct device *dev, void *user_data)
 		ctx->rx_started = true;
 	}
 
-	if (ctx->rx_started) {
+	if (is_mic_processing_needed(ctx)) {
 		process_mic_data(dev, ctx);
 	}
 }

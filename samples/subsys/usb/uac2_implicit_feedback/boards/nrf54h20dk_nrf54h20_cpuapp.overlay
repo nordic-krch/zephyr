@@ -54,11 +54,11 @@ i2s_rxtx: &tdm130 {
 	status = "okay";
 };
 
-/* TIMER131 PPI channel 1 is used for SOF */
+/* TIMER131 PPI channel 1 is used for SOF and channel 2 for decimated SOF */
 &dppic133 {
 	compatible = "nordic,nrf-dppic-global";
-	owned-channels = <0 1>;
-	sink-channels = <0 1>;
+	owned-channels = <0 1 2>;
+	sink-channels = <0 1 2>;
 	status = "okay";
 };
 
