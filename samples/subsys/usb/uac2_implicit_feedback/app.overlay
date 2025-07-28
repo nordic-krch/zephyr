@@ -63,6 +63,7 @@
 			implicit-feedback;
 			subslot-size = <2>;
 			bit-resolution = <16>;
+			polling-period-us = <500>;
 		};
 
 		as_iso_in: in_interface {
@@ -71,6 +72,7 @@
 			implicit-feedback;
 			subslot-size = <2>;
 			bit-resolution = <16>;
+			polling-period-us = <500>;
 		};
 	};
 };
