@@ -5,7 +5,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(usb_audio_async_i2s)
 
 include(${ZEPHYR_BASE}/samples/subsys/usb/common/common.cmake)
-target_sources(app PRIVATE src/main.c)
+target_sources(app PRIVATE src/main.c src/periphconf.c)
 
 if (CONFIG_SOC_COMPATIBLE_NRF5340_CPUAPP OR CONFIG_SOC_SERIES_NRF54HX)
 	target_sources(app PRIVATE src/feedback_nrf.c)
