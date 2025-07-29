@@ -49,6 +49,7 @@ static const nrfx_gpiote_t gpiote = NRFX_GPIOTE_INSTANCE(130);
 
 #define GPIOTE_PPI_SOF_PIN    (9 * 32)
 #define GPIOTE_PPI_MAXCNT_PIN (9 * 32) + 1
+#define GPIOTE_PPI_BASE_SOF_PIN (1 * 32) + 0
 
 static uint32_t gpiote_setup(uint32_t pin)
 {
@@ -126,6 +127,8 @@ static void sof_decimator_init(void)
 
 	nrfx_gppi_channel_endpoints_setup(usbd_sof_gppi_channel,
 		nrf_timer_event_address_get(NRF_TIMER131, NRF_TIMER_EVENT_COMPARE5),
+		gpiote_setup(GPIOTE_PPI_BASE_SOF_PIN));
+	nrfx_gppi_fork_endpoint_setup(usbd_sof_gppi_channel,
 		SOF_DECIMATOR_COUNT_ADDRESS);
 
 	nrfx_gppi_channels_enable(BIT(usbd_sof_gppi_channel));
