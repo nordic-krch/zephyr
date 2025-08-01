@@ -10,9 +10,13 @@
 LOG_MODULE_REGISTER(main, 1);
 /* === BUFFERS === */
 /* buffers configuration */
-#define ISO_IN_CH_CNT  4
-#define ISO_OUT_CH_CNT 2
+#define ISO_IN_CH_CNT  8
+#define ISO_OUT_CH_CNT 8
 #define TDM_WORD_SIZE 32
+
+#if ISO_IN_CH_CNT != ISO_OUT_CH_CNT
+#error "Assymetric configuration is not supported."
+#endif
 
 #if ISO_IN_CH_CNT > ISO_OUT_CH_CNT
 #define TDM_CH_CNT ISO_IN_CH_CNT
@@ -363,7 +367,7 @@ static void tdm_set_rx_ptr(bool first)
 	}
 
 	context.tdm_rx.len[context.tdm_rx.idx] = tdm_get_len(&context.tdm_rx, NULL, tdm_rx);
-	nrf_tdm_rx_count_set(NRF_TDM130, TDM_GET_MAX_LEN(context.tdm_rx.len[context.tdm_rx.idx], TDM_RX_CH_CNT));
+	nrf_tdm_rx_count_set(NRF_TDM130, context.tdm_rx.len[context.tdm_rx.idx]);
 	nrf_tdm_rx_buffer_set(NRF_TDM130, (uint32_t *)buf);
 
 	context.tdm_rx.idx = (context.tdm_rx.idx + 1) & 0x1;
@@ -384,15 +388,17 @@ static void tdm_set_tx_ptr(void)
 	}
 
 	context.tdm_tx.idx = (context.tdm_tx.idx + 1) & 0x1;
-	nrf_tdm_tx_count_set(NRF_TDM130, TDM_GET_MAX_LEN(len, TDM_TX_CH_CNT));
+	nrf_tdm_tx_count_set(NRF_TDM130, len);
 	nrf_tdm_tx_buffer_set(NRF_TDM130, (uint32_t *)tx_buf);
 }
 
 static void tdm_start(void)
 {
+	bool sck_bypass = (SCK_DIV_VALUE > 0x80000000) ? (true) : (false);
+
 	nrf_tdm_enable(NRF_TDM130);
 	nrf_tdm_configure(NRF_TDM130, &m_cfg);
-	nrf_tdm_sck_configure(NRF_TDM130, NRF_TDM_SRC_ACLK, false);
+	nrf_tdm_sck_configure(NRF_TDM130, NRF_TDM_SRC_ACLK, sck_bypass);
 	nrf_tdm_mck_configure(NRF_TDM130, NRF_TDM_SRC_ACLK, false);
 	nrf_tdm_event_clear(NRF_TDM130, NRF_TDM_EVENT_RXPTRUPD);
 	nrf_tdm_event_clear(NRF_TDM130, NRF_TDM_EVENT_TXPTRUPD);
