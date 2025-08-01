@@ -41,7 +41,7 @@ i2s_rxtx: &tdm130 {
 	reserved-memory {
 		cpuflpr_dma_region: memory@2fc12e00 {
 			compatible = "nordic,owned-memory", "zephyr,memory-region";
-			reg = <0x2fc12e00 512>;
+			reg = <0x2fc12e00 1024>;
 			status = "okay";
 			#memory-region-cells = <0>;
 			nordic,access = <NRF_OWNER_ID_APPLICATION NRF_PERM_RW>;
