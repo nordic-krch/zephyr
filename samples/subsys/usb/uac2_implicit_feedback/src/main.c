@@ -202,7 +202,7 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 		}
 
 		/* Most likely underrun occurred, prepare I2S restart */
-		i2s_trigger(ctx->i2s_dev, I2S_DIR_BOTH, I2S_TRIGGER_PREPARE);
+		i2s_trigger(ctx->i2s_dev, I2S_DIR_BOTH, I2S_TRIGGER_DROP);
 
 		ret = i2s_write(ctx->i2s_dev, buf, size);
 		if (ret < 0) {
