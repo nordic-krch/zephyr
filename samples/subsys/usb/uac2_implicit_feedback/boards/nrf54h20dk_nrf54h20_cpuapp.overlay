@@ -37,6 +37,8 @@ i2s_rxtx: &tdm130 {
 	reg = <0x2fc12000 3584>;
 };
 
+#include <zephyr/dt-bindings/reserved-memory/nordic-owned-memory.h>
+
 / {
 	reserved-memory {
 		cpuflpr_dma_region: memory@2fc12e00 {
