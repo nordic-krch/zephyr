@@ -15,13 +15,20 @@
 /* This sample is currently supporting only 48 kHz sample rate. */
 #define SAMPLE_RATE         48000
 
+#if IS_ENABLED(CONFIG_SOC_NRF54H20_CPUFLPR)
+/* FIXME: This needs to match USB descriptors when USB streaming is added */
+#define HIGH_SPEED_SOF_PERIODS 1
+#define FULL_SPEED_SOF_PERIODS 1
+#else
+
+/* This check is broken if there is no polling period
 BUILD_ASSERT(UTIL_AND(
 	IS_EQ(DT_NODE_HAS_PROP(DT_NODELABEL(as_iso_in), polling_period_us),
 	      DT_NODE_HAS_PROP(DT_NODELABEL(as_iso_out), polling_period_us)),
 	IS_EQ(DT_PROP(DT_NODELABEL(as_iso_in), polling_period_us),
 	      DT_PROP(DT_NODELABEL(as_iso_out), polling_period_us))),
 	"Sample requires common IN and OUT polling periods");
-
+*/
 #define FS_SOF_PERIODS(us) BIT(USB_FS_ISO_EP_INTERVAL(us) - 1)
 #define HS_SOF_PERIODS(us) BIT(USB_HS_ISO_EP_INTERVAL(us) - 1)
 
@@ -30,6 +37,7 @@ BUILD_ASSERT(UTIL_AND(
 
 #define HIGH_SPEED_SOF_PERIODS HS_SOF_PERIODS(HS_PERIOD_US)
 #define FULL_SPEED_SOF_PERIODS FS_SOF_PERIODS(FS_PERIOD_US)
+#endif
 
 #if (USBD_SUPPORTS_HIGH_SPEED && HS_PERIOD_US >= 250) || (FS_PERIOD_US >= 2000)
 #define SOF_PERIOD_TRACKING_NEEDED 1

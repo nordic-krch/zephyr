@@ -354,7 +354,9 @@ void feedback_reset_ctx(struct feedback_ctx *ctx)
 void feedback_start(struct feedback_ctx *ctx, int i2s_blocks_queued,
 		    bool microframes)
 {
+#if DO_INIT
 	feedback_target_start(microframes);
+#endif
 
 	if (microframes) {
 		ctx->nominal = HIGH_SPEED_SOF_PERIODS * SAMPLE_RATE / 8000;
