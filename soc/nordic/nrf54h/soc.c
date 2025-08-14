@@ -31,6 +31,9 @@
 #if defined(CONFIG_SOC_NRF54H20_TDD_ENABLE)
 #include <nrf_ironside/tdd.h>
 #endif
+#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU)
+#include <zephyr/drivers/misc/coresight/nrf_coresight.h>
+#endif
 
 LOG_MODULE_REGISTER(soc, CONFIG_SOC_LOG_LEVEL);
 
@@ -208,6 +211,10 @@ void soc_late_init_hook(void)
 
 	err_tdd = ironside_se_tdd_configure(IRONSIDE_SE_TDD_CONFIG_ON_DEFAULT);
 	__ASSERT(err_tdd == 0, "err_tdd was %d", err_tdd);
+#endif
+
+#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU)
+	nrf_coresight_init(NRF_CORESIGHT_MODE_STM_TPIU);
 #endif
 
 #if defined(CONFIG_SOC_NRF54H20_CPURAD_ENABLE)
