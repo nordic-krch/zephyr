@@ -524,6 +524,12 @@
 				status = "disabled";
 				interrupts = <127 NRF_DEFAULT_IRQ_PRIORITY>;
 			};
+			tpiu: tpiu@43000 {
+				compatible = "nordic,nrf-tpiu";
+				reg = <0x43000 0x1000>;
+				status = "disabled";
+				nordic,clockpin-enable = <NRF_FUN_TPIU_CLOCK>;
+			};
 		};
 
 		global_peripherals: peripheral@5f000000 {
