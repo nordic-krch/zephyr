@@ -78,6 +78,12 @@ config SOC_NRF54H20_TDD_ENABLE
 	  This allows configuring the coresight peripherals from
 	  the application domain.
 
+config SOC_NRF54H20_CONFIGURE_TPIU_PINS
+	bool "Configure TPIU pins"
+	select SOC_LATE_INIT_HOOK
+	help
+	  Configure the TPIU pins to be used for trace output.
+
 config SOC_NRF54H20_CPURAD_ENABLE
 	bool "Boot the nRF54H20 Radio core"
 	default y if NRF_802154_SER_HOST || BT_HCI_HOST
