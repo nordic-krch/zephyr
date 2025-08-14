@@ -310,6 +310,13 @@ slot3_partition: &cpurad_slot1_partition {
 	};
 };
 
+&tpiu {
+	pinctrl-0 = <&tpiu_default>;
+	pinctrl-1 = <&tpiu_sleep>;
+	pinctrl-names = "default", "sleep";
+	status = "disabled";
+};
+
 &cpuapp_ieee802154 {
 	status = "okay";
 };
