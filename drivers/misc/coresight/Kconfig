@@ -5,7 +5,7 @@ DT_COMPAT_NORDIC_NRF_TBM := nordic,nrf-tbm
 
 config NRF_ETR
 	bool "Coresight ETR handler (with Nordic TBM)"
-	depends on $(dt_compat_enabled,$(DT_COMPAT_NORDIC_NRF_TBM))
+	depends on SOC_NRF54H20_CORESIGHT_MODE_STM_ETR
 	select NRFX_TBM
 	imply UART_ASYNC_API
 	default y

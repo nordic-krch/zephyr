@@ -31,8 +31,9 @@
 #if defined(CONFIG_SOC_NRF54H20_TDD_ENABLE)
 #include <nrf_ironside/tdd.h>
 #endif
-#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU)
+#if defined(CONFIG_NRF_CORESIGHT)
 #include <zephyr/drivers/misc/coresight/nrf_coresight.h>
+#include <zephyr/logging/log_frontend_stmesp.h>
 #endif
 
 LOG_MODULE_REGISTER(soc, CONFIG_SOC_LOG_LEVEL);
@@ -206,16 +207,6 @@ void soc_late_init_hook(void)
 	/* TODO: nrf_gpd.h got removed, that allowed an easy hack for this, now this pinctrl... */
 #endif
 
-#if defined(CONFIG_SOC_NRF54H20_TDD_ENABLE)
-	int err_tdd;
-
-	err_tdd = ironside_se_tdd_configure(IRONSIDE_SE_TDD_CONFIG_ON_DEFAULT);
-	__ASSERT(err_tdd == 0, "err_tdd was %d", err_tdd);
-#endif
-
-#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU)
-	nrf_coresight_init(NRF_CORESIGHT_MODE_STM_TPIU);
-#endif
 
 #if defined(CONFIG_SOC_NRF54H20_CPURAD_ENABLE)
 	int err_cpuconf;
@@ -262,6 +253,40 @@ void soc_late_init_hook(void)
 	__ASSERT(err_cpuconf == 0, "err_cpuconf was %d", err_cpuconf);
 #endif
 }
+#endif
+
+#if defined(CONFIG_SOC_NRF54H20_TDD_ENABLE)
+static int tdd_init(void)
+{
+	int err_tdd;
+
+	err_tdd = ironside_se_tdd_configure(IRONSIDE_SE_TDD_CONFIG_ON_DEFAULT);
+	__ASSERT(err_tdd == 0, "err_tdd was %d", err_tdd);
+
+#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU)
+	nrf_coresight_init_tpiu();
+#endif
+
+#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_ETR)
+	uintptr_t etr_buffer = (DT_REG_ADDR(DT_NODELABEL(etr_buffer)));
+	size_t buf_word_len = DT_REG_SIZE(DT_NODELABEL(etr_buffer)) / sizeof(uint32_t);
+	nrf_coresight_init_etr(etr_buffer, buf_word_len);
+#endif
+	err_tdd = log_frontend_stmesp_etr_ready();
+	__ASSERT(err_tdd == 0, "err was %d", err_tdd);
+
+	return 0;
+}
+
+#if defined(CONFIG_NORDIC_VPR_LAUNCHER) && defined(CONFIG_LOG_FRONTEND_STMESP_FSC)
+/* TDD/ETR must be up and running before VPR cores are started as they write to
+ * ETR some vital initial data that cannot be lost.
+ */
+BUILD_ASSERT(CONFIG_NORDIC_VPR_LAUNCHER_INIT_PRIORITY >
+		UTIL_INC(CONFIG_NRF_IRONSIDE_CALL_INIT_PRIORITY));
+#endif
+
+SYS_INIT(tdd_init, POST_KERNEL, UTIL_INC(CONFIG_NRF_IRONSIDE_CALL_INIT_PRIORITY));
 #endif
 
 void arch_busy_wait(uint32_t time_us)

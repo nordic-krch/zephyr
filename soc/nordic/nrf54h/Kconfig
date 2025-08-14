@@ -90,6 +90,12 @@ config SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU
 	help
 	  Use STM and TPIU for trace output.
 
+config SOC_NRF54H20_CORESIGHT_MODE_STM_ETR
+	bool "Use STM and ETR for trace"
+	select NRF_CORESIGHT
+	help
+	  Use STM and ETR for trace output.
+
 config SOC_NRF54H20_CPURAD_ENABLE
 	bool "Boot the nRF54H20 Radio core"
 	default y if NRF_802154_SER_HOST || BT_HCI_HOST
