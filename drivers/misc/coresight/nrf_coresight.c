@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <zephyr/drivers/misc/coresight/nrf_coresight.h>
 #include <zephyr/sys/util.h>
+/* TODO: needs to be updated in the MDK. */
+#include "nrf_coresight_fixups.h"
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(cs_trace, CONFIG_NRF_CORESIGHT_LOG_LEVEL);
