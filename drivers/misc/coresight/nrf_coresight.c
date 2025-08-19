@@ -216,6 +216,24 @@ static void tpiu_init(void)
 	LOG_INF("CoreSight Host TPIU initialized");
 }
 
+static void etr_init(uintptr_t buf, size_t buf_word_len)
+{
+	unlock_periph(NRF_ETR);
+
+	NRF_ETR->RSZ = buf_word_len;
+	NRF_ETR->RWP = buf;
+	NRF_ETR->DBALO = buf;
+	NRF_ETR->DBAHI = 0UL;
+	NRF_ETR->FFCR = 1UL; /* Enable formatting. Normal */
+	NRF_ETR->MODE = ETR_MODE_MODE_CIRCULARBUF; /* Circular buffer mode */
+	NRF_ETR->CTL = 1UL;
+
+	periph_claim_set(NRF_ETR, FIRMWARE_CLAIM_MASK);
+	lock_periph(NRF_ETR);
+
+	LOG_INF("Coresight Host ETR initialized");
+}
+
 static void stm_init(bool enable_hwevents)
 {
 	NRF_STM_Type *const stm = NRF_STM;
@@ -260,33 +278,49 @@ static void stm_init(bool enable_hwevents)
 #define ATBREPLICATOR_FORWARD_NOTHING 0xFFFFFFFF
 #define ATBREPLICATOR_FORWARD_ALL 0x0
 
-int nrf_coresight_init(enum nrf_coresight_trace_mode mode)
+int nrf_coresight_init_etr(uintptr_t buf, size_t buf_word_len) {
+	configure_atb_funnel(NRF_ATBFUNNEL210, ATBFUNNEL_ALLOW_NOTHING);
+	configure_atb_funnel(NRF_ATBFUNNEL211, ATBFUNNEL_ALLOW_ALL);
+	configure_atb_funnel(NRF_ATBFUNNEL212, ATBFUNNEL_ALLOW_ALL);
+	configure_atb_funnel(NRF_ATBFUNNEL213, ATBFUNNEL_ALLOW_ALL);
+
+	configure_atb_replicator(NRF_ATBREPLICATOR210, ATBREPLICATOR_FORWARD_NOTHING,
+				ATBREPLICATOR_FORWARD_ALL);
+	configure_atb_replicator(NRF_ATBREPLICATOR211, ATBREPLICATOR_FORWARD_NOTHING,
+				ATBREPLICATOR_FORWARD_ALL);
+	configure_atb_replicator(NRF_ATBREPLICATOR212, ATBREPLICATOR_FORWARD_NOTHING,
+				ATBREPLICATOR_FORWARD_ALL);
+	configure_atb_replicator(NRF_ATBREPLICATOR213, ATBREPLICATOR_FORWARD_NOTHING,
+				ATBREPLICATOR_FORWARD_ALL);
+
+	ts_gen_init();
+	cti_init(false, true);
+	etr_init(buf, buf_word_len);
+	stm_init(false);
+
+	return 0;
+}
+
+int nrf_coresight_init_tpiu(void)
 {
-	switch (mode) {
-	case NRF_CORESIGHT_MODE_STM_TPIU: {
-		configure_atb_funnel(NRF_ATBFUNNEL210, ATBFUNNEL_ALLOW_NOTHING);
-		configure_atb_funnel(NRF_ATBFUNNEL211, ATBFUNNEL_ALLOW_ALL);
-		configure_atb_funnel(NRF_ATBFUNNEL212, ATBFUNNEL_ALLOW_ALL);
-		configure_atb_funnel(NRF_ATBFUNNEL213, ATBFUNNEL_ALLOW_ALL);
+	configure_atb_funnel(NRF_ATBFUNNEL210, ATBFUNNEL_ALLOW_NOTHING);
+	configure_atb_funnel(NRF_ATBFUNNEL211, ATBFUNNEL_ALLOW_ALL);
+	configure_atb_funnel(NRF_ATBFUNNEL212, ATBFUNNEL_ALLOW_ALL);
+	configure_atb_funnel(NRF_ATBFUNNEL213, ATBFUNNEL_ALLOW_ALL);
 
-		configure_atb_replicator(NRF_ATBREPLICATOR210, ATBREPLICATOR_FORWARD_NOTHING,
-					ATBREPLICATOR_FORWARD_ALL);
-		configure_atb_replicator(NRF_ATBREPLICATOR211, ATBREPLICATOR_FORWARD_NOTHING,
-					ATBREPLICATOR_FORWARD_ALL);
-		configure_atb_replicator(NRF_ATBREPLICATOR212, ATBREPLICATOR_FORWARD_NOTHING,
-					ATBREPLICATOR_FORWARD_ALL);
-		configure_atb_replicator(NRF_ATBREPLICATOR213, ATBREPLICATOR_FORWARD_ALL,
-					ATBREPLICATOR_FORWARD_NOTHING);
+	configure_atb_replicator(NRF_ATBREPLICATOR210, ATBREPLICATOR_FORWARD_NOTHING,
+				ATBREPLICATOR_FORWARD_ALL);
+	configure_atb_replicator(NRF_ATBREPLICATOR211, ATBREPLICATOR_FORWARD_NOTHING,
+				ATBREPLICATOR_FORWARD_ALL);
+	configure_atb_replicator(NRF_ATBREPLICATOR212, ATBREPLICATOR_FORWARD_NOTHING,
+				ATBREPLICATOR_FORWARD_ALL);
+	configure_atb_replicator(NRF_ATBREPLICATOR213, ATBREPLICATOR_FORWARD_ALL,
+				ATBREPLICATOR_FORWARD_NOTHING);
 
-		ts_gen_init();
-		cti_init(false, true);
-		tpiu_init();
-		stm_init(false);
-		break;
-	}
-	default:
-		LOG_ERR("Unsupported CoreSight trace mode: %d", mode);
-		return -ENOTSUP;
-	}
+	ts_gen_init();
+	cti_init(false, true);
+	tpiu_init();
+	stm_init(false);
+
 	return 0;
 }

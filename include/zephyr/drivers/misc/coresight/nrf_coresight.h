@@ -10,17 +10,11 @@
 extern "C" {
 #endif
 
-enum nrf_coresight_trace_mode {
-    NRF_CORESIGHT_MODE_STM_TPIU,
-};
+#include <stdint.h>
 
-/**
- * @brief Initialize the CoreSight trace subsystem.
- *
- * @param mode The trace mode to initialize.
- * @return int 0 on success, negative error code on failure.
- */
-int nrf_coresight_init(enum nrf_coresight_trace_mode mode);
+
+int nrf_coresight_init_etr(uintptr_t buf, size_t buf_word_len);
+int nrf_coresight_init_tpiu(void);
 
 #ifdef __cplusplus
 }

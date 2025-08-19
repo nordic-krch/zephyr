@@ -4,4 +4,5 @@ append:
 boards:
   /.*/nrf54h20/cpuapp/:
     append:
+      EXTRA_DTC_OVERLAY_FILE: boards/nrf54h20_cpuapp.overlay
       EXTRA_CONF_FILE: log_stm_cpuapp.conf

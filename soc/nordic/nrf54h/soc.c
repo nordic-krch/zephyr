@@ -31,7 +31,7 @@
 #if defined(CONFIG_SOC_NRF54H20_TDD_ENABLE)
 #include <nrf_ironside/tdd.h>
 #endif
-#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU)
+#if defined(CONFIG_NRF_CORESIGHT)
 #include <zephyr/drivers/misc/coresight/nrf_coresight.h>
 #endif
 
@@ -214,8 +214,15 @@ void soc_late_init_hook(void)
 #endif
 
 #if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_TPIU)
-	nrf_coresight_init(NRF_CORESIGHT_MODE_STM_TPIU);
+	nrf_coresight_init_tpiu();
 #endif
+
+#if defined(CONFIG_SOC_NRF54H20_CORESIGHT_MODE_STM_ETR)
+	uintptr_t etr_buffer = (DT_REG_ADDR(DT_NODELABEL(etr_buffer)));
+	size_t buf_word_len = DT_REG_SIZE(DT_NODELABEL(etr_buffer)) / sizeof(uint32_t);
+	nrf_coresight_init_etr(etr_buffer, buf_word_len);
+#endif
+
 
 #if defined(CONFIG_SOC_NRF54H20_CPURAD_ENABLE)
 	int err_cpuconf;
