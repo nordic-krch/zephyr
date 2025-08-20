@@ -7,7 +7,7 @@
 #include "../../src/feedback.h"
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(main, 1);
+LOG_MODULE_REGISTER(main, LOG_LEVEL_WRN);
 /* === BUFFERS === */
 /* buffers configuration */
 #define ISO_IN_CH_CNT  6
@@ -32,8 +32,8 @@ LOG_MODULE_REGISTER(main, 1);
 	#endif
 #endif
 
-#define TDM_RX_CH_CNT ISO_IN_CH_CNT
-#define TDM_TX_CH_CNT ISO_OUT_CH_CNT
+#define TDM_RX_CH_CNT TDM_CH_CNT /*ISO_IN_CH_CNT*/
+#define TDM_TX_CH_CNT TDM_CH_CNT /*ISO_OUT_CH_CNT*/
 
 #define SAMPLES_NUM    (6 * HIGH_SPEED_SOF_PERIODS)
 #define BUFFERS_NUM    3
@@ -157,8 +157,8 @@ struct ringbuf {
 #define BUF_COUNT 6
 #define BUF_ALIGN sizeof(uint32_t)
 
-static sample_t iso_in_buf[ISO_IN_CH_CNT * 32];
-static sample_t iso_out_buf[ISO_OUT_CH_CNT * 32];
+static sample_t iso_in_buf[ISO_IN_CH_CNT * (SAMPLES_NUM + 1) * 10];
+static sample_t iso_out_buf[ISO_OUT_CH_CNT * (SAMPLES_NUM + 1) * 10];
 
 K_MEM_SLAB_DEFINE_STATIC(iso_in_slab,
 			 ROUND_UP((SAMPLES_NUM + 1) * ISO_IN_CH_CNT * sizeof(sample_t), BUF_ALIGN),
@@ -318,13 +318,13 @@ static void context_init(void)
 {
 	int err;
 
-	err = ringbuf_init(&context.to_usb, iso_in_buf, ARRAY_SIZE(iso_in_buf), ISO_IN_CH_CNT, 1);
+	err = ringbuf_init(&context.to_usb, iso_in_buf, ARRAY_SIZE(iso_in_buf), ISO_IN_CH_CNT, TDM_CH_CNT - TDM_RX_CH_CNT);
 	if (err < 0) {
 		LOG_ERR("Wrong ring buffer configuration.");
 	}
 
 	err = ringbuf_init(&context.from_usb, iso_out_buf, ARRAY_SIZE(iso_out_buf),
-			   ISO_OUT_CH_CNT, 0);
+			   ISO_OUT_CH_CNT, TDM_CH_CNT - TDM_TX_CH_CNT);
 	if (err < 0) {
 		LOG_ERR("Wrong ring buffer configuration.");
 	}
@@ -369,7 +369,7 @@ static void tdm_set_rx_ptr(bool first)
 	int ret;
 
 	if (!first) {
-		ret = ringbuf_put(&context.to_usb, buf, context.tdm_rx.len[context.tdm_rx.idx] / sizeof(sample_t));
+		ret = ringbuf_put(&context.to_usb, buf, context.tdm_rx.len[context.tdm_rx.idx] / ISO_IN_CH_CNT);
 		if (ret < 0) {
 			LOG_WRN("No room in ring buffer for TDM data.");
 		}
