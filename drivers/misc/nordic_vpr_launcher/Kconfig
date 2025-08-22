@@ -16,8 +16,11 @@ module = NORDIC_VPR_LAUNCHER
 module-str = Nordic VPR Launcher
 source "subsys/logging/Kconfig.template.log_config"
 
+VAR_NRF_IRONSIDE_CALL_INIT_PRIORITY := NRF_IRONSIDE_CALL_INIT_PRIORITY
+
 config NORDIC_VPR_LAUNCHER_INIT_PRIORITY
 	int "Nordic VPR coprocessor launcher init priority"
+	default 43 if SOC_NRF54H20_TDD_ENABLE
 	default 0
 	help
 	  The init priority of the VPR coprocessor launcher.
