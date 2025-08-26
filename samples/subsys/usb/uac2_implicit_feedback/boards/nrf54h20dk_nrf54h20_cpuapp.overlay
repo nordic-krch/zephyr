@@ -56,8 +56,8 @@ i2s_rxtx: &tdm130 {
 /* PPI channel 0 for TDM130 MAXCNT */
 &dppic132 {
 	compatible = "nordic,nrf-dppic-global";
-	owned-channels = <0>;
-	source-channels = <0>;
+	owned-channels = <0 5 6>;
+	source-channels = <0 5 6>;
 	nonsecure-channels = <0>;
 	status = "okay";
 };
@@ -65,10 +65,10 @@ i2s_rxtx: &tdm130 {
 /* TDM130 PPI needs routing to TIMER131 through main APB */
 &dppic130 {
 	compatible = "nordic,nrf-dppic-global";
-	owned-channels = <0 3 4>;
-	sink-channels = <0 3 4>;
-	source-channels = <0 3 4>;
-	nonsecure-channels = <0 3 4>;
+	owned-channels = <0 3 4 5 6>;
+	sink-channels = <0 3 4 5 6>;
+	source-channels = <0 3 4 5 6>;
+	nonsecure-channels = <0 3 4 5 6>;
 	status = "okay";
 };
 
@@ -87,7 +87,7 @@ i2s_rxtx: &tdm130 {
 
 &gpiote130 {
 	status = "okay";
-	owned-channels = <0 3 4>;
+	owned-channels = <0 1 2 3 4>;
 };
 
 &timer131 {
