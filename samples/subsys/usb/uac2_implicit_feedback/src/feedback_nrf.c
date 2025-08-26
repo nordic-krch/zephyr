@@ -146,6 +146,29 @@ static void sof_decimator_init(void)
 	nrfx_gppi_channels_enable(BIT(usbd_sof_gppi_channel));
 
 	nrfx_timer_enable(&sof_decimator_timer_instance);
+
+	/****************************************************/
+#define GPIOTE_RXPTRUPD (1*32+8)
+#define GPIOTE_TXPTRUPD (1*32+9)
+	err = nrfx_gppi_channel_alloc(&usbd_sof_gppi_channel);
+	if (err != NRFX_SUCCESS) {
+		LOG_ERR("gppi_channel_alloc failed with: %d\n", err);
+		return;
+	}
+	nrfx_gppi_channel_endpoints_setup(usbd_sof_gppi_channel,
+		nrf_tdm_event_address_get(NRF_TDM130, NRF_TDM_EVENT_RXPTRUPD),
+		gpiote_setup(GPIOTE_RXPTRUPD));
+	nrfx_gppi_channels_enable(BIT(usbd_sof_gppi_channel));
+
+	err = nrfx_gppi_channel_alloc(&usbd_sof_gppi_channel);
+	if (err != NRFX_SUCCESS) {
+		LOG_ERR("gppi_channel_alloc failed with: %d\n", err);
+		return;
+	}
+	nrfx_gppi_channel_endpoints_setup(usbd_sof_gppi_channel,
+		nrf_tdm_event_address_get(NRF_TDM130, NRF_TDM_EVENT_TXPTRUPD),
+		gpiote_setup(GPIOTE_TXPTRUPD));
+	nrfx_gppi_channels_enable(BIT(usbd_sof_gppi_channel));
 }
 
 static inline void feedback_target_start(bool microframes)
