@@ -318,7 +318,8 @@ static void context_init(void)
 {
 	int err;
 
-	err = ringbuf_init(&context.to_usb, iso_in_buf, ARRAY_SIZE(iso_in_buf), ISO_IN_CH_CNT, TDM_CH_CNT - TDM_RX_CH_CNT);
+	err = ringbuf_init(&context.to_usb, iso_in_buf, ARRAY_SIZE(iso_in_buf),
+			   ISO_IN_CH_CNT, TDM_CH_CNT - TDM_RX_CH_CNT);
 	if (err < 0) {
 		LOG_ERR("Wrong ring buffer configuration.");
 	}
@@ -339,19 +340,9 @@ static void context_init(void)
 static uint32_t tdm_get_len(struct tdm_data *data, struct tdm_data *propagate, tdm_dir_t dir)
 {
 	uint32_t len;
-	uint32_t num_of_channels;
-
-	if (dir == tdm_rx) {
-		num_of_channels = TDM_RX_CH_CNT;
-	} else if (dir == tdm_tx) {
-		num_of_channels = TDM_TX_CH_CNT;
-	} else {
-		LOG_ERR("invalid dir value");
-		return 0;
-	}
 
 	if (data->len_offset == 0) {
-		return (SAMPLES_NUM * sizeof(sample_t) * num_of_channels) / sizeof(uint32_t);
+		return SAMPLES_NUM;
 	}
 
 	len = SAMPLES_NUM + data->len_offset;
@@ -359,8 +350,7 @@ static uint32_t tdm_get_len(struct tdm_data *data, struct tdm_data *propagate, t
 		propagate->len_offset = data->len_offset;
 	}
 	data->len_offset = 0;
-
-	return (len * sizeof(sample_t) * num_of_channels) / sizeof(uint32_t);
+	return len;
 }
 
 static void tdm_set_rx_ptr(bool first)
@@ -369,14 +359,15 @@ static void tdm_set_rx_ptr(bool first)
 	int ret;
 
 	if (!first) {
-		ret = ringbuf_put(&context.to_usb, buf, context.tdm_rx.len[context.tdm_rx.idx] / ISO_IN_CH_CNT);
+		ret = ringbuf_put(&context.to_usb, buf,
+				context.tdm_rx.len[context.tdm_rx.idx]);
 		if (ret < 0) {
 			LOG_WRN("No room in ring buffer for TDM data.");
 		}
 	}
 
 	context.tdm_rx.len[context.tdm_rx.idx] = tdm_get_len(&context.tdm_rx, NULL, tdm_rx);
-	nrf_tdm_rx_count_set(NRF_TDM130, context.tdm_rx.len[context.tdm_rx.idx]);
+	nrf_tdm_rx_count_set(NRF_TDM130, context.tdm_rx.len[context.tdm_rx.idx] * TDM_CH_CNT);
 	nrf_tdm_rx_buffer_set(NRF_TDM130, (uint32_t *)buf);
 
 	context.tdm_rx.idx = (context.tdm_rx.idx + 1) & 0x1;
@@ -390,14 +381,14 @@ static void tdm_set_tx_ptr(void)
 
 	/* Length correction propagates from TDM TX to TDM RX. */
 	len = tdm_get_len(&context.tdm_tx, &context.tdm_rx, tdm_tx);
-	ret = ringbuf_get(&context.from_usb, tx_buf, len / sizeof(sample_t));
+	ret = ringbuf_get(&context.from_usb, tx_buf, len);
 	if (ret < 0) {
 		//memset(tx_buf, 0, len * sizeof(uint32_t));
 		//LOG_ERR("No TDM data to send.");
 	}
 
 	context.tdm_tx.idx = (context.tdm_tx.idx + 1) & 0x1;
-	nrf_tdm_tx_count_set(NRF_TDM130, len);
+	nrf_tdm_tx_count_set(NRF_TDM130, len * TDM_CH_CNT);
 	nrf_tdm_tx_buffer_set(NRF_TDM130, (uint32_t *)tx_buf);
 }
 
