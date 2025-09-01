@@ -151,7 +151,8 @@ struct ringbuf {
 	/* Number of valid channel samples in the input buffer to put function. */
 	uint32_t ch_valid;
 	/* Number of channel that shall be skipped in the input buffer to put function. */
-	uint32_t ch_skip;
+	uint32_t in_ch_skip;
+	uint32_t out_ch_skip;
 };
 
 #define BUF_COUNT 6
@@ -197,7 +198,7 @@ static void ringbuf_reset(struct ringbuf *rb)
 }
 
 static int ringbuf_init(struct ringbuf *rb, sample_t *buf, size_t size,
-			uint32_t ch_valid, uint32_t ch_skip)
+			uint32_t ch_valid, uint32_t in_ch_skip, uint32_t out_ch_skip)
 {
 	if (size % ch_valid) {
 		return -EINVAL;
@@ -206,7 +207,8 @@ static int ringbuf_init(struct ringbuf *rb, sample_t *buf, size_t size,
 	rb->buf = buf;
 	rb->size = size;
 	rb->ch_valid = ch_valid;
-	rb->ch_skip = ch_skip;
+	rb->in_ch_skip = in_ch_skip;
+	rb->out_ch_skip = out_ch_skip;
 	ringbuf_reset(rb);
 
 	return 0;
@@ -224,9 +226,9 @@ static int ringbuf_put(struct ringbuf *rb, sample_t *buf, size_t sample_num)
 {
 	size_t rem_space = rb->size - rb->prod_idx;
 	size_t len = sample_num * rb->ch_valid;
-	sample_t *dst = &rb->buf[rb->prod_idx];
-	size_t cpy_len = MIN(len, rem_space);
-	size_t cpy_sample = cpy_len / rb->ch_valid;
+	size_t rem_sample = rem_space / rb->ch_valid;
+	size_t cpy_sample = MIN(sample_num, rem_sample);
+	sample_t *dst;
 
 	if (rb->total + len > rb->size) {
 		LOG_WRN("rb %p put no mem", rb);
@@ -234,36 +236,29 @@ static int ringbuf_put(struct ringbuf *rb, sample_t *buf, size_t sample_num)
 	}
 
 	rb->total += len;
-	for (int i = 0; i < cpy_sample; i++) {
-		for (int j = 0; j < rb->ch_valid; j++) {
-			*dst = *buf;
-			dst++;
-			buf++;
+
+	do {
+		dst = &rb->buf[rb->prod_idx];
+
+		for (int i = 0; i < cpy_sample; i++) {
+			for (int j = 0; j < rb->ch_valid; j++) {
+				*dst = *buf;
+				dst++;
+				buf++;
+			}
+			buf += rb->in_ch_skip;
 		}
-		buf += rb->ch_skip;
-	}
-	rb->prod_idx += cpy_len;
-	if (rb->prod_idx == rb->size) {
-		rb->prod_idx = 0;
-	}
 
-	len -= cpy_len;
-
-	if (len == 0) {
-		return 0;
-	}
-
-	cpy_sample = sample_num - cpy_sample;
-	dst = &rb->buf[0];
-	for (int i = 0; i < cpy_sample; i++) {
-		for (int j = 0; j < rb->ch_valid; j++) {
-			*dst = *buf;
-			dst++;
-			buf++;
+		rb->prod_idx += cpy_sample * rb->ch_valid;
+		if (rb->prod_idx == rb->size) {
+			rb->prod_idx = 0;
 		}
-		buf += rb->ch_skip;
-	}
-	rb->prod_idx = len;
+		sample_num -= cpy_sample;
+		if (sample_num == 0) {
+			return 0;
+		}
+		cpy_sample = sample_num;
+	} while (1);
 
 	return 0;
 }
@@ -272,6 +267,9 @@ static int ringbuf_get(struct ringbuf *rb, sample_t *buf, size_t sample_num)
 {
 	size_t len = sample_num * rb->ch_valid;
 	size_t rem = rb->size - rb->cons_idx;
+	size_t rem_samples = rem / rb->ch_valid;
+	size_t cpy_samples = MIN(rem_samples, sample_num);
+	sample_t *src;
 
 	if (rb->total < MAX(len, RINGBUF_THR)) {
 		LOG_WRN("rb %p get no mem", rb);
@@ -280,19 +278,28 @@ static int ringbuf_get(struct ringbuf *rb, sample_t *buf, size_t sample_num)
 	LOG_INF("rb %p get samples: %d (%d) (total:%d)", rb, sample_num, len, rb->total);
 	rb->total -= len;
 
-	if (len <= rem) {
-		memcpy(buf, &rb->buf[rb->cons_idx], len * sizeof(sample_t));
-		rb->cons_idx += len;
+	do {
+		src = &rb->buf[rb->cons_idx];
+		for (int i = 0; i < cpy_samples; i++) {
+			for (int j = 0; j < rb->ch_valid; j++) {
+				*buf = *src;
+				buf++;
+				src++;
+			}
+			buf += rb->out_ch_skip;
+		}
+
+		rb->cons_idx += (cpy_samples * rb->ch_valid);
 		if (rb->cons_idx == rb->size) {
 			rb->cons_idx = 0;
 		}
-		return 0;
-	}
 
-	len -= rem;
-	memcpy(buf, &rb->buf[rb->cons_idx], rem * sizeof(sample_t));
-	memcpy(&buf[rem], &rb->buf[0], len * sizeof(sample_t));
-	rb->cons_idx = len;
+		sample_num -= cpy_samples;
+		if (sample_num == 0) {
+			return 0;
+		}
+		cpy_samples = sample_num;
+	} while (1);
 
 	return 0;
 }
@@ -319,16 +326,19 @@ static void context_init(void)
 	int err;
 
 	err = ringbuf_init(&context.to_usb, iso_in_buf, ARRAY_SIZE(iso_in_buf),
-			   ISO_IN_CH_CNT, TDM_CH_CNT - TDM_RX_CH_CNT);
+			   ISO_IN_CH_CNT, TDM_CH_CNT - ISO_IN_CH_CNT, 0);
 	if (err < 0) {
 		LOG_ERR("Wrong ring buffer configuration.");
 	}
 
 	err = ringbuf_init(&context.from_usb, iso_out_buf, ARRAY_SIZE(iso_out_buf),
-			   ISO_OUT_CH_CNT, TDM_CH_CNT - TDM_TX_CH_CNT);
+			   ISO_OUT_CH_CNT, 0, TDM_CH_CNT - ISO_OUT_CH_CNT);
 	if (err < 0) {
 		LOG_ERR("Wrong ring buffer configuration.");
 	}
+
+	memset(tdm_tx_buffers[0], 0, sizeof(tdm_tx_buffers[0]));
+	memset(tdm_tx_buffers[1], 0, sizeof(tdm_tx_buffers[1]));
 
 	/* Initialize context with buffers from RAM3x space. */
 	context.tdm_tx.buf[0] = tdm_tx_buffers[0];
