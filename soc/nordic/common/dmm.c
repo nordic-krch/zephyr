@@ -6,7 +6,7 @@
 #include <string.h>
 #include <zephyr/cache.h>
 #include <zephyr/kernel.h>
-#include <zephyr/sys/sys_heap.h>
+#include <zephyr/sys/bitarray.h>
 #include <zephyr/mem_mgmt/mem_attr.h>
 #include "dmm.h"
 
@@ -26,6 +26,9 @@
 	 .dt_align = DMM_REG_ALIGN_SIZE(node_id),                                                  \
 	 .dt_allc = &_BUILD_LINKER_END_VAR(node_id)},
 
+#define HEAP_NUM_WORDS (CONFIG_DMM_HEAP_CHUNKS / 32)
+BUILD_ASSERT(IS_ALIGNED(CONFIG_DMM_HEAP_CHUNKS, 32));
+
 /* Generate declarations of linker variables used to determine size of preallocated variables
  * stored in memory sections spanning over memory regions.
  * These are used to determine memory left for dynamic bounce buffer allocator to work with.
@@ -42,9 +45,12 @@ struct dmm_region {
 };
 
 struct dmm_heap {
-	struct sys_heap heap;
+	uint32_t mask[HEAP_NUM_WORDS];
+	uintptr_t ptr;
+	uintptr_t ptr_end;
+	size_t blk_size;
 	const struct dmm_region *region;
-	struct k_spinlock lock;
+	sys_bitarray_t bitarray;
 };
 
 static const struct dmm_region dmm_regions[] = {
@@ -54,7 +60,6 @@ static const struct dmm_region dmm_regions[] = {
 struct {
 	struct dmm_heap dmm_heaps[ARRAY_SIZE(dmm_regions)];
 } dmm_heaps_data;
-
 
 static struct dmm_heap *dmm_heap_find(void *region)
 {
@@ -103,37 +108,38 @@ static bool is_user_buffer_correctly_preallocated(void const *user_buffer, size_
 	return false;
 }
 
-static size_t dmm_heap_start_get(struct dmm_heap *dh)
-{
-	return ROUND_UP(dh->region->dt_allc, dh->region->dt_align);
-}
-
-static size_t dmm_heap_size_get(struct dmm_heap *dh)
-{
-	return (dh->region->dt_size - (dmm_heap_start_get(dh) - dh->region->dt_addr));
-}
-
 static void *dmm_buffer_alloc(struct dmm_heap *dh, size_t length)
 {
-	void *ret;
-	k_spinlock_key_t key;
+	size_t num_bits, off;
+	int rv;
+
+	if (dh->ptr == 0) {
+		/* Not initialized. */
+		return NULL;
+	}
 
 	length = ROUND_UP(length, dh->region->dt_align);
+	num_bits = DIV_ROUND_UP(length, dh->blk_size);
 
-	key = k_spin_lock(&dh->lock);
-	ret = sys_heap_aligned_alloc(&dh->heap, dh->region->dt_align, length);
-	k_spin_unlock(&dh->lock, key);
+	rv = sys_bitarray_alloc(&dh->bitarray, num_bits, &off);
+	if (rv < 0) {
+		return NULL;
+	}
 
-	return ret;
+	return (void *)(dh->ptr + dh->blk_size * off);
 }
 
-static void dmm_buffer_free(struct dmm_heap *dh, void *buffer)
+static void dmm_buffer_free(struct dmm_heap *dh, void *buffer, size_t length)
 {
-	k_spinlock_key_t key;
+	size_t num_bits;
+	size_t offset = ((uintptr_t)buffer - dh->ptr) / dh->blk_size;
 
-	key = k_spin_lock(&dh->lock);
-	sys_heap_free(&dh->heap, buffer);
-	k_spin_unlock(&dh->lock, key);
+	length = ROUND_UP(length, dh->region->dt_align);
+	num_bits = DIV_ROUND_UP(length, dh->blk_size);
+	int rv = sys_bitarray_free(&dh->bitarray, num_bits, offset);
+
+	(void)rv;
+	__ASSERT_NO_MSG(rv == 0);
 }
 
 static void dmm_memcpy(void *dst, const void *src, size_t len)
@@ -208,7 +214,7 @@ int dmm_buffer_out_prepare(void *region, void const *user_buffer, size_t user_le
 	return 0;
 }
 
-int dmm_buffer_out_release(void *region, void *buffer_out)
+int dmm_buffer_out_release(void *region, void *buffer_out, size_t alloc_length)
 {
 	struct dmm_heap *dh;
 	uintptr_t addr = (uintptr_t)buffer_out;
@@ -222,9 +228,9 @@ int dmm_buffer_out_release(void *region, void *buffer_out)
 	/* Check if output buffer is contained within memory area
 	 * managed by dynamic memory allocator
 	 */
-	if (is_buffer_within_region(addr, 0, dmm_heap_start_get(dh), dmm_heap_size_get(dh))) {
+	if (is_buffer_within_region(addr, alloc_length, dh->ptr, dh->ptr_end)) {
 		/* If yes, free the buffer */
-		dmm_buffer_free(dh, buffer_out);
+		dmm_buffer_free(dh, buffer_out, alloc_length);
 	}
 	/* If no, no action is needed */
 
@@ -278,7 +284,8 @@ int dmm_buffer_in_prepare(void *region, void *user_buffer, size_t user_length, v
 	return 0;
 }
 
-int dmm_buffer_in_release(void *region, void *user_buffer, size_t user_length, void *buffer_in)
+int dmm_buffer_in_release(void *region, void *user_buffer, size_t user_length, void *buffer_in,
+			  size_t alloc_length)
 {
 	struct dmm_heap *dh;
 	uintptr_t addr = (uintptr_t)buffer_in;
@@ -309,9 +316,9 @@ int dmm_buffer_in_release(void *region, void *user_buffer, size_t user_length, v
 	/* Check if input buffer is contained within memory area
 	 * managed by dynamic memory allocator
 	 */
-	if (is_buffer_within_region(addr, 0, dmm_heap_start_get(dh), dmm_heap_size_get(dh))) {
+	if (is_buffer_within_region(addr, user_length, dh->ptr, dh->ptr_end)) {
 		/* If yes, free the buffer */
-		dmm_buffer_free(dh, buffer_in);
+		dmm_buffer_free(dh, buffer_in, alloc_length);
 	}
 	/* If no, no action is needed */
 
@@ -321,11 +328,20 @@ int dmm_buffer_in_release(void *region, void *user_buffer, size_t user_length, v
 int dmm_init(void)
 {
 	struct dmm_heap *dh;
+	int blk_cnt;
+	int heap_space;
 
 	for (size_t idx = 0; idx < ARRAY_SIZE(dmm_regions); idx++) {
 		dh = &dmm_heaps_data.dmm_heaps[idx];
 		dh->region = &dmm_regions[idx];
-		sys_heap_init(&dh->heap, (void *)dmm_heap_start_get(dh), dmm_heap_size_get(dh));
+		dh->ptr = ROUND_UP(dh->region->dt_allc, dh->region->dt_align);
+		heap_space = dh->region->dt_size - (dh->ptr - dh->region->dt_addr);
+		dh->blk_size = ROUND_UP(heap_space / (32 * HEAP_NUM_WORDS), dh->region->dt_align);
+		blk_cnt = heap_space / dh->blk_size;
+		dh->ptr_end = dh->ptr + blk_cnt * dh->blk_size;
+		dh->bitarray.num_bits = blk_cnt;
+		dh->bitarray.num_bundles = HEAP_NUM_WORDS;
+		dh->bitarray.bundles = dh->mask;
 	}
 
 	return 0;
