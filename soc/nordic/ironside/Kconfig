@@ -69,6 +69,15 @@ config NRF_IRONSIDE_DVFS_SERVICE
 	help
 	  Service used to handle DVFS operating point requests.
 
+config NRF_IRONSIDE_KRCH_SERVICE
+	bool "IronSide KRCH service"
+	depends on SOC_NRF54H20
+	select NRF_IRONSIDE_CALL
+	help
+	  Service used for KRCH register writes during development.
+	  Allows direct writes to PPIB and IPCMAP registers without validation.
+	  This is for development purposes only.
+
 if NRF_IRONSIDE_DVFS_SERVICE
 
 config NRF_IRONSIDE_ABB_STATUSANA_CHECK_MAX_ATTEMPTS
