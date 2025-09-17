@@ -1,0 +1,15 @@
+dut_timer0: &timer00 {
+	status = "reserved";
+};
+
+dut_timer1: &timer20 {
+	status = "reserved";
+};
+
+dut_timer2: &timer10 {
+	status = "reserved";
+};
+
+&comp {
+	status = "reserved";
+};
