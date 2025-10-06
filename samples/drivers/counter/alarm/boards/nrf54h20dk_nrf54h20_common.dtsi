@@ -6,6 +6,10 @@
 	};
 };
 
+ppi_timer: &timer131 {
+	status = "reserved";
+};
+
 &timer130 {
 	status = "okay";
 	prescaler = <4>;

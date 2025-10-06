@@ -454,8 +454,10 @@ static void alarm_irq_handle(const struct device *dev, uint32_t id)
 	}
 }
 
+static NRF_TIMER_Type *const ppi_timer = (NRF_TIMER_Type *)DT_REG_ADDR(DT_NODELABEL(ppi_timer));
 static void irq_handler(const void *arg)
 {
+	nrf_timer_task_trigger(ppi_timer, NRF_TIMER_TASK_CAPTURE1);
 	const struct device *dev = arg;
 
 	top_irq_handle(dev);

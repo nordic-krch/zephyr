@@ -6,6 +6,10 @@
 	};
 };
 
+ppi_timer: &timer20 {
+	status = "reserved";
+};
+
 &timer10 {
 	prescaler = <4>;
 	status = "okay";

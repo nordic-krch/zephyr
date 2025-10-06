@@ -1,3 +1,14 @@
-&rtc0 {
+&timer0 {
 	status = "okay";
+	prescaler = <4>;
+};
+
+/ {
+	chosen {
+		counter = &timer0;
+	};
+};
+
+ppi_timer: &timer1 {
+	status = "reserved";
 };
