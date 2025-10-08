@@ -59,6 +59,7 @@ struct pm_policy_latency_request {
 	/** @endcond */
 };
 
+#define PM_POLICY_EVENT_USE_CYC 1
 /**
  * @brief Event.
  *
@@ -67,7 +68,7 @@ struct pm_policy_latency_request {
 struct pm_policy_event {
 	/** @cond INTERNAL_HIDDEN */
 	sys_snode_t node;
-	int64_t uptime_ticks;
+	int64_t time;
 	/** @endcond */
 };
 
@@ -211,6 +212,8 @@ bool pm_policy_state_any_active(void);
  * @see pm_policy_event_unregister()
  */
 void pm_policy_event_register(struct pm_policy_event *evt, int64_t uptime_ticks);
+void pm_policy_event_register_rel(struct pm_policy_event *evt, uint32_t ticks);
+void pm_policy_event_register_rel_us(struct pm_policy_event *evt, uint32_t us);
 
 /**
  * @brief Update an event.
@@ -224,6 +227,8 @@ void pm_policy_event_register(struct pm_policy_event *evt, int64_t uptime_ticks)
  * @see pm_policy_event_register
  */
 void pm_policy_event_update(struct pm_policy_event *evt, int64_t uptime_ticks);
+void pm_policy_event_update_rel(struct pm_policy_event *evt, uint32_t ticks);
+void pm_policy_event_update_rel_us(struct pm_policy_event *evt, uint32_t us);
 
 /**
  * @brief Unregister an event.
