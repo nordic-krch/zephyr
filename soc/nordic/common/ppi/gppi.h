@@ -49,6 +49,9 @@ static inline uint32_t gppi_get_domain_id(uint32_t addr) {
  * @retval non-negative Configured channel.
  * @retval -EINVAL endpoint does not have channel.
  */
+#ifdef CONFIG_NORDIC_GPPI_PPI
+int gppi_ep_channel(uint32_t ep);
+#else
 static inline int gppi_ep_channel(uint32_t ep)
 {
 	uint32_t sub_pub;
@@ -66,6 +69,7 @@ static inline int gppi_ep_channel(uint32_t ep)
 
 	return (val & BIT(31)) ? (val & 0xFF) : -EINVAL;
 }
+#endif
 
 /** @brief Allocate and setup a connection between two domains.
  *

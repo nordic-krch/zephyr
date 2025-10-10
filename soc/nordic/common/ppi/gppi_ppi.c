@@ -93,31 +93,54 @@ int gppi_ep_attach(gppi_handle_t handle, uint32_t ep)
 #endif
 }
 
-void gppi_ep_clear(uint32_t ep)
+int gppi_ep_channel(uint32_t ep)
 {
 	if (!PPI_EP_IS_EVT(ep)) {
 #ifdef PPI_FEATURE_FORKS_PRESENT
 		for (int i = 0; i < PPI_CH_NUM; i++) {
 			if (nrf_ppi_fork_endpoint_get(NRF_PPI, i) == ep) {
 				nrf_ppi_fork_endpoint_setup(NRF_PPI, (nrf_ppi_channel_t)i, 0);
-				return;
+				return i;
 			}
 		}
 #endif
 		for (int i = 0; i < PPI_CH_NUM; i++) {
 			if (NRF_PPI->CH[i].TEP == ep) {
 				nrf_ppi_task_endpoint_setup(NRF_PPI, (nrf_ppi_channel_t)i, 0);
-				return;
+				return i;
 			}
 		}
 	} else {
 		for (int i = 0; i < PPI_CH_NUM; i++) {
 			if (NRF_PPI->CH[i].EEP == ep) {
 				nrf_ppi_event_endpoint_setup(NRF_PPI, (nrf_ppi_channel_t)i, 0);
-				return;
+				return i;
 			}
 		}
 	}
+
+	return -EINVAL;
+}
+
+void gppi_ep_clear(uint32_t ep)
+{
+	int ch = gppi_ep_channel(ep);
+
+	if (ch < 0) {
+		return;
+	}
+
+	if (PPI_EP_IS_EVT(ep)) {
+		nrf_ppi_event_endpoint_setup(NRF_PPI, (nrf_ppi_channel_t)ch, 0);
+		return;
+	}
+#ifdef PPI_FEATURE_FORKS_PRESENT
+	if (nrf_ppi_fork_endpoint_get(NRF_PPI, ch) == ep) {
+		nrf_ppi_fork_endpoint_setup(NRF_PPI, (nrf_ppi_channel_t)ch, 0);
+		return;
+	}
+#endif
+	nrf_ppi_task_endpoint_setup(NRF_PPI, (nrf_ppi_channel_t)ch, 0);
 }
 
 void gppi_conn_enable(gppi_handle_t handle)
