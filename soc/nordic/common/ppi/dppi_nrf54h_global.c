@@ -8,55 +8,7 @@
 #include <ppi/dppi_nrf54h.h>
 #include "dppi_routes.h"
 
-enum nrf_dppi_node_id {
-	NRF_DPPI_NODE_DPPIC120,
-	NRF_DPPI_NODE_DPPIC130,
-	NRF_DPPI_NODE_DPPIC131,
-	NRF_DPPI_NODE_DPPIC132,
-	NRF_DPPI_NODE_DPPIC133,
-	NRF_DPPI_NODE_DPPIC134,
-	NRF_DPPI_NODE_DPPIC135,
-	NRF_DPPI_NODE_DPPIC136,
-
-	NRF_DPPI_NODE_PPIB130_132,
-	NRF_DPPI_NODE_PPIB130_133,
-	NRF_DPPI_NODE_PPIB130_134,
-	NRF_DPPI_NODE_PPIB130_135,
-
-	NRF_DPPI_NODE_PPIB131_136,
-	NRF_DPPI_NODE_PPIB131_137,
-	NRF_DPPI_NODE_PPIB131_121,
-
-	/* Reversed dir. */
-	NRF_DPPI_NODE_PPIB132_130,
-	NRF_DPPI_NODE_PPIB133_130,
-	NRF_DPPI_NODE_PPIB134_130,
-	NRF_DPPI_NODE_PPIB135_130,
-
-	NRF_DPPI_NODE_PPIB136_131,
-	NRF_DPPI_NODE_PPIB137_131,
-	NRF_DPPI_NODE_PPIB121_131,
-};
-
-static atomic_t channels[] = {
-	[NRF_DPPI_NODE_DPPIC120] = 0xff,
-	[NRF_DPPI_NODE_DPPIC130] = 0xff,
-	[NRF_DPPI_NODE_DPPIC131] = 0xff,
-	[NRF_DPPI_NODE_DPPIC132] = 0xff,
-	[NRF_DPPI_NODE_DPPIC133] = 0xff,
-	[NRF_DPPI_NODE_DPPIC134] = 0xff,
-	[NRF_DPPI_NODE_DPPIC135] = 0xff,
-	[NRF_DPPI_NODE_DPPIC136] = 0xff,
-
-	[NRF_DPPI_NODE_PPIB130_132] = 0xff,
-	[NRF_DPPI_NODE_PPIB130_133] = 0xff,
-	[NRF_DPPI_NODE_PPIB130_134] = 0xff,
-	[NRF_DPPI_NODE_PPIB130_135] = 0xff,
-
-	[NRF_DPPI_NODE_PPIB131_136] = 0xff,
-	[NRF_DPPI_NODE_PPIB131_137] = 0xff,
-	[NRF_DPPI_NODE_PPIB131_121] = 0xff,
-};
+static atomic_t channels[NRF_DPPI_NODES_COUNT];
 
 static atomic_t group_channels[] = {
 	[NRF_DPPI_NODE_DPPIC120] = BIT_MASK(2),
@@ -79,21 +31,21 @@ const struct nrf_dppi_node dppi_nodes[] = {
 	DPPIC_NODE_DEFINE(135, NRF_DPPI_DOMAIN_APB3C),
 	DPPIC_NODE_DEFINE(136, NRF_DPPI_DOMAIN_APB3D),
 
+	PPIB_EXT_NODE_DEFINE(131,121, 131_121, 16, 0),
 	PPIB_EXT_NODE_DEFINE(130,132, 130_132, 0, 0),
 	PPIB_EXT_NODE_DEFINE(130,133, 130_133, 8, 0),
 	PPIB_EXT_NODE_DEFINE(130,134, 130_134, 16, 0),
 	PPIB_EXT_NODE_DEFINE(130,135, 130_135, 24, 0),
 	PPIB_EXT_NODE_DEFINE(131,136, 131_136, 0, 0),
 	PPIB_EXT_NODE_DEFINE(131,137, 131_137, 8, 0),
-	PPIB_EXT_NODE_DEFINE(131,121, 131_121, 16, 0),
 
+	PPIB_EXT_NODE_DEFINE(121,131, 131_121, 0, 16),
 	PPIB_EXT_NODE_DEFINE(132,130, 130_132, 0, 0),
 	PPIB_EXT_NODE_DEFINE(133,130, 130_133, 0, 8),
 	PPIB_EXT_NODE_DEFINE(134,130, 130_134, 0, 16),
 	PPIB_EXT_NODE_DEFINE(135,130, 130_135, 0, 24),
 	PPIB_EXT_NODE_DEFINE(136,131, 131_136, 0, 0),
 	PPIB_EXT_NODE_DEFINE(137,131, 131_137, 0, 8),
-	PPIB_EXT_NODE_DEFINE(121,131, 131_121, 0, 16),
 };
 
 const size_t dppi_nodes_cnt = ARRAY_SIZE(dppi_nodes);
@@ -332,7 +284,7 @@ void gppi_set_group_channel_resource(uint32_t domain_id, uint32_t ch_mask)
 	group_channels[domain_id] = ch_mask;
 }
 
-uint32_t gppi_get_domain_id(uint32_t addr)
+uint32_t nrfx_gppi_get_domain_id(uint32_t addr)
 {
 	uint32_t apb = (addr >> 16) & 0xff;
 	uint32_t domain = (addr >> 24) & 0xf;
@@ -347,3 +299,8 @@ uint32_t gppi_get_domain_id(uint32_t addr)
 	}
 	return apb - 0x98 + NRF_DPPI_DOMAIN_APB38;
 }
+
+nrfx_gppi_t gppi_instance = {
+	.routes = dppi_routes,
+	.route_map = dppi_route_map
+};

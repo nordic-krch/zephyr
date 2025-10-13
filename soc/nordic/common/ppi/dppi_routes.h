@@ -70,7 +70,8 @@ typedef uint32_t nrf_dppi_route_handle_t;
 #define PPIB_NODE_DEFINE(_id1, _id2) \
 [NRF_DPPI_NODE_PPIB##_id1##_##_id2] = { \
 		.type = NRF_DPPI_NODE_BRIDGE, \
-		.name = "ppib" STRINGIFY(_id1) "_" STRINGIFY(_id2), \
+		IF_ENABLED(NRF_DPPI_HAS_NAME, \
+			(.name = "ppib" STRINGIFY(_id1) "_" STRINGIFY(_id2),)) \
 		.bridge = { \
 			.channels = &channels[NRF_DPPI_NODE_PPIB##_id1##_##_id2], \
 			.reg = {NRF_PPIB##_id1, NRF_PPIB##_id2} \

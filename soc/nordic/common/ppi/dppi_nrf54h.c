@@ -126,6 +126,12 @@ static int init_dppi_instance(uint32_t domain_id, uint32_t *ch_mask)
 
 static int init_dppi_resources(void)
 {
+	if (1) {
+		for (int i = 0; i < NRF_DPPI_NODES_COUNT; i++) {
+			gppi_set_channel_resource(i, 0xFF);
+		}
+		return 0;
+	}
 	uint32_t complete_mask = UINT32_MAX;
 	uint32_t mask = 0;
 	int err;

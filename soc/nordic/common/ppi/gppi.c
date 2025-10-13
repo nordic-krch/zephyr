@@ -137,15 +137,6 @@ BUILD_ASSERT(DPPI_TOTAL_BITS == 32);
  *
  * sec bit indicates whether handle is managed by SDFW
  */
-#if defined(CONFIG_NORDIC_DPPI_MULTI_DOMAIN)
-extern const struct nrf_dppi_route dppi_routes[];
-extern const struct nrf_dppi_route **dppi_route_map[];
-#else
-static atomic_t ch_mask =
-	COND_CODE_1(IS_EQ(DPPIC_CH_NUM, 32), (0xFFFFFFFF), (BIT_MASK(DPPIC_CH_NUM))) &
-	~BIT_MASK(NRFX_DPPI0_CHANNELS_USED);
-static atomic_t group_mask = BIT_MASK(DPPIC_GROUP_NUM) & ~BIT_MASK(NRFX_DPPI0_GROUPS_USED);
-#endif /* CONFIG_NORDIC_DPPI_MULTI_DOMAIN */
 
 static int alloc_bit_locked(atomic_t *mask)
 {
@@ -158,7 +149,7 @@ static int alloc_bit_locked(atomic_t *mask)
 
 #if defined(CONFIG_NORDIC_DPPI_MULTI_DOMAIN)
 
-uint32_t gppi_group_domain_id(gppi_group_handle_t handle)
+uint32_t nrfx_gppi_group_domain_id(gppi_group_handle_t handle)
 {
 	return GHANDLE_GET_DOMAIN(handle);
 }
@@ -262,7 +253,7 @@ __weak int nrf_ppib_write(volatile uint32_t *addr, uint32_t val)
 	return 0;
 }
 
-int gppi_domain_conn_alloc(uint32_t src_d, uint32_t dst_d, gppi_handle_t *handle)
+int nrfx_gppi_domain_conn_alloc(nrfx_gppi_t *gppi, uint32_t src_d, uint32_t dst_d, gppi_handle_t *handle)
 {
 	uint8_t channels[DPPI_CH_MAX_CNT];
 	const struct nrf_dppi_route *route;
@@ -271,14 +262,14 @@ int gppi_domain_conn_alloc(uint32_t src_d, uint32_t dst_d, gppi_handle_t *handle
 	uint8_t route_idx;
 	bool rev;
 
-	route = dppi_route_map[src_d][dst_d];
+	route = gppi->route_map[src_d][dst_d];
 	/* Return is allocation failed. */
 	rv = alloc_channels(channels, route);
 	if (rv < 0) {
 		return rv;
 	}
 
-	route_idx = ((uintptr_t)route - (uintptr_t)dppi_routes) / sizeof(struct nrf_dppi_route);
+	route_idx = ((uintptr_t)route - (uintptr_t)gppi->routes) / sizeof(struct nrf_dppi_route);
 	rev = (route->first_domain != src_d);
 	LOG_INF("connect source:%d with dest:%d", src_d, dst_d);
 	LOG_INF("alloc, source domain:%d destination domain:%d, route:%s (idx: %d len:%d) %s",
@@ -331,10 +322,10 @@ int gppi_domain_conn_alloc(uint32_t src_d, uint32_t dst_d, gppi_handle_t *handle
 	return 0;
 }
 
-void gppi_domain_conn_free(gppi_handle_t handle)
+void nrfx_gppi_domain_conn_free(nrfx_gppi_t *gppi, gppi_handle_t handle)
 {
 	uint32_t route_id = HANDLE_GET_ROUTE_ID(handle);
-	const struct nrf_dppi_route *route = &dppi_routes[route_id];
+	const struct nrf_dppi_route *route = &gppi->routes[route_id];
 	bool rev = HANDLE_IS_REVERSED(handle);
 
 	LOG_INF("Freeing connection handle:%08x (route %d)", handle, route_id);
@@ -365,12 +356,13 @@ void gppi_domain_conn_free(gppi_handle_t handle)
 	}
 }
 #else
-int nrf_dppi_domain_conn_alloc(uint32_t producer, uint32_t consumer, gppi_handle_t *handle)
+int nrfx_gppi_domain_conn_alloc(nrfx_gppi_t *gppi, uint32_t producer, uint32_t consumer,
+			   gppi_handle_t *handle)
 {
 	ARG_UNUSED(producer);
 	ARG_UNUSED(consumer);
 	int key = irq_lock();
-	int rv = alloc_bit_locked(&ch_mask);
+	int rv = alloc_bit_locked(&gppi->ch_mask);
 
 	irq_unlock(key);
 	if (rv < 0) {
@@ -381,41 +373,42 @@ int nrf_dppi_domain_conn_alloc(uint32_t producer, uint32_t consumer, gppi_handle
 	return 0;
 }
 
-void nrf_dppi_domain_conn_free(gppi_handle_t handle)
+void nrfx_gppi_domain_conn_free(nrfx_gppi_t *gppi, gppi_handle_t handle)
 {
-	atomic_or(&ch_mask, (uint32_t)handle);
+	atomic_or(&gppi->ch_mask, (uint32_t)handle);
 }
 #endif /* CONFIG_NORDIC_DPPI_MULTI_DOMAIN  */
 
-static NRF_DPPIC_Type *dppi_reg_get(uint32_t domain_id)
+static NRF_DPPIC_Type *dppi_reg_get(nrfx_gppi_t *gppi, uint32_t domain_id)
 {
 #if defined(CONFIG_NORDIC_DPPI_MULTI_DOMAIN)
-	return dppi_routes[domain_id].nodes[0]->domain.reg;
+	return gppi->routes[domain_id].nodes[0]->domain.reg;
 #else
+	ARG_UNUSED(gppi);
 	return NRF_DPPIC;
 #endif
 }
 
-static atomic_t *get_group_chan_mask(uint32_t domain)
+static atomic_t *get_group_chan_mask(nrfx_gppi_t *gppi, uint32_t domain)
 {
 #if defined(CONFIG_NORDIC_DPPI_MULTI_DOMAIN)
-	return dppi_routes[domain].nodes[0]->domain.group_channels;
+	return gppi->routes[domain].nodes[0]->domain.group_channels;
 #else
-	return &group_mask;
+	return &gppi->group_mask;
 #endif
 }
 
 #if defined(CONFIG_SOC_NRF54H20)
-#define FOR_EACH_DPPI(_handle, _ch, _reg, _d_id)						\
+#define FOR_EACH_DPPI(_gppi, _handle, _ch, _reg, _d_id)						\
 	uint32_t cnt = HANDLE_GET_DPPI_CNT(_handle);						\
 	size_t i;										\
 	_ch = HANDLE_GET_CHAN(_handle, 0);							\
-	for (i = 0, _d_id = HANDLE_GET_DPPI_ID(_handle, 0),_reg = dppi_reg_get(d_id);		\
+	for (i = 0, _d_id = HANDLE_GET_DPPI_ID(_handle, 0),_reg = dppi_reg_get(_gppi, d_id);	\
 	     i < cnt;										\
-	     i++, _d_id = HANDLE_GET_DPPI_ID(_handle, i), _reg = dppi_reg_get(_d_id))
+	     i++, _d_id = HANDLE_GET_DPPI_ID(_handle, i), _reg = dppi_reg_get(_gppi, _d_id))
 #elif defined(CONFIG_NORDIC_DPPI_MULTI_DOMAIN)
-#define FOR_EACH_DPPI(_handle, _ch, _reg, _d_id)						\
-	const struct nrf_dppi_route *_route = &dppi_routes[HANDLE_GET_ROUTE_ID(_handle)];	\
+#define FOR_EACH_DPPI(_gppi, _handle, _ch, _reg, _d_id)						\
+	const struct nrf_dppi_route *_route = &_gppi->routes[HANDLE_GET_ROUTE_ID(_handle)];	\
 	size_t i;										\
 	for (i = 0, _ch = HANDLE_GET_CHAN(_handle, i), _d_id = _route->nodes[i]->domain_id,	\
 			_reg = _route->nodes[i]->domain.reg;					\
@@ -423,58 +416,58 @@ static atomic_t *get_group_chan_mask(uint32_t domain)
 	     i += 2, _ch = HANDLE_GET_CHAN(_handle, i), _d_id = _route->nodes[i]->domain_id,	\
 	     _reg = _route->nodes[i]->domain.reg)
 #else
-#define FOR_EACH_DPPI(_handle, _ch, _reg, _d_id)						\
+#define FOR_EACH_DPPI(_gppi, _handle, _ch, _reg, _d_id)						\
 	_reg = NRF_DPPIC;									\
 	_d_id = 0;										\
 	(void)_reg;										\
 	_ch = _handle;
 #endif
 
-void gppi_conn_enable(gppi_handle_t handle)
+void nrfx_gppi_conn_enable(nrfx_gppi_t *gppi, gppi_handle_t handle)
 {
 	NRF_DPPIC_Type *reg;
 	uint32_t ch;
 	uint32_t d_id;
 
-	FOR_EACH_DPPI(handle, ch, reg, d_id) {
+	FOR_EACH_DPPI(gppi, handle, ch, reg, d_id) {
 		nrf_dppi_channels_enable(reg, BIT(ch));
 	}
 }
 
-void gppi_conn_disable(gppi_handle_t handle)
+void nrfx_gppi_conn_disable(nrfx_gppi_t *gppi, gppi_handle_t handle)
 {
 	NRF_DPPIC_Type *reg;
 	uint32_t ch;
 	uint32_t d_id;
 
-	FOR_EACH_DPPI(handle, ch, reg, d_id) {
+	FOR_EACH_DPPI(gppi, handle, ch, reg, d_id) {
 		nrf_dppi_channels_disable(reg, BIT(ch));
 	}
 }
 
-void gppi_chan_enable(uint32_t domain_id, uint32_t ch)
+void nrfx_gppi_chan_enable(nrfx_gppi_t *gppi, uint32_t domain_id, uint32_t ch)
 {
-	nrf_dppi_channels_enable(dppi_reg_get(domain_id), BIT(ch));
+	nrf_dppi_channels_enable(dppi_reg_get(gppi, domain_id), BIT(ch));
 }
 
-void gppi_chan_disable(uint32_t domain_id, uint32_t ch)
+void nrfx_gppi_chan_disable(nrfx_gppi_t *gppi, uint32_t domain_id, uint32_t ch)
 {
-	nrf_dppi_channels_disable(dppi_reg_get(domain_id), BIT(ch));
+	nrf_dppi_channels_disable(dppi_reg_get(gppi, domain_id), BIT(ch));
 }
 
-void gppi_ep_clear(uint32_t ep)
+void nrfx_gppi_ep_clear(uint32_t ep)
 {
 	NRF_DPPI_ENDPOINT_CLEAR(ep);
 }
 
-int gppi_ep_attach(gppi_handle_t handle, uint32_t ep)
+int nrfx_gppi_ep_attach(nrfx_gppi_t *gppi, gppi_handle_t handle, uint32_t ep)
 {
 	NRF_DPPIC_Type *reg;
 	uint32_t d_id;
 	uint32_t ch;
 	uint32_t ep_d_id = gppi_get_domain_id(ep);
 
-	FOR_EACH_DPPI(handle, ch, reg, d_id) {
+	FOR_EACH_DPPI(gppi, handle, ch, reg, d_id) {
 		if (d_id == ep_d_id) {
 			NRF_DPPI_ENDPOINT_SETUP(ep, ch);
 			return 0;
@@ -484,11 +477,11 @@ int gppi_ep_attach(gppi_handle_t handle, uint32_t ep)
 	return -EINVAL;
 }
 
-int gppi_group_alloc(uint32_t *ep, size_t ep_cnt, gppi_group_handle_t *handle)
+int nrfx_gppi_group_alloc(nrfx_gppi_t *gppi, uint32_t *ep, size_t ep_cnt, nrfx_gppi_group_handle_t *handle)
 {
 	uint32_t domain_id = gppi_get_domain_id(ep[0]);
-	NRF_DPPIC_Type * reg = dppi_reg_get(domain_id);
-	atomic_t *group_mask = get_group_chan_mask(domain_id);
+	NRF_DPPIC_Type * reg = dppi_reg_get(gppi, domain_id);
+	atomic_t *group_mask = get_group_chan_mask(gppi, domain_id);
 	uint32_t gch;
 	uint32_t chan_mask = 0;
 	int key;
@@ -527,60 +520,60 @@ int gppi_group_alloc(uint32_t *ep, size_t ep_cnt, gppi_group_handle_t *handle)
 	return 0;
 }
 
-void gppi_group_free(gppi_group_handle_t handle)
+void nrfx_gppi_group_free(nrfx_gppi_t *gppi, gppi_group_handle_t handle)
 {
 	uint32_t domain_id = GHANDLE_GET_DOMAIN(handle);
 	uint32_t ch = GHANDLE_GET_CHAN(handle);
-	atomic_t *group_mask = get_group_chan_mask(domain_id);
-	NRF_DPPIC_Type *reg = dppi_reg_get(domain_id);
+	atomic_t *group_mask = get_group_chan_mask(gppi, domain_id);
+	NRF_DPPIC_Type *reg = dppi_reg_get(gppi, domain_id);
 
 	nrf_dppi_group_clear(reg, ch);
 	atomic_or(group_mask, BIT(ch));
 }
 
-void gppi_group_ch_add(gppi_group_handle_t handle, uint32_t ch)
+void nrfx_gppi_group_ch_add(nrfx_gppi_t *gppi, gppi_group_handle_t handle, uint32_t ch)
 {
-	NRF_DPPIC_Type *reg = dppi_reg_get(GHANDLE_GET_DOMAIN(handle));
+	NRF_DPPIC_Type *reg = dppi_reg_get(gppi, GHANDLE_GET_DOMAIN(handle));
 	uint32_t group = GHANDLE_GET_CHAN(handle);
 
 	nrf_dppi_channels_include_in_group(reg, BIT(ch), group);
 }
 
-void nrf_dppi_group_ch_remove(gppi_group_handle_t handle, uint32_t ch)
+void nrfx_nrf_dppi_group_ch_remove(nrfx_gppi_t *gppi, gppi_group_handle_t handle, uint32_t ch)
 {
-	NRF_DPPIC_Type *reg = dppi_reg_get(GHANDLE_GET_DOMAIN(handle));
+	NRF_DPPIC_Type *reg = dppi_reg_get(gppi, GHANDLE_GET_DOMAIN(handle));
 	uint32_t group = GHANDLE_GET_CHAN(handle);
 
 	nrf_dppi_channels_remove_from_group(reg, BIT(ch), group);
 }
 
-void gppi_group_en(gppi_group_handle_t handle)
+void nrfx_gppi_group_en(nrfx_gppi_t *gppi, gppi_group_handle_t handle)
 {
-	NRF_DPPIC_Type *reg = dppi_reg_get(GHANDLE_GET_DOMAIN(handle));
+	NRF_DPPIC_Type *reg = dppi_reg_get(gppi, GHANDLE_GET_DOMAIN(handle));
 	uint32_t group = GHANDLE_GET_CHAN(handle);
 
 	nrf_dppi_group_enable(reg, group);
 }
 
-void gppi_group_dis(gppi_group_handle_t handle)
+void nrfx_gppi_group_dis(nrfx_gppi_t *gppi, gppi_group_handle_t handle)
 {
-	NRF_DPPIC_Type *reg = dppi_reg_get(GHANDLE_GET_DOMAIN(handle));
+	NRF_DPPIC_Type *reg = dppi_reg_get(gppi, GHANDLE_GET_DOMAIN(handle));
 	uint32_t group = GHANDLE_GET_CHAN(handle);
 
 	nrf_dppi_group_disable(reg, group);
 }
 
-uint32_t gppi_group_task_en_addr(gppi_group_handle_t handle)
+uint32_t nrfx_gppi_group_task_en_addr(nrfx_gppi_t *gppi, gppi_group_handle_t handle)
 {
-	NRF_DPPIC_Type *reg = dppi_reg_get(GHANDLE_GET_DOMAIN(handle));
+	NRF_DPPIC_Type *reg = dppi_reg_get(gppi, GHANDLE_GET_DOMAIN(handle));
 	uint32_t group = GHANDLE_GET_CHAN(handle);
 
 	return nrf_dppi_task_address_get(reg, nrf_dppi_group_enable_task_get(group));
 }
 
-uint32_t gppi_group_task_dis_addr(gppi_group_handle_t handle)
+uint32_t nrfx_gppi_group_task_dis_addr(nrfx_gppi_t *gppi, gppi_group_handle_t handle)
 {
-	NRF_DPPIC_Type *reg = dppi_reg_get(GHANDLE_GET_DOMAIN(handle));
+	NRF_DPPIC_Type *reg = dppi_reg_get(gppi, GHANDLE_GET_DOMAIN(handle));
 	uint32_t group = GHANDLE_GET_CHAN(handle);
 
 	return nrf_dppi_task_address_get(reg, nrf_dppi_group_disable_task_get(group));

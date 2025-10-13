@@ -117,7 +117,12 @@ const struct nrf_dppi_route **dppi_route_map[] = {
 	mcu_routes, rad_routes, peri_routes, lp_routes
 };
 
-uint32_t gppi_get_domain_id(uint32_t addr)
+uint32_t nrfx_gppi_get_domain_id(uint32_t addr)
 {
 	return ((addr >> 18) & 0x7) - 1;
 }
+
+nrfx_gppi_t gppi_instance = {
+	.routes = dppi_routes,
+	.route_map = dppi_route_map
+};

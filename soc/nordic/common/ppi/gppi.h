@@ -8,11 +8,13 @@
 #define SOC_NORDIC_COMMON_PPI_GPPI_H_
 
 #include <nrf.h>
+#include <ppi/nrfx_gppi.h>
 #include <zephyr/kernel.h>
 
-typedef uint32_t gppi_handle_t;
-typedef uint32_t gppi_group_handle_t;
+typedef nrfx_gppi_handle_t gppi_handle_t;
+typedef nrfx_gppi_group_handle_t gppi_group_handle_t;
 
+extern nrfx_gppi_t gppi_instance;
 
 /** @brief Get the domain ID from the group handle.
  *
@@ -20,14 +22,10 @@ typedef uint32_t gppi_group_handle_t;
  *
  * @return Domain ID.
  */
-#ifdef CONFIG_NORDIC_DPPI_MULTI_DOMAIN
-uint32_t gppi_group_domain_id(gppi_group_handle_t handle);
-#else
 static inline uint32_t gppi_group_domain_id(gppi_group_handle_t handle)
 {
-	return 0;
+	return nrfx_gppi_group_domain_id(handle);
 }
-#endif
 
 /** @brief Get the domain ID from the peripheral register address.
  *
@@ -35,13 +33,9 @@ static inline uint32_t gppi_group_domain_id(gppi_group_handle_t handle)
  *
  * @return Domain ID.
  */
-#ifdef CONFIG_NORDIC_DPPI_MULTI_DOMAIN
-uint32_t gppi_get_domain_id(uint32_t addr);
-#else
 static inline uint32_t gppi_get_domain_id(uint32_t addr) {
-	return 0;
+	return nrfx_gppi_get_domain_id(addr);
 }
-#endif
 
 /** @brief Get the channel that is used for an endpoint.
  *
@@ -49,38 +43,24 @@ static inline uint32_t gppi_get_domain_id(uint32_t addr) {
  * @retval non-negative Configured channel.
  * @retval -EINVAL endpoint does not have channel.
  */
-#ifdef CONFIG_NORDIC_GPPI_PPI
-int gppi_ep_channel(uint32_t ep);
-#else
 static inline int gppi_ep_channel(uint32_t ep)
 {
-	uint32_t sub_pub;
-#if defined(NRF_RADIO) && defined(RADIO_SUBSCRIBE_TXEN_ResetValue)
-	if ((NRFX_OFFSETOF(NRF_RADIO_Type, SUBSCRIBE_TXEN) != 0x80) &&
-	    NRFX_IN_RANGE(ep, (uint32_t)NRF_RADIO, (uint32_t)NRF_RADIO + sizeof(NRF_RADIO_Type))) {
-		sub_pub = (ep & BIT(8)) ? ep : (ep + offsetof(NRF_RADIO_Type, SUBSCRIBE_TXEN));
-	} else {
-		sub_pub = ((ep >> 4) & (0xF >= 8)) ? ep : (ep + 0x80);
-	}
-#else
-	sub_pub = ((ep >> 4) & (0xF >= 8)) ? ep : (ep + 0x80);
-#endif
-	uint32_t val = *(volatile uint32_t *)sub_pub;
-
-	return (val & BIT(31)) ? (val & 0xFF) : -EINVAL;
+	return nrfx_gppi_ep_channel(ep);
 }
-#endif
 
 /** @brief Allocate and setup a connection between two domains.
  *
- * @param[in]  producer Domain that will produce (publish) events.
- * @param[in]  consumer Domain that will consume (subsribe to) events.
+ * @param[in]  prod Domain that will produce (publish) events.
+ * @param[in]  cons Domain that will consume (subsribe to) events.
  * @param[out] handle Handle used to control the connection.
  *
  * @retval 0 on successful connection allocation.
  * @retval -ENOMEM if there is not enough resources to allocate the connection.
  */
-int gppi_domain_conn_alloc(uint32_t producer, uint32_t consumer, gppi_handle_t *handle);
+static inline int gppi_domain_conn_alloc(uint32_t prod, uint32_t cons, gppi_handle_t *handle)
+{
+	return nrfx_gppi_domain_conn_alloc(&gppi_instance, prod, cons, handle);
+}
 
 /** @brief Attach an endpoint to the connection.
  *
@@ -93,7 +73,10 @@ int gppi_domain_conn_alloc(uint32_t producer, uint32_t consumer, gppi_handle_t *
  * @retval 0 Endpoint attached.
  * @retval -EINVAL Endpoint does not belong to the route and cannot be attached.
  */
-int gppi_ep_attach(gppi_handle_t handle, uint32_t ep);
+static inline int gppi_ep_attach(gppi_handle_t handle, uint32_t ep)
+{
+	return nrfx_gppi_ep_attach(&gppi_instance, handle, ep);
+}
 
 /** @brief Allocate a connection between Task and Event.
  *
@@ -106,18 +89,7 @@ int gppi_ep_attach(gppi_handle_t handle, uint32_t ep);
  */
 static inline int gppi_conn_alloc(uint32_t eep, uint32_t tep, gppi_handle_t *handle)
 {
-	int ret = gppi_domain_conn_alloc(gppi_get_domain_id(eep),
-					     gppi_get_domain_id(tep),
-					     handle);
-
-	if (ret < 0) {
-		return ret;
-	}
-
-	gppi_ep_attach(*handle, eep);
-	gppi_ep_attach(*handle, tep);
-
-	return 0;
+	return nrfx_gppi_conn_alloc(&gppi_instance, eep, tep, handle);
 }
 
 /** @brief Enable a connection.
@@ -125,19 +97,28 @@ static inline int gppi_conn_alloc(uint32_t eep, uint32_t tep, gppi_handle_t *han
  * @param handle Connection handle.
  * @param enable True to enable all (D)PPI channels in the connection. False to disable all.
  */
-void gppi_conn_enable(gppi_handle_t handle);
+static inline void gppi_conn_enable(gppi_handle_t handle)
+{
+	nrfx_gppi_conn_enable(&gppi_instance, handle);
+}
 
 /** @brief Disable a connection.
  *
  * @param handle Connection handle.
  */
-void gppi_conn_disable(gppi_handle_t handle);
+static inline void gppi_conn_disable(gppi_handle_t handle)
+{
+	nrfx_gppi_conn_disable(&gppi_instance, handle);
+}
 
 /** @brief Enable a channel in the domain.
  *
  * @param handle Connection handle.
  */
-void gppi_chan_enable(uint32_t domain_id, uint32_t ch);
+static inline void gppi_chan_enable(uint32_t domain_id, uint32_t ch)
+{
+	nrfx_gppi_chan_enable(&gppi_instance, domain_id, ch);
+}
 
 /** @brief Enable a channel used by the endpoint.
  *
@@ -148,20 +129,17 @@ void gppi_chan_enable(uint32_t domain_id, uint32_t ch);
  */
 static inline int gppi_ep_enable(uint32_t ep)
 {
-	int ch = gppi_ep_channel(ep);
-
-	if (ch < 0) {
-		return -EINVAL;
-	}
-	gppi_chan_enable(gppi_get_domain_id(ep), ch);
-	return 0;
+	return nrfx_gppi_ep_enable(&gppi_instance, ep);
 }
 
 /** @brief Disable a channel in the domain.
  *
  * @param handle Connection handle.
  */
-void gppi_chan_disable(uint32_t domain_id, uint32_t ch);
+static inline void gppi_chan_disable(uint32_t domain_id, uint32_t ch)
+{
+	nrfx_gppi_chan_disable(&gppi_instance, domain_id, ch);
+}
 
 /** @brief Disable a channel used by the endpoint.
  *
@@ -172,13 +150,7 @@ void gppi_chan_disable(uint32_t domain_id, uint32_t ch);
  */
 static inline int gppi_ep_disable(uint32_t ep)
 {
-	int ch = gppi_ep_channel(ep);
-
-	if (ch < 0) {
-		return -EINVAL;
-	}
-	gppi_chan_disable(gppi_get_domain_id(ep), ch);
-	return 0;
+	return nrfx_gppi_ep_disable(&gppi_instance, ep);
 }
 
 /** @brief Clear and free connection between domains.
@@ -188,7 +160,10 @@ static inline int gppi_ep_disable(uint32_t ep)
  *
  * @param handle Connection handle.
  */
-void gppi_domain_conn_free(gppi_handle_t handle);
+static inline void gppi_domain_conn_free(gppi_handle_t handle)
+{
+	nrfx_gppi_domain_conn_free(&gppi_instance, handle);
+}
 
 /** @brief Clear endpoint.
  *
@@ -196,7 +171,10 @@ void gppi_domain_conn_free(gppi_handle_t handle);
  *
  * @param ep Endpoint.
  */
-void gppi_ep_clear(uint32_t ep);
+static inline void gppi_ep_clear(uint32_t ep)
+{
+	nrfx_gppi_ep_clear(ep);
+}
 
 /** @brief Clear and free the connection.
  *
@@ -207,16 +185,10 @@ void gppi_ep_clear(uint32_t ep);
  * @param tep Task endpoint.
  * @param handle Connection handle.
  */
-#ifdef PPI_PRESENT
-void gppi_conn_free(uint32_t eep, uint32_t tep, gppi_handle_t handle);
-#else
 static inline void gppi_conn_free(uint32_t eep, uint32_t tep, gppi_handle_t handle)
 {
-	gppi_ep_clear(eep);
-	gppi_ep_clear(tep);
-	gppi_domain_conn_free(handle);
+	nrfx_gppi_conn_free(&gppi_instance, eep, tep, handle);
 }
-#endif
 
 /** @brief Allocate group for given endpoints.
  *
@@ -231,21 +203,30 @@ static inline void gppi_conn_free(uint32_t eep, uint32_t tep, gppi_handle_t hand
  * @retval 0 Successful allocation of a group. @p handle can be used.
  * @retval negative Failed to allocate.
  */
-int gppi_group_alloc(uint32_t *ep, size_t ep_cnt, gppi_group_handle_t *handle);
+static inline int gppi_group_alloc(uint32_t *ep, size_t ep_cnt, gppi_group_handle_t *handle)
+{
+	return nrfx_gppi_group_alloc(&gppi_instance, ep, ep_cnt, handle);
+}
 
 /** @brief Add a channel to a group.
  *
  * @param handle Group handle.
  * @param channel Channel.
  */
-void gppi_group_ch_add(gppi_group_handle_t handle, uint32_t channel);
+static inline void gppi_group_ch_add(gppi_group_handle_t handle, uint32_t channel)
+{
+	nrfx_gppi_group_ch_add(&gppi_instance, handle, channel);
+}
 
 /** @brief Remove a channel from a group.
  *
  * @param handle Group handle.
  * @param channel Channel.
  */
-void gppi_group_ch_remove(gppi_group_handle_t handle, uint32_t channel);
+static inline void gppi_group_ch_remove(gppi_group_handle_t handle, uint32_t channel)
+{
+	nrfx_gppi_group_ch_remove(&gppi_instance, handle, channel);
+}
 
 /** @brief Add a configured endpoint to a group.
  *
@@ -260,12 +241,7 @@ void gppi_group_ch_remove(gppi_group_handle_t handle, uint32_t channel);
  */
 static inline int gppi_group_ep_add(gppi_group_handle_t handle, uint32_t ep)
 {
-	if (gppi_group_domain_id(handle) != gppi_get_domain_id(ep)) {
-		return -EINVAL;
-	}
-
-	gppi_group_ch_add(handle, gppi_ep_channel(ep));
-	return 0;
+	return nrfx_gppi_group_ep_add(&gppi_instance, handle, ep);
 }
 
 /** @brief Remove a configured endpoint from a group.
@@ -281,25 +257,26 @@ static inline int gppi_group_ep_add(gppi_group_handle_t handle, uint32_t ep)
  */
 static inline int gppi_group_ep_remove(gppi_group_handle_t handle, uint32_t ep)
 {
-	if (gppi_group_domain_id(handle) != gppi_get_domain_id(ep)) {
-		return -EINVAL;
-	}
-
-	gppi_group_ch_remove(handle, gppi_ep_channel(ep));
-	return 0;
+	return nrfx_gppi_group_ep_remove(&gppi_instance, handle, ep);
 }
 
 /** @brief Enable a group.
  *
  * @param handle Group handle.
  */
-void gppi_group_en(gppi_group_handle_t handle);
+static inline void gppi_group_en(gppi_group_handle_t handle)
+{
+	nrfx_gppi_group_en(&gppi_instance, handle);
+}
 
 /** @brief Disable a group.
  *
  * @param handle Group handle.
  */
-void gppi_group_dis(gppi_group_handle_t handle);
+static inline void gppi_group_dis(gppi_group_handle_t handle)
+{
+	nrfx_gppi_group_dis(&gppi_instance, handle);
+}
 
 /** @brief Get enable group task address.
  *
@@ -307,7 +284,10 @@ void gppi_group_dis(gppi_group_handle_t handle);
  *
  * @retval Address of the task register.
  */
-uint32_t gppi_group_task_en_addr(gppi_group_handle_t handle);
+static inline uint32_t gppi_group_task_en_addr(gppi_group_handle_t handle)
+{
+	return nrfx_gppi_group_task_en_addr(&gppi_instance, handle);
+}
 
 /** @brief Get disable group task address.
  *
@@ -315,12 +295,19 @@ uint32_t gppi_group_task_en_addr(gppi_group_handle_t handle);
  *
  * @retval Address of the task register.
  */
-uint32_t gppi_group_task_dis_addr(gppi_group_handle_t handle);
+static inline uint32_t gppi_group_task_dis_addr(gppi_group_handle_t handle)
+{
+	return nrfx_gppi_group_task_dis_addr(&gppi_instance, handle);
+}
 
 /* Release group.
  *
  * @param handle Group handle.
  */
-void gppi_group_free(gppi_group_handle_t handle);
+static inline void gppi_group_free(gppi_group_handle_t handle)
+{
+	nrfx_gppi_group_free(&gppi_instance, handle);
+}
 
 #endif /* SOC_NORDIC_COMMON_PPI_GPPI_H_ */
+
