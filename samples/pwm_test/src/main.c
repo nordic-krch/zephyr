@@ -12,16 +12,29 @@
 #include <helpers/nrfx_gppi.h>
 #include <haly/nrfy_gpio.h>
 
-#define OUTPUT_PIN DT_GPIO_PIN(DT_ALIAS(led2), gpios)
 
 #ifdef CONFIG_SOC_NRF54H20_CPUAPP
+#define OUTPUT_PIN DT_GPIO_PIN(DT_ALIAS(led2), gpios)
 #define PWM_INSTANCE 130
 #define TIMER_INSTANCE 130
 #define PWM_LABEL pwm130
-#else
+#elif CONFIG_SOC_NRF54L15_CPUAPP
+#define OUTPUT_PIN (32+13)
+#define DEBUG_PIN (32+14)
+#define DEBUG2_PIN (32+12)
 #define PWM_INSTANCE 20
 #define TIMER_INSTANCE 20
+#define DPPI_INSTANCE 20
 #define PWM_LABEL pwm20
+#elif CONFIG_SOC_NRF5340_CPUAPP
+#define OUTPUT_PIN (32+3)
+#define DEBUG_PIN (32+3)
+#define PWM_INSTANCE 0
+#define TIMER_INSTANCE 0
+#define DPPI_INSTANCE 0
+#define PWM_LABEL pwm0
+#else
+#error "Unsupported"
 #endif
 static const nrfx_pwm_t pwm_instance = NRFX_PWM_INSTANCE(PWM_INSTANCE);
 static nrf_pwm_values_common_t pwm_val[] = {0x500, 0x500, 0x500, 0x500, 0x500, 0x500, 0x500, 0x500, 0x500, 0x500};
@@ -88,6 +101,17 @@ static uint32_t timer_init(void)
 	return nrfx_timer_task_address_get(&timer_instance, NRF_TIMER_TASK_COUNT);
 }
 
+#ifdef CONFIG_PPI_TRACE
+#include <debug/ppi_trace.h>
+static void ppi_trace_init(uint32_t ppi_ch)
+{
+	nrfx_dppi_t dppi = NRFX_DPPI_INSTANCE(DPPI_INSTANCE);
+	uint32_t pin = DEBUG_PIN;
+	int err = ppi_trace_dppi_ch_trace(pin, ppi_ch, &dppi);
+	printk("ppi setup:%d\n", err);
+}
+#endif
+
 int main(void)
 {
 	nrfx_err_t nrfx_err;
@@ -112,9 +136,14 @@ int main(void)
 	nrfx_gppi_channel_endpoints_setup(ppi_channel, pwm_event, timer_task);
 	nrfx_gppi_channels_enable(BIT(ppi_channel));
 
+#ifdef CONFIG_PPI_TRACE
+	uint32_t ch = *(uint32_t *)(pwm_event+0x80) & 0xff;
+	ppi_trace_init(ch);
+#endif
 
 	static const nrfx_timer_t timer_instance = NRFX_TIMER_INSTANCE(TIMER_INSTANCE);
 
+	/*nrf_gpio_cfg_output(32+12);*/
     while (1) {
         nrfx_timer_capture(&timer_instance, 0);
         uint32_t before = nrfx_timer_capture_get(&timer_instance, 0);
