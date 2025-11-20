@@ -16,7 +16,6 @@
 #include <zephyr/init.h>
 #include <lib/nrfx_coredep.h>
 #include <zephyr/logging/log.h>
-#include <helpers/nrfx_gppi.h>
 
 #include <cmsis_core.h>
 
