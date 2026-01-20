@@ -208,6 +208,7 @@ int nrf_sys_event_unregister(int handle, bool cancel)
 			nrf_grtc_sys_counter_compare_event_disable(NRF_GRTC, handle);
 		}
 		atomic_or((atomic_t *)&chan_mask, BIT(handle));
+		return rv;
 	}
 
 	LOCKED() {
