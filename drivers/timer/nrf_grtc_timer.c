@@ -84,7 +84,7 @@ static nrfx_grtc_channel_t system_clock_channel_data = {
 	.channel = (uint8_t)-1,
 };
 #if defined(CONFIG_NRF_SYS_EVENT_GRTC_CHAN_CNT) && (CONFIG_NRF_SYS_EVENT_GRTC_CHAN_CNT > 0)
-#define USE_SYS_EVENT 1
+#define USE_SYS_EVENT 0
 #endif
 static int sys_evt_handle = -1;
 

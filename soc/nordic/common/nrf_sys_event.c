@@ -154,7 +154,7 @@ union nrf_sys_evt_us {
 	uint64_t abs;
 };
 
-int event_register(union nrf_sys_evt_us us, bool force, bool abs)
+static int event_register(union nrf_sys_evt_us us, bool force, bool abs)
 {
 	int rv;
 
