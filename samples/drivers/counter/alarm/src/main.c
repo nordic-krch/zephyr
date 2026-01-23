@@ -90,6 +90,9 @@ struct counter_alarm_cfg alarm_cfg;
 #error Unable to find a counter device node in devicetree
 #endif
 
+#include <hal/nrf_rramc.h>
+uint32_t rramc_default;
+
 static void test_counter_interrupt_fn(const struct device *counter_dev,
 				      uint8_t chan_id, uint32_t ticks,
 				      void *user_data)
@@ -99,6 +102,7 @@ static void test_counter_interrupt_fn(const struct device *counter_dev,
 	uint64_t now_usec;
 	int now_sec;
 	int err;
+	NRF_RRAMC->POWER.LOWPOWERCONFIG=rramc_default;
 
 	err = counter_get_value(counter_dev, &now_ticks);
 	if (!counter_is_counting_up(counter_dev)) {
@@ -124,6 +128,8 @@ static void test_counter_interrupt_fn(const struct device *counter_dev,
 					   config->ticks) / USEC_PER_SEC),
 	       config->ticks);
 
+	NRF_RRAMC->POWER.LOWPOWERCONFIG= RRAMC_POWER_LOWPOWERCONFIG_MODE_Standby <<
+					 RRAMC_POWER_LOWPOWERCONFIG_MODE_Pos;;
 	err = counter_set_channel_alarm(counter_dev, ALARM_CHANNEL_ID,
 					user_data);
 	if (err != 0) {
@@ -150,6 +156,9 @@ int main(void)
 	alarm_cfg.callback = test_counter_interrupt_fn;
 	alarm_cfg.user_data = &alarm_cfg;
 
+	rramc_default = NRF_RRAMC->POWER.LOWPOWERCONFIG;
+	NRF_RRAMC->POWER.LOWPOWERCONFIG= RRAMC_POWER_LOWPOWERCONFIG_MODE_Standby <<
+					 RRAMC_POWER_LOWPOWERCONFIG_MODE_Pos;;
 	err = counter_set_channel_alarm(counter_dev, ALARM_CHANNEL_ID,
 					&alarm_cfg);
 	printk("Set alarm in %u sec (%u ticks)\n",
