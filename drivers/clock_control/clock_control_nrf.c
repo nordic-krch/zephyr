@@ -310,12 +310,37 @@ static void lfclk_stop(void)
 #endif
 }
 
+#define HF_RESTART_WORKAROUND 1
+#ifdef HF_RESTART_WORKAROUND
+static uint32_t hf_stop_ts;
+static bool hf_restart_workaround;
+static void hf_restart_timeout(struct k_timer *timer)
+{
+	*(volatile uint32_t *)(0x50120758) = 0;
+	hf_restart_workaround = false;
+}
+K_TIMER_DEFINE(hf_restart_timer, hf_restart_timeout, NULL);
+
+#endif
+
 static void hfclk_start(void)
 {
 	if (IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_SHELL)) {
 		hf_start_tstamp = k_uptime_get();
 	}
 
+#ifdef HF_RESTART_WORKAROUND
+	/* Apply workaround only if clock was just stopped. */
+	if ((sys_clock_cycle_get_32() - hf_stop_ts) < 50) {
+		/* Apply workaround. */
+		hf_restart_workaround = true;
+		*(volatile uint32_t *)(0x50120758) = 0x80000000;
+		while((*(volatile uint32_t*)(0x50120700) == 97 ) ||
+		       (*(volatile uint32_t*)(0x50120700) == 71) ) {
+		}
+		k_timer_start(&hf_restart_timer, K_USEC(35), K_NO_WAIT);
+	}
+#endif
 	nrfx_clock_start(NRF_CLOCK_DOMAIN_HFCLK);
 }
 
@@ -326,6 +351,14 @@ static void hfclk_stop(void)
 	}
 
 	nrfx_clock_stop(NRF_CLOCK_DOMAIN_HFCLK);
+#ifdef HF_RESTART_WORKAROUND
+	if (hf_restart_workaround) {
+		k_timer_stop(&hf_restart_timer);
+		hf_restart_workaround = false;
+		*(volatile uint32_t *)(0x50120758) = 0x0;
+	}
+	hf_stop_ts = sys_clock_cycle_get_32();
+#endif
 }
 
 #if NRF_CLOCK_HAS_HFCLK24M
