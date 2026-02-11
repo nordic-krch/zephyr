@@ -19,7 +19,6 @@ LOG_MODULE_REGISTER(clock_control, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 
 #define DT_DRV_COMPAT nordic_nrf_clock
 
-
 #define CTX_ONOFF		BIT(6)
 #define CTX_API			BIT(7)
 #define CTX_MASK (CTX_ONOFF | CTX_API)
@@ -48,6 +47,14 @@ LOG_MODULE_REGISTER(clock_control, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 #define INF(dev, subsys, ...) CLOCK_LOG(INF, dev, subsys, __VA_ARGS__)
 #define DBG(dev, subsys, ...) CLOCK_LOG(DBG, dev, subsys, __VA_ARGS__)
 
+#if defined(CONFIG_SOC_SERIES_NRF54L)
+#define HF_RESTART_WORKAROUND 1
+#endif
+/* Workaround need to be applied if attempt to start the HF clock happens short after
+ * it was turned off, sooner than the defined threshold (in microseconds).
+ */
+#define HF_RESTART_THRESHOLD_US 50
+
 /* Clock subsys structure */
 struct nrf_clock_control_sub_data {
 	clock_control_cb_t cb;
@@ -75,6 +82,11 @@ struct nrf_clock_control_config {
 	struct nrf_clock_control_sub_config
 					subsys[CLOCK_CONTROL_NRF_TYPE_COUNT];
 };
+
+/* Variables used for the workaround for missing event after HF clock restart on nRF54L */
+static uint32_t hf_stop_ts;
+static bool hf_restart_workaround;
+static struct k_timer hf_restart_timer;
 
 static atomic_t hfclk_users;
 static uint64_t hf_start_tstamp;
@@ -310,10 +322,28 @@ static void lfclk_stop(void)
 #endif
 }
 
+static void hf_restart_timeout(struct k_timer *timer)
+{
+	*(volatile uint32_t *)(0x50120758) = 0;
+	hf_restart_workaround = false;
+}
+
 static void hfclk_start(void)
 {
 	if (IS_ENABLED(CONFIG_CLOCK_CONTROL_NRF_SHELL)) {
 		hf_start_tstamp = k_uptime_get();
+	}
+
+	/* Apply workaround only if clock was stopped just recently. */
+	if (IS_ENABLED(HF_RESTART_WORKAROUND) &&
+	    ((sys_clock_cycle_get_32() - hf_stop_ts) < HF_RESTART_THRESHOLD_US)) {
+		/* Apply workaround. */
+		hf_restart_workaround = true;
+		*(volatile uint32_t *)(0x50120758) = 0x80000000;
+		while((*(volatile uint32_t*)(0x50120700) == 97 ) ||
+		       (*(volatile uint32_t*)(0x50120700) == 71) ) {
+		}
+		k_timer_start(&hf_restart_timer, K_USEC(35), K_NO_WAIT);
 	}
 
 	nrfx_clock_start(NRF_CLOCK_DOMAIN_HFCLK);
@@ -326,6 +356,15 @@ static void hfclk_stop(void)
 	}
 
 	nrfx_clock_stop(NRF_CLOCK_DOMAIN_HFCLK);
+
+	if (IS_ENABLED(HF_RESTART_WORKAROUND)) {
+		if (hf_restart_workaround) {
+			k_timer_stop(&hf_restart_timer);
+			hf_restart_workaround = false;
+			*(volatile uint32_t *)(0x50120758) = 0x0;
+		}
+		hf_stop_ts = sys_clock_cycle_get_32();
+	}
 }
 
 #if NRF_CLOCK_HAS_HFCLK24M
@@ -835,6 +874,10 @@ static int clk_init(const struct device *dev)
 		}
 
 		subdata->flags = CLOCK_CONTROL_STATUS_OFF;
+	}
+
+	if (IS_ENABLED(HF_RESTART_WORKAROUND)) {
+		k_timer_init(&hf_restart_timer, hf_restart_timeout, NULL);
 	}
 
 	return 0;
