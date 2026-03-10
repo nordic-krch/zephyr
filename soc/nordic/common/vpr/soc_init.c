@@ -5,9 +5,15 @@
 
 #include <zephyr/init.h>
 #include <hal/nrf_vpr_csr.h>
+#include <hal/nrf_vpr_csr_vevif.h>
 
 static int vpr_init(void)
 {
+#ifdef CONFIG_SOC_NRF54H20_CPUPPR
+	/* Notify parent core that core is ready and can accept IPC communication. */
+	nrf_vpr_csr_vevif_events_set(BIT(15));
+#endif
+
 	uint32_t sleep_mode;
 
 	if (IS_ENABLED(CONFIG_NORDIC_VPR_DEEPSLEEP)) {
@@ -28,4 +34,4 @@ static int vpr_init(void)
 	return 0;
 }
 
-SYS_INIT(vpr_init, PRE_KERNEL_1, 0);
+SYS_INIT(vpr_init, EARLY, 0);
