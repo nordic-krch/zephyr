@@ -35,12 +35,12 @@ typedef struct {
 	clk_ctrl_func_t stop;  /* Clock stop function */
 } common_clock_config_t;
 
-struct clock_control_nrf_irq_handler {
+struct clock_control_nrfx_irq_handler {
 	void (*handler)(void); /* Clock interrupt handler */
 };
 
-#define CLOCK_CONTROL_NRF_IRQ_HANDLERS_ITERABLE(name, _a)                                          \
-	STRUCT_SECTION_ITERABLE(clock_control_nrf_irq_handler, name) = {                           \
+#define CLOCK_CONTROL_NRFX_IRQ_HANDLERS_ITERABLE(name, _a)                                          \
+	STRUCT_SECTION_ITERABLE(clock_control_nrfx_irq_handler, name) = {                           \
 		.handler = _a,                                                                     \
 	}
 
