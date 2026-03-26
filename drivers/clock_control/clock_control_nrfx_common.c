@@ -30,7 +30,7 @@ void common_irq_handler(void)
 	}
 }
 
-void init(void)
+static int init(const struct device *dev)
 {
 #if NRF_LFRC_HAS_CALIBRATION
 	IRQ_CONNECT(LFRC_IRQn, DT_INST_IRQ(0, priority), nrfx_isr, common_irq_handler, 0);
@@ -39,6 +39,8 @@ void init(void)
 
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority), nrfx_isr, common_irq_handler, 0);
 	irq_enable(DT_INST_IRQN(0));
+
+	return 0;
 }
 
 static int set_off_state(uint32_t *flags, uint32_t ctx)

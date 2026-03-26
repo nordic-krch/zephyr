@@ -334,8 +334,6 @@ static int clk_init(const struct device *dev)
 	static const struct onoff_transitions transitions = {.start = onoff_start,
 							     .stop = onoff_stop};
 
-	common_connect_irq();
-
 	if (nrfx_clock_lfclk_init(clock_event_handler) != 0) {
 		return -EIO;
 	}
