@@ -26,6 +26,19 @@ LOG_MODULE_REGISTER(clock_control_xo, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 #define XO_USER_BT      BIT(0)
 #define XO_USER_GENERIC BIT(1)
 
+#if defined(CONFIG_SOC_SERIES_NRF54L)
+#define HF_RESTART_WORKAROUND 1
+#endif
+/* Workaround need to be applied if attempt to start the HF clock happens short after
+ * it was turned off, sooner than the defined threshold (in microseconds).
+ */
+#define HF_RESTART_THRESHOLD_US 50
+
+/* Variables used for the workaround for missing event after HF clock restart on nRF54L */
+static uint32_t hf_stop_ts;
+static bool hf_restart_workaround;
+static struct k_timer hf_restart_timer;
+
 static atomic_t xo_users;
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION
@@ -100,6 +113,13 @@ SYS_INIT(calibration_init, APPLICATION, 0);
 #endif /* CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION_PERIOD */
 #endif /* CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION */
 
+static void hf_restart_timeout(struct k_timer *timer)
+{
+	ARG_UNUSED(timer);
+	*(volatile uint32_t *)(0x50120758) = 0;
+	hf_restart_workaround = false;
+}
+
 static void clkstarted_event_handle(void)
 {
 	if (COMMON_GET_STATUS(((common_clock_data_t *)CLOCK_DEVICE_XO->data)->flags) ==
@@ -148,10 +168,22 @@ static void generic_xo_start(void)
 		return;
 	}
 
+	/* Apply workaround only if clock was stopped just recently. */
+	if (IS_ENABLED(HF_RESTART_WORKAROUND) &&
+	    ((sys_clock_cycle_get_32() - hf_stop_ts) < HF_RESTART_THRESHOLD_US)) {
+		/* Apply workaround. */
+		hf_restart_workaround = true;
+		*(volatile uint32_t *)(0x50120758) = 0x80000000;
+		while ((*(volatile uint32_t *)(0x50120700) == 97) ||
+		       (*(volatile uint32_t *)(0x50120700) == 71)) {
+		}
+		k_timer_start(&hf_restart_timer, K_USEC(35), K_NO_WAIT);
+	}
+
 	nrfx_clock_xo_start();
 }
 
-static void generic_xo_stop(void)
+static void xo_release_user(uint32_t user_mask)
 {
 	/* It's not enough to use only atomic_and() here for synchronization,
 	 * as the thread could be preempted right after that function but
@@ -161,13 +193,27 @@ static void generic_xo_stop(void)
 	 */
 	unsigned int key = irq_lock();
 
-	xo_users &= ~XO_USER_GENERIC;
-	/* Skip stopping if BT is still requesting the clock. */
-	if (!(xo_users & XO_USER_BT)) {
+	xo_users &= ~user_mask;
+	/* Stop clock when no users left. */
+	if (xo_users == 0) {
 		nrfx_clock_xo_stop();
+
+		if (IS_ENABLED(HF_RESTART_WORKAROUND)) {
+			if (hf_restart_workaround) {
+				k_timer_stop(&hf_restart_timer);
+				hf_restart_workaround = false;
+				*(volatile uint32_t *)(0x50120758) = 0x0;
+			}
+			hf_stop_ts = sys_clock_cycle_get_32();
+		}
 	}
 
 	irq_unlock(key);
+}
+
+static void generic_xo_stop(void)
+{
+	xo_release_user(XO_USER_GENERIC);
 }
 
 static void onoff_start(struct onoff_manager *mgr, onoff_notify_fn notify)
@@ -243,18 +289,7 @@ void z_nrf_clock_bt_ctlr_hf_request(void)
 
 void z_nrf_clock_bt_ctlr_hf_release(void)
 {
-	/* It's not enough to use only atomic_and() here for synchronization,
-	 * see the explanation in generic_hfclk_stop().
-	 */
-	unsigned int key = irq_lock();
-
-	xo_users &= ~XO_USER_BT;
-	/* Skip stopping if generic is still requesting the clock. */
-	if (!(xo_users & XO_USER_GENERIC)) {
-		nrfx_clock_xo_stop();
-	}
-
-	irq_unlock(key);
+	xo_release_user(XO_USER_BT);
 }
 
 #if DT_NODE_EXISTS(DT_NODELABEL(hfxo))
@@ -354,6 +389,10 @@ static int clk_init(const struct device *dev)
 	}
 
 	((common_clock_data_t *)CLOCK_DEVICE_XO->data)->flags = CLOCK_CONTROL_STATUS_OFF;
+
+	if (IS_ENABLED(HF_RESTART_WORKAROUND)) {
+		k_timer_init(&hf_restart_timer, hf_restart_timeout, NULL);
+	}
 
 	return 0;
 }
