@@ -164,7 +164,7 @@ static void lfclk_spinwait(enum nrf_lfclk_start_mode mode)
 			/* Clear pending interrupt, otherwise new clock event
 			 * would not wake up from idle.
 			 */
-			NVIC_ClearPendingIRQ(DT_INST_IRQN(0));
+			common_clear_pending_irq();
 			nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_LFCLKSTART);
 		}
 	}

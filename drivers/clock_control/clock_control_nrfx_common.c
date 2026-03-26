@@ -14,9 +14,7 @@
 #include <nrfx_power.h>
 #endif
 
-#define DT_DRV_COMPAT nordic_nrf_clock
-
-static bool irq_connected;
+#define DT_DRV_COMPAT nordic_nrfx_clock
 
 /* This function should be treated as static.
  * static keyword is not used so that it can be accessed by interrupt oriented tests.
@@ -32,13 +30,8 @@ void common_irq_handler(void)
 	}
 }
 
-void common_connect_irq(void)
+void init(void)
 {
-	if (irq_connected) {
-		return;
-	}
-	irq_connected = true;
-
 #if NRF_LFRC_HAS_CALIBRATION
 	IRQ_CONNECT(LFRC_IRQn, DT_INST_IRQ(0, priority), nrfx_isr, common_irq_handler, 0);
 	irq_enable(LFRC_IRQn);
@@ -156,5 +149,13 @@ void common_clkstarted_handle(const struct device *dev)
 		callback(dev, NULL, ((common_clock_data_t *)dev->data)->user_data);
 	}
 }
+
+void common_clear_pending_irq(void)
+{
+	NVIC_ClearPendingIRQ(DT_INST_IRQN(0));
+}
+
+DEVICE_DT_DEFINE(DT_NODELABEL(nrfx_clock), init, NULL, NULL, NULL, PRE_KERNEL_1,
+		 CONFIG_CLOCK_CONTROL_INIT_PRIORITY, NULL);
 
 #endif /* defined(CONFIG_CLOCK_CONTROL_NRFX_COMMON) && !defined(CONFIG_CLOCK_CONTROL_NRF) */

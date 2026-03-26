@@ -658,20 +658,23 @@
 				status = "disabled";
 			};
 
-			xo: xo@10e000 {
-				compatible = "nordic,nrfx-clock-xo";
+			nrfx_clock: nrfx_clock@10e000 {
+				compatible = "nordic,nrfx-clock";
 				reg = <0x10e000 0x1000>;
 				interrupts = <261 NRF_DEFAULT_IRQ_PRIORITY>;
 				status = "disabled";
-				clock-frequency = <0x1e84800>;
-				#clock-cells = <0>;
-			};
 
-			lfclk: lfclk@10e000 {
-				compatible = "nordic,nrfx-clock-lfclk";
-				reg = <0x10e000 0x1000>;
-				interrupts = <261 NRF_DEFAULT_IRQ_PRIORITY>;
-				status = "disabled";
+				xo: xo {
+					compatible = "nordic,nrfx-clock-xo";
+					status = "disabled";
+					clock-frequency = <0x1e84800>;
+					#clock-cells = <0>;
+				};
+
+				lfclk: lfclk {
+					compatible = "nordic,nrfx-clock-lfclk";
+					status = "disabled";
+				};
 			};
 
 			power: power@10e000 {

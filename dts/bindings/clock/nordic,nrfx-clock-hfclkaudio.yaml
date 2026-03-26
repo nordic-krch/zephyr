@@ -8,11 +8,6 @@ compatible: "nordic,nrfx-clock-hfclkaudio"
 include: base.yaml
 
 properties:
-  reg:
-    required: true
-
-  interrupts:
-    required: true
 
   hfclkaudio-frequency:
     type: int

@@ -44,8 +44,6 @@ struct clock_control_nrfx_irq_handler {
 		.handler = _a,                                                                     \
 	}
 
-void common_connect_irq(void);
-
 void common_set_on_state(uint32_t *flags);
 
 void common_blocking_start_callback(const struct device *dev, clock_control_subsys_t subsys,
@@ -60,6 +58,8 @@ void common_onoff_started_callback(const struct device *dev, clock_control_subsy
 				   void *user_data);
 
 void common_clkstarted_handle(const struct device *dev);
+
+void common_clear_pending_irq(void);
 
 #endif /* !CONFIG_CLOCK_CONTROL_NRF */
 

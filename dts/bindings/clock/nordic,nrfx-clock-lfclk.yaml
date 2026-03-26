@@ -8,11 +8,6 @@ compatible: "nordic,nrfx-clock-lfclk"
 include: base.yaml
 
 properties:
-  reg:
-    required: true
-
-  interrupts:
-    required: true
 
   k32src-frequency:
     type: int

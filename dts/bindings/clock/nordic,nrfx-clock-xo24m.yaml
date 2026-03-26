@@ -6,10 +6,3 @@ description: Nordic nRF XO24M clock control node
 compatible: "nordic,nrfx-clock-xo24m"
 
 include: [base.yaml, fixed-clock.yaml]
-
-properties:
-  reg:
-    required: true
-
-  interrupts:
-    required: true

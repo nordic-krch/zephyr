@@ -1915,9 +1915,15 @@ static int usb_init(void)
 	/* Use CLOCK/POWER priority for compatibility with other series where
 	 * USB events are handled by CLOCK interrupt handler.
 	 */
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 	IRQ_CONNECT(USBREGULATOR_IRQn,
 		    DT_IRQ(DT_INST(0, nordic_nrf_clock), priority),
 		    nrfx_isr, nrfx_usbreg_irq_handler, 0);
+#else
+	IRQ_CONNECT(USBREGULATOR_IRQn,
+		    DT_IRQ(DT_INST(0, nordic_nrfx_clock), priority),
+		    nrfx_isr, nrfx_usbreg_irq_handler, 0);
+#endif
 #endif
 
 	static const nrfx_power_config_t power_config = {

@@ -8,7 +8,8 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(test);
 
-#if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_clock)
+#if (DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_clock) && defined(CONFIG_CLOCK_CONTROL_NRF)) ||          \
+	(DT_HAS_COMPAT_STATUS_OKAY(nordic_nrfx_clock) && !defined(CONFIG_CLOCK_CONTROL_NRF))
 #include "nrf_device_subsys.h"
 #elif DT_HAS_COMPAT_STATUS_OKAY(espressif_esp32_clock)
 #include "esp32_device_subsys.h"
@@ -33,20 +34,27 @@ static void setup_instance(const struct device *dev, clock_control_subsys_t subs
 	k_busy_wait(1000);
 	do {
 		err = clock_control_off(dev, subsys);
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 #if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_clock)
 		if (err == -EPERM) {
-#if defined(CONFIG_CLOCK_CONTROL_NRF)
 			struct onoff_manager *mgr =
 				z_nrf_clock_control_get_onoff(subsys);
 
 			err = onoff_release(mgr);
-#else
-			err = nrf_clock_control_release(dev, NULL);
-#endif
 			if (err >= 0) {
 				break;
 			}
 		}
+#endif
+#else
+#if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrfx_clock)
+		if (err == -EPERM) {
+			err = nrf_clock_control_release(dev, NULL);
+			if (err >= 0) {
+				break;
+			}
+		}
+#endif
 #endif
 	} while (clock_control_get_status(dev, subsys) !=
 			CLOCK_CONTROL_STATUS_OFF);

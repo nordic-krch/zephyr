@@ -6,10 +6,3 @@ description: Nordic nRF HFCLK clock control node
 compatible: "nordic,nrfx-clock-hfclk"
 
 include: base.yaml
-
-properties:
-  reg:
-    required: true
-
-  interrupts:
-    required: true

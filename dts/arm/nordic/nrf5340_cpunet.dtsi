@@ -71,19 +71,23 @@
 			status = "okay";
 		};
 
-		hfclk: hfclk@41005000 {
-			compatible = "nordic,nrfx-clock-hfclk";
+		nrfx_clock: nrfx_clock@41005000 {
+			compatible = "nordic,nrfx-clock";
 			reg = <0x41005000 0x1000>;
 			interrupts = <5 NRF_DEFAULT_IRQ_PRIORITY>;
 			status = "okay";
+
+			hfclk: hfclk {
+				compatible = "nordic,nrfx-clock-hfclk";
+				status = "okay";
+			};
+
+			lfclk: lfclk {
+				compatible = "nordic,nrfx-clock-lfclk";
+				status = "okay";
+			};
 		};
 
-		lfclk: lfclk@41005000 {
-			compatible = "nordic,nrfx-clock-lfclk";
-			reg = <0x41005000 0x1000>;
-			interrupts = <5 NRF_DEFAULT_IRQ_PRIORITY>;
-			status = "okay";
-		};
 
 		power: power@41005000 {
 			compatible = "nordic,nrf-power";

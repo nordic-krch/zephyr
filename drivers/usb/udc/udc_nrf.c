@@ -1704,9 +1704,15 @@ static int udc_nrf_init(const struct device *dev)
 	/* Use CLOCK/POWER priority for compatibility with other series where
 	 * USB events are handled by CLOCK interrupt handler.
 	 */
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 	IRQ_CONNECT(USBREGULATOR_IRQn,
 		    DT_IRQ(DT_INST(0, nordic_nrf_clock), priority),
 		    nrfx_isr, nrfx_usbreg_irq_handler, 0);
+#else
+	IRQ_CONNECT(USBREGULATOR_IRQn,
+		    DT_IRQ(DT_INST(0, nordic_nrfx_clock), priority),
+		    nrfx_isr, nrfx_usbreg_irq_handler, 0);
+#endif
 #endif
 
 	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority),
