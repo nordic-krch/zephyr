@@ -1,0 +1,28 @@
+sample:
+  name: Remote shell test base
+
+common:
+  sysbuild: true
+  tags:
+    - shell
+    - ipc
+  harness: ztest
+
+tests:
+  test.shell.remote_shell:
+    platform_allow:
+      - nrf5340dk/nrf5340/cpuapp
+      - nrf5340bsim/nrf5340/cpuapp
+      - nrf54h20dk/nrf54h20/cpuapp
+      - nrf54l15dk/nrf54l15/cpuapp
+    integration_platforms:
+      - nrf5340bsim/nrf5340/cpuapp
+      - nrf54l15dk/nrf54l15/cpuapp
+  test.shell.remote_shell.no_multithreading:
+    platform_allow:
+      - nrf5340dk/nrf5340/cpuapp
+      - nrf54l15dk/nrf54l15/cpuapp
+    integration_platforms:
+      - nrf54l15dk/nrf54l15/cpuapp
+    extra_args:
+      - remote_CONFIG_MULTITHREADING=n
