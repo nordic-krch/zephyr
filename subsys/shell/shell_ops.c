@@ -531,7 +531,26 @@ void z_shell_vt100_colors_restore(const struct shell *sh,
 	vt100_bgcolor_set(sh, color->bgcol);
 }
 
+void z_shell_cbpprintf(const struct shell *sh, enum shell_vt100_color color, void *package)
+{
+	if (IS_ENABLED(CONFIG_SHELL_VT100_COLORS) &&
+	    z_flag_use_colors_get(sh)	  &&
+	    (color != sh->ctx->vt100_ctx.col.col)) {
+		struct shell_vt100_colors col;
+
+		z_shell_vt100_colors_store(sh, &col);
+		z_shell_vt100_color_set(sh, color);
+
+		z_shell_cbpprintf_fmt(sh->fprintf_ctx, package);
+
+		z_shell_vt100_colors_restore(sh, &col);
+	} else {
+		z_shell_cbpprintf_fmt(sh->fprintf_ctx, package);
+	}
+}
+
 void z_shell_vfprintf(const struct shell *sh, enum shell_vt100_color color,
+
 		      const char *fmt, va_list args)
 {
 	if (IS_ENABLED(CONFIG_SHELL_VT100_COLORS) &&

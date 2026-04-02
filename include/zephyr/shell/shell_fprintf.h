@@ -68,6 +68,7 @@ struct shell_fprintf {
  */
 void z_shell_fprintf_fmt(const struct shell_fprintf *sh_fprintf,
 			 char const *fmt, va_list args);
+void z_shell_cbpprintf_fmt(const struct shell_fprintf *sh_fprintf, void *package);
 
 /**
  * @brief function flushing data stored in io_buffer.

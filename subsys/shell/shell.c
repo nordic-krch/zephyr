@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/shell/shell.h>
+#include <zephyr/shell/shell_remote.h>
 #if defined(CONFIG_SHELL_BACKEND_DUMMY)
 #include <zephyr/shell/shell_dummy.h>
 #endif
@@ -518,9 +519,11 @@ static void partial_autocomplete(const struct shell *sh,
 }
 
 static int exec_cmd(const struct shell *sh, size_t argc, const char **argv,
-		    const struct shell_static_entry *help_entry)
+		    size_t cmd_lvl, const struct shell_static_entry *help_entry)
 {
 	int ret_val = 0;
+	size_t cmd_argc = argc - cmd_lvl;
+	char **cmd_argv = (char **)&argv[cmd_lvl];
 
 	if (sh->ctx->active_cmd.handler == NULL) {
 		if ((help_entry != NULL) && IS_ENABLED(CONFIG_SHELL_HELP)) {
@@ -546,7 +549,7 @@ static int exec_cmd(const struct shell *sh, size_t argc, const char **argv,
 		uint8_t opt8 = sh->ctx->active_cmd.args.optional;
 		uint32_t opt = (opt8 == SHELL_OPT_ARG_CHECK_SKIP) ?
 				UINT16_MAX : opt8;
-		const bool in_range = IN_RANGE(argc, mand, mand + opt);
+		const bool in_range = IN_RANGE(cmd_argc, mand, mand + opt);
 
 		/* Check if argc is within allowed range */
 		ret_val = cmd_precheck(sh, in_range);
@@ -562,8 +565,12 @@ static int exec_cmd(const struct shell *sh, size_t argc, const char **argv,
 		 * shell context to other thread to avoid mutex deadlock.
 		 */
 		z_shell_unlock(sh);
-		ret_val = sh->ctx->active_cmd.handler(sh, argc,
-							 (char **)argv);
+		if (IS_ENABLED(CONFIG_SHELL_REMOTE) &&
+		    (sh->ctx->active_cmd.args.ipc_cmd & SHELL_CMD_FLAG_REMOTE_MASK)) {
+			z_shell_remote_cmd_exec(sh, &sh->ctx->active_cmd, argc, argv, cmd_lvl);
+		} else {
+			ret_val = sh->ctx->active_cmd.handler(sh, cmd_argc, cmd_argv);
+		}
 		/* Bring back mutex to shell thread. */
 		z_shell_lock(sh);
 		z_flag_cmd_ctx_set(sh, false);
@@ -807,8 +814,7 @@ static int execute(const struct shell *sh)
 	}
 
 	/* Executing the deepest found handler. */
-	return exec_cmd(sh, cmd_lvl - cmd_with_handler_lvl,
-			&argv[cmd_with_handler_lvl], &help_entry);
+	return exec_cmd(sh, cmd_lvl, argv, cmd_with_handler_lvl, &help_entry);
 }
 
 static void toggle_logs_output(const struct shell *sh)
@@ -1548,6 +1554,36 @@ const struct shell *shell_backend_get_by_name(const char *backend_name)
 /* This function mustn't be used from shell context to avoid deadlock.
  * However it can be used in shell command handlers.
  */
+void shell_cbpprintf(const struct shell *sh, enum shell_vt100_color color, void *package)
+{
+	__ASSERT_NO_MSG(sh);
+	__ASSERT(!k_is_in_isr(), "Thread context required.");
+	__ASSERT_NO_MSG(sh->ctx);
+	__ASSERT_NO_MSG(z_flag_cmd_ctx_get(sh) ||
+			(k_current_get() != sh->ctx->tid));
+	__ASSERT_NO_MSG(sh->fprintf_ctx);
+
+	/* Sending a message to a non-active shell leads to a dead lock. */
+	if (state_get(sh) != SHELL_STATE_ACTIVE) {
+		z_flag_print_noinit_set(sh, true);
+		return;
+	}
+
+	if (!z_shell_trylock(sh, SHELL_TX_MTX_TIMEOUT)) {
+		return;
+	}
+
+	if (!z_flag_cmd_ctx_get(sh) && !sh->ctx->bypass && z_flag_use_vt100_get(sh)) {
+		z_shell_cmd_line_erase(sh);
+	}
+	z_shell_cbpprintf(sh, color, package);
+	if (!z_flag_cmd_ctx_get(sh) && !sh->ctx->bypass && z_flag_use_vt100_get(sh)) {
+		z_shell_print_prompt_and_cmd(sh);
+	}
+	z_transport_buffer_flush(sh);
+	z_shell_unlock(sh);
+}
+
 void shell_vfprintf(const struct shell *sh, enum shell_vt100_color color,
 		   const char *fmt, va_list args)
 {
@@ -1566,7 +1602,7 @@ void shell_vfprintf(const struct shell *sh, enum shell_vt100_color color,
 	}
 
 	if (!z_shell_trylock(sh, SHELL_TX_MTX_TIMEOUT)) {
-		return;
+		return ;
 	}
 
 	if (!z_flag_cmd_ctx_get(sh) && !sh->ctx->bypass && z_flag_use_vt100_get(sh)) {
@@ -1581,14 +1617,6 @@ void shell_vfprintf(const struct shell *sh, enum shell_vt100_color color,
 	z_shell_unlock(sh);
 }
 
-/* These functions mustn't be used from shell context to avoid deadlock:
- * - shell_fprintf_impl
- * - shell_fprintf_info
- * - shell_fprintf_normal
- * - shell_fprintf_warn
- * - shell_fprintf_error
- * However, they can be used in shell command handlers.
- */
 void shell_fprintf_impl(const struct shell *sh, enum shell_vt100_color color,
 		   const char *fmt, ...)
 {
@@ -1597,101 +1625,6 @@ void shell_fprintf_impl(const struct shell *sh, enum shell_vt100_color color,
 	va_start(args, fmt);
 	shell_vfprintf(sh, color, fmt, args);
 	va_end(args);
-}
-
-void shell_fprintf_info(const struct shell *sh, const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	shell_vfprintf(sh, SHELL_INFO, fmt, args);
-	va_end(args);
-}
-
-void shell_fprintf_normal(const struct shell *sh, const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	shell_vfprintf(sh, SHELL_NORMAL, fmt, args);
-	va_end(args);
-}
-
-void shell_fprintf_warn(const struct shell *sh, const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	shell_vfprintf(sh, SHELL_WARNING, fmt, args);
-	va_end(args);
-}
-
-void shell_fprintf_error(const struct shell *sh, const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	shell_vfprintf(sh, SHELL_ERROR, fmt, args);
-	va_end(args);
-}
-
-void shell_hexdump_line(const struct shell *sh, unsigned int offset,
-			const uint8_t *data, size_t len)
-{
-	__ASSERT_NO_MSG(sh);
-
-	int i;
-
-	shell_fprintf_normal(sh, "%08X: ", offset);
-
-	for (i = 0; i < SHELL_HEXDUMP_BYTES_IN_LINE; i++) {
-		if (i > 0 && !(i % 8)) {
-			shell_fprintf_normal(sh, " ");
-		}
-
-		if (i < len) {
-			shell_fprintf_normal(sh, "%02x ",
-					     data[i] & 0xFF);
-		} else {
-			shell_fprintf_normal(sh, "   ");
-		}
-	}
-
-	shell_fprintf_normal(sh, "|");
-
-	for (i = 0; i < SHELL_HEXDUMP_BYTES_IN_LINE; i++) {
-		if (i > 0 && !(i % 8)) {
-			shell_fprintf_normal(sh, " ");
-		}
-
-		if (i < len) {
-			char c = data[i];
-
-			shell_fprintf_normal(sh, "%c",
-					     isprint((int)c) != 0 ? c : '.');
-		} else {
-			shell_fprintf_normal(sh, " ");
-		}
-	}
-
-	shell_print(sh, "|");
-}
-
-void shell_hexdump(const struct shell *sh, const uint8_t *data, size_t len)
-{
-	__ASSERT_NO_MSG(sh);
-
-	const uint8_t *p = data;
-	size_t line_len;
-
-	while (len) {
-		line_len = MIN(len, SHELL_HEXDUMP_BYTES_IN_LINE);
-
-		shell_hexdump_line(sh, p - data, p, line_len);
-
-		len -= line_len;
-		p += line_len;
-	}
 }
 
 int shell_prompt_change(const struct shell *sh, const char *prompt)
