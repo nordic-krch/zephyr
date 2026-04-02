@@ -45,6 +45,11 @@ zephyr_library_sources_ifdef(CONFIG_NRF53_SYNC_RTC
   ${ZEPHYR_BASE}/soc/nordic/nrf53/sync_rtc.c
   )
 
+# Include shell_remote from real SOC code if enabled
+zephyr_library_sources_ifdef(CONFIG_SHELL_REMOTE
+  ${ZEPHYR_BASE}/soc/nordic/common/shell_remote.c
+  )
+
 target_sources(native_simulator INTERFACE
   common/bsim_args_runner.c
   common/bsim_extra_cpu_if_stubs.c

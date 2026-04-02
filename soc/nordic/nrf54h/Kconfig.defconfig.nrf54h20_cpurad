@@ -20,4 +20,7 @@ config CODE_DATA_RELOCATION
 config NRF_PERIPHCONF_SECTION
 	default y
 
+config SHELL_REMOTE_CLI_EP_NAME
+	default "shell_remote_radio"
+
 endif # SOC_NRF54H20_CPURAD
