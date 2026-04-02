@@ -1,0 +1,25 @@
+sample:
+  name: Remote shell sample
+tests:
+  sample.shell_remote:
+    platform_allow:
+      - nrf54l15dk/nrf54l15/cpuapp
+      - nrf5340dk/nrf5340/cpuapp
+      - nrf5340bsim/nrf5340/cpuapp
+      - nrf54h20dk/nrf54h20/cpuapp
+    integration_platforms:
+      - nrf5340dk/nrf5340/cpuapp
+      - nrf5340bsim/nrf5340/cpuapp
+    tags: ipc
+    sysbuild: true
+  sample.shell_remote.nrf54h:
+    platform_allow:
+      - nrf54h20dk/nrf54h20/cpuapp
+    integration_platforms:
+      - nrf54h20dk/nrf54h20/cpuapp
+    tags: ipc
+    sysbuild: true
+      #extra_args:
+      #- shell_remote_SNIPPET="nordic-ppr;nordic-flpr"
+    required_snippets:
+      - nordic-log-stm
