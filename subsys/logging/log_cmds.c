@@ -10,6 +10,7 @@
 #include <zephyr/logging/log_internal.h>
 #include <zephyr/sys/iterable_sections.h>
 #include <string.h>
+LOG_MODULE_REGISTER(log_cmds);
 
 #define FRONTEND_NAME frontend
 #define FRONTEND_STR STRINGIFY(frontend)
@@ -34,6 +35,20 @@ static const char * const severity_lvls_sorted[] = {
 	"none",
 	"wrn",
 };
+
+static const struct log_backend *get_self_backend(const struct shell *sh)
+{
+	size_t count;
+
+	STRUCT_SECTION_COUNT(log_backend, &count);
+	if (count == 1) {
+		struct log_backend *backend = NULL;
+		STRUCT_SECTION_GET(log_backend, 0, &backend);
+		return backend;
+	}
+
+	return sh->log_backend ? sh->log_backend->backend : NULL;
+}
 
 /**
  * @brief Function for finding backend instance with given name.
@@ -81,6 +96,7 @@ static int shell_backend_cmd_execute(const struct shell *sh,
 	char const *name = argv[-1];
 	size_t slen = sizeof(FRONTEND_STR);
 
+	LOG_WRN("argc:%d argv:%s backend: %s", argc, argv[0], name);
 	if (IS_ENABLED(CONFIG_LOG_FRONTEND) &&
 	    strncmp(name, FRONTEND_STR, slen) == 0) {
 		func(sh, NULL, argc, argv);
@@ -138,11 +154,18 @@ static int log_status(const struct shell *sh,
 static int cmd_log_self_status(const struct shell *sh,
 			       size_t argc, char **argv)
 {
+	const struct log_backend *backend = get_self_backend(sh);
+
 	if (!shell_state_precheck(sh)) {
 		return 0;
 	}
 
-	return log_status(sh, sh->log_backend ? sh->log_backend->backend : NULL, argc, argv);
+	if (backend == NULL) {
+		shell_error(sh, "Shell log backend cannot be used.");
+		return -ENOEXEC;
+	}
+
+	return log_status(sh, backend, argc, argv);
 }
 
 static int cmd_log_backend_status(const struct shell *sh,
@@ -212,6 +235,7 @@ static int severity_level_get(const char *str)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(severity_lvls); i++) {
+
 		if (strncmp(str, severity_lvls[i], 4) == 0) {
 			return i;
 		}
@@ -229,6 +253,7 @@ static int log_enable(const struct shell *sh,
 	severity_level = severity_level_get(argv[1]);
 
 	if (severity_level < 0) {
+
 		shell_error(sh, "Invalid severity: %s", argv[1]);
 		return -ENOEXEC;
 	}
@@ -241,11 +266,18 @@ static int log_enable(const struct shell *sh,
 static int cmd_log_self_enable(const struct shell *sh,
 			       size_t argc, char **argv)
 {
+	const struct log_backend *backend = get_self_backend(sh);
+
 	if (!shell_state_precheck(sh)) {
 		return 0;
 	}
 
-	return log_enable(sh, sh->log_backend ? sh->log_backend->backend : NULL, argc, argv);
+	if (backend == NULL) {
+		shell_error(sh, "Shell log backend cannot be used.");
+		return -ENOEXEC;
+	}
+
+	return log_enable(sh, backend, argc, argv);
 }
 
 static int cmd_log_backend_enable(const struct shell *sh,
@@ -266,11 +298,18 @@ static int log_disable(const struct shell *sh,
 static int cmd_log_self_disable(const struct shell *sh,
 				 size_t argc, char **argv)
 {
+	const struct log_backend *backend = get_self_backend(sh);
+
 	if (!shell_state_precheck(sh)) {
 		return 0;
 	}
 
-	return log_disable(sh, sh->log_backend ? sh->log_backend->backend : NULL, argc, argv);
+	if (backend == NULL) {
+		shell_error(sh, "Shell log backend cannot be used.");
+		return -ENOEXEC;
+	}
+
+	return log_disable(sh, backend, argc, argv);
 }
 
 static int cmd_log_backend_disable(const struct shell *sh,
@@ -322,11 +361,18 @@ static int log_halt(const struct shell *sh,
 static int cmd_log_self_halt(const struct shell *sh,
 			      size_t argc, char **argv)
 {
+	const struct log_backend *backend = get_self_backend(sh);
+
 	if (!shell_state_precheck(sh)) {
 		return 0;
 	}
 
-	return log_halt(sh, sh->log_backend ? sh->log_backend->backend : NULL, argc, argv);
+	if (backend == NULL) {
+		shell_error(sh, "Shell log backend cannot be used.");
+		return -ENOEXEC;
+	}
+
+	return log_halt(sh, backend, argc, argv);
 }
 
 static int cmd_log_backend_halt(const struct shell *sh,
@@ -366,11 +412,18 @@ static int log_go(const struct shell *sh,
 static int cmd_log_self_go(const struct shell *sh,
 			   size_t argc, char **argv)
 {
+	const struct log_backend *backend = get_self_backend(sh);
+
 	if (!shell_state_precheck(sh)) {
 		return 0;
 	}
 
-	return log_go(sh, sh->log_backend ? sh->log_backend->backend : NULL, argc, argv);
+	if (backend == NULL) {
+		shell_error(sh, "Shell log backend cannot be used.");
+		return -ENOEXEC;
+	}
+
+	return log_go(sh, backend, argc, argv);
 }
 
 static int cmd_log_backend_go(const struct shell *sh,
@@ -456,7 +509,6 @@ static void backend_name_get(size_t idx, struct shell_static_entry *entry)
 
 	STRUCT_SECTION_COUNT(log_backend, &section_count);
 
-
 	if (idx < section_count) {
 		struct log_backend *backend = NULL;
 
@@ -470,21 +522,26 @@ static void backend_name_get(size_t idx, struct shell_static_entry *entry)
 
 SHELL_DYNAMIC_CMD_CREATE(dsub_backend_name_dynamic, backend_name_get);
 
+#if	defined(CONFIG_SHELL_LOG_BACKEND) || defined(CONFIG_SHELL_LOG_BACKEND_CUSTOM) || \
+	defined(CONFIG_SHELL_REMOTE_CLI)
+#define SHELL_LOG_BACKEND 1
+#endif
+
 SHELL_STATIC_SUBCMD_SET_CREATE(
 	sub_log_stat,
 	SHELL_CMD(backend, &dsub_backend_name_dynamic, "Logger backends commands.", NULL),
-	SHELL_COND_CMD_ARG(CONFIG_SHELL_LOG_BACKEND, disable, &dsub_module_name,
+	SHELL_COND_CMD_ARG(SHELL_LOG_BACKEND, disable, &dsub_module_name,
 			   "'log disable <module_0> .. <module_n>' disables logs in specified "
 			   "modules (all if no modules specified).",
 			   cmd_log_self_disable, 1, 255),
-	SHELL_COND_CMD_ARG(CONFIG_SHELL_LOG_BACKEND, enable, &dsub_severity_lvl,
+	SHELL_COND_CMD_ARG(SHELL_LOG_BACKEND, enable, &dsub_severity_lvl,
 			   "'log enable <level> <module_0> ...  <module_n>' enables logs up to"
 			   " given level in specified modules (all if no modules specified).",
 			   cmd_log_self_enable, 2, 255),
-	SHELL_COND_CMD(CONFIG_SHELL_LOG_BACKEND, go, NULL, "Resume logging", cmd_log_self_go),
-	SHELL_COND_CMD(CONFIG_SHELL_LOG_BACKEND, halt, NULL, "Halt logging", cmd_log_self_halt),
+	SHELL_COND_CMD(SHELL_LOG_BACKEND, go, NULL, "Resume logging", cmd_log_self_go),
+	SHELL_COND_CMD(SHELL_LOG_BACKEND, halt, NULL, "Halt logging", cmd_log_self_halt),
 	SHELL_CMD_ARG(list_backends, NULL, "Lists logger backends.", cmd_log_backends_list, 1, 0),
-	SHELL_COND_CMD(CONFIG_SHELL_LOG_BACKEND, status, NULL, "Logger status",
+	SHELL_COND_CMD(SHELL_LOG_BACKEND, status, NULL, "Logger status",
 		       cmd_log_self_status),
 	SHELL_COND_CMD(CONFIG_LOG_MODE_DEFERRED, mem, NULL, "Logger memory usage",
 		       cmd_log_mem),
