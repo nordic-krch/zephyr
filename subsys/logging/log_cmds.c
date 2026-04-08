@@ -41,6 +41,10 @@ static const struct log_backend *get_self_backend(const struct shell *sh)
 	size_t count;
 
 	STRUCT_SECTION_COUNT(log_backend, &count);
+	if (count == 0) {
+		return NULL;
+	}
+
 	if (count == 1) {
 		struct log_backend *backend = NULL;
 		STRUCT_SECTION_GET(log_backend, 0, &backend);
@@ -73,6 +77,10 @@ static const struct log_backend *backend_find(char const *name)
 
 static bool shell_state_precheck(const struct shell *sh)
 {
+	if (IS_ENABLED(CONFIG_SHELL_REMOTE_CLI)) {
+		return true;
+	}
+
 	if (sh->log_backend &&
 	    (sh->log_backend->control_block->state == SHELL_LOG_BACKEND_UNINIT)) {
 		shell_error(sh, "Shell log backend not initialized.");
@@ -158,11 +166,6 @@ static int cmd_log_self_status(const struct shell *sh,
 
 	if (!shell_state_precheck(sh)) {
 		return 0;
-	}
-
-	if (backend == NULL) {
-		shell_error(sh, "Shell log backend cannot be used.");
-		return -ENOEXEC;
 	}
 
 	return log_status(sh, backend, argc, argv);
@@ -272,11 +275,6 @@ static int cmd_log_self_enable(const struct shell *sh,
 		return 0;
 	}
 
-	if (backend == NULL) {
-		shell_error(sh, "Shell log backend cannot be used.");
-		return -ENOEXEC;
-	}
-
 	return log_enable(sh, backend, argc, argv);
 }
 
@@ -302,11 +300,6 @@ static int cmd_log_self_disable(const struct shell *sh,
 
 	if (!shell_state_precheck(sh)) {
 		return 0;
-	}
-
-	if (backend == NULL) {
-		shell_error(sh, "Shell log backend cannot be used.");
-		return -ENOEXEC;
 	}
 
 	return log_disable(sh, backend, argc, argv);
@@ -367,11 +360,6 @@ static int cmd_log_self_halt(const struct shell *sh,
 		return 0;
 	}
 
-	if (backend == NULL) {
-		shell_error(sh, "Shell log backend cannot be used.");
-		return -ENOEXEC;
-	}
-
 	return log_halt(sh, backend, argc, argv);
 }
 
@@ -416,11 +404,6 @@ static int cmd_log_self_go(const struct shell *sh,
 
 	if (!shell_state_precheck(sh)) {
 		return 0;
-	}
-
-	if (backend == NULL) {
-		shell_error(sh, "Shell log backend cannot be used.");
-		return -ENOEXEC;
 	}
 
 	return log_go(sh, backend, argc, argv);
