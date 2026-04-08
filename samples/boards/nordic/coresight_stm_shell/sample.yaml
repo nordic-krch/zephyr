@@ -19,6 +19,3 @@ tests:
   sample.boards.nrf.coresight_stm_shell:
     required_snippets:
       - nordic-log-stm
-    extra_args:
-      - SB_CONFIG_APP_CPUPPR_RUN=y
-      - SB_CONFIG_APP_CPUFLPR_RUN=y

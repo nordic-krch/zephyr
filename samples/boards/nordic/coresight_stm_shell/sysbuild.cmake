@@ -9,18 +9,14 @@ ExternalZephyrProject_Add(
 	BOARD ${SB_CONFIG_BOARD}/${SB_CONFIG_SOC}/cpurad
 )
 
-if(SB_CONFIG_APP_CPUPPR_RUN)
-	ExternalZephyrProject_Add(
-		APPLICATION ${REMOTE_APP}_ppr
-		SOURCE_DIR ${APP_DIR}/${REMOTE_APP}
-		BOARD ${SB_CONFIG_BOARD}/${SB_CONFIG_SOC}/cpuppr
-	)
-endif()
+ExternalZephyrProject_Add(
+	APPLICATION ${REMOTE_APP}_ppr
+	SOURCE_DIR ${APP_DIR}/${REMOTE_APP}
+	BOARD ${SB_CONFIG_BOARD}/${SB_CONFIG_SOC}/cpuppr
+)
 
-if(SB_CONFIG_APP_CPUFLPR_RUN)
-	ExternalZephyrProject_Add(
-		APPLICATION ${REMOTE_APP}_flpr
-		SOURCE_DIR ${APP_DIR}/${REMOTE_APP}
-		BOARD ${SB_CONFIG_BOARD}/${SB_CONFIG_SOC}/cpuflpr
-	)
-endif()
+ExternalZephyrProject_Add(
+	APPLICATION ${REMOTE_APP}_flpr
+	SOURCE_DIR ${APP_DIR}/${REMOTE_APP}
+	BOARD ${SB_CONFIG_BOARD}/${SB_CONFIG_SOC}/cpuflpr
+)
