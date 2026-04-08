@@ -95,7 +95,7 @@ static uint32_t *frame_buf = IS_ENABLED(CONFIG_DEBUG_NRF_ETR_DECODE) ?
 				frame_buf_decode : frame_buf0;
 
 K_KERNEL_STACK_DEFINE(etr_stack, CONFIG_DEBUG_NRF_ETR_STACK_SIZE);
-#ifndef CONFIG_NRF_ETR_SHELL
+#ifndef CONFIG_DEBUG_NRF_ETR_SHELL
 static struct k_thread etr_thread;
 #endif
 
@@ -828,7 +828,7 @@ static void tbm_event_handler(nrf_tbm_event_t event)
 	}
 
 #ifdef CONFIG_DEBUG_NRF_ETR_SHELL
-	k_poll_signal_raise(&etr_shell.ctx->signals[SHELL_SIGNAL_LOG_MSG], 0);
+	k_event_post(&etr_shell.ctx->signal_event, SHELL_SIGNAL_LOG_MSG);
 #else
 	k_wakeup(&etr_thread);
 #endif
@@ -864,7 +864,8 @@ int etr_process_init(void)
 		SHELL_DEFAULT_BACKEND_CONFIG_FLAGS;
 
 	shell_init(&etr_shell, NULL, cfg_flags, true, level);
-	k_timer_start(&etr_timer, K_MSEC(CONFIG_DEBUG_NRF_ETR_BACKOFF), K_NO_WAIT);
+	k_timer_start(&etr_timer, K_MSEC(CONFIG_DEBUG_NRF_ETR_BACKOFF),
+			K_MSEC(CONFIG_DEBUG_NRF_ETR_BACKOFF));
 	if (IS_ENABLED(CONFIG_DEBUG_NRF_ETR_DECODE) || IS_ENABLED(CONFIG_DEBUG_NRF_ETR_DEBUG)) {
 		err = decoder_init();
 		if (err < 0) {
@@ -896,10 +897,20 @@ BUILD_ASSERT(CONFIG_NORDIC_VPR_LAUNCHER_INIT_PRIORITY > NRF_ETR_INIT_PRIORITY);
 
 static void etr_timer_handler(struct k_timer *timer)
 {
+	static int count;
+
+	/* Periodically add dummy data to the ETR buffer to ensure that the is
+	 * eventually processed. If the data is not processed, the shell will
+	 * not print the last log.
+	 */
 	if (pending_data() >= MIN_DATA) {
-		k_poll_signal_raise(&etr_shell.ctx->signals[SHELL_SIGNAL_LOG_MSG], 0);
+		k_event_post(&etr_shell.ctx->signal_event, SHELL_SIGNAL_LOG_MSG);
+		count = 0;
+	} else if (count < 10) {
+		count++;
 	} else {
-		k_timer_start(timer, K_MSEC(CONFIG_DEBUG_NRF_ETR_BACKOFF), K_NO_WAIT);
+		count = 0;
+		log_frontend_stmesp_dummy_write();
 	}
 }
 
@@ -908,7 +919,6 @@ bool z_shell_log_backend_process(const struct shell_log_backend *backend)
 	ARG_UNUSED(backend);
 
 	process();
-	k_timer_start(&etr_timer, K_MSEC(CONFIG_DEBUG_NRF_ETR_BACKOFF), K_NO_WAIT);
 
 	return false;
 }
@@ -963,18 +973,18 @@ static int etr_shell_read(const struct shell_transport *transport, void *data, s
 
 	*cnt = blen;
 	if (pending_rx_req && buf_available) {
-		uint8_t *buf = uart_async_rx_buf_req(&async_rx);
-		size_t len = uart_async_rx_get_buf_len(&async_rx);
 		int err;
 
+		buf = uart_async_rx_buf_req(&async_rx);
+		blen = uart_async_rx_get_buf_len(&async_rx);
 		__ASSERT_NO_MSG(buf != NULL);
 		atomic_dec(&pending_rx_req);
-		err = uart_rx_buf_rsp(uart_dev, buf, len);
+		err = uart_rx_buf_rsp(uart_dev, buf, blen);
 		/* If it is too late and RX is disabled then re-enable it. */
 		if (err < 0) {
 			if (err == -EACCES) {
 				pending_rx_req = 0;
-				err = rx_enable(buf, len);
+				err = rx_enable(buf, blen);
 			} else {
 				return err;
 			}
