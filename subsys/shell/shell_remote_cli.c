@@ -159,7 +159,7 @@ static void cmd_get(struct shell_remote_cli *sh_remote,
 		/* Failed to get the command. */
 		return;
 	} else if (strlen(entry->syntax) == 0) {
-		LOG_WRN("Empty syntax, parent:%s, idx:%d", msg->parent->syntax, msg->idx);
+		LOG_DBG("Empty syntax, parent:%s, idx:%d", msg->parent->syntax, msg->idx);
 		cmd_result(&sh_remote->ept, -ENOEXEC);
 		/* Command is empty. */
 		return;
@@ -208,8 +208,8 @@ static void cmd_exec(struct shell_remote_cli *sh_remote,
 	uint16_t args_len = (uint16_t)(len - offsetof(struct shell_remote_msg_exec, data));
 	char *args_buf = __builtin_alloca_with_align(args_len, 8);
 
-	LOG_DBG("Command exec argc:%d, cmd_lvl:%d, data:%s",
-		msg->argc, msg->cmd_lvl, data);
+	LOG_DBG("Command exec argc:%d, cmd_lvl:%d, handler:%p, data:%s",
+		msg->argc, msg->cmd_lvl, msg->handler, data);
 	/* Copy arguments to the stack buffer as shell instance buffer may be used
 	 * for shell printing.
 	 */
@@ -361,7 +361,6 @@ static int shell_remote_cli_init(void)
 		return ret;
 	}
 
-	LOG_INF("ept:%p", &shell_remote.ept);
 	ret = ipc_service_register_endpoint(ipc_instance, &shell_remote.ept, &ep_cfg);
 	if (ret < 0) {
 		LOG_ERR("ipc_service_register_endpoint() failure");
@@ -370,7 +369,6 @@ static int shell_remote_cli_init(void)
 
 #ifdef CONFIG_MULTITHREADING
 	thread_context_init(&shell_remote);
-	LOG_INF("shell sem tak %p", (void *)ep_bound);
 	ret = k_sem_take(&shell_remote.sem, K_MSEC(2000));
 	if (ret < 0) {
 		LOG_ERR("Failed to bound to the IPC endpoint");
@@ -380,7 +378,7 @@ static int shell_remote_cli_init(void)
 	while (shell_remote.bounded == false) {
 	}
 #endif
-	LOG_INF("shell REMOTE communication established.");
+	LOG_DBG("IPC communication established.");
 
 	return 0;
 }

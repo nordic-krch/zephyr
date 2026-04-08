@@ -58,16 +58,14 @@ static void msg_cmd_handle(struct shell_remote_data *shremote,
 	}
 	memcpy(shremote->current_cmd->tmp_buf, msg->data, strings_len);
 	shremote->current_cmd->cmd.syntax = shremote->current_cmd->tmp_buf;
-	LOG_INF("len:%d curr:%p cmd get syntax: %s", strings_len, shremote->current_cmd, shremote->current_cmd->cmd.syntax);
 	if (truncated) {
 		/* Truncate help message */
-		LOG_ERR("truncated");
+		LOG_INF("Truncated help message");
 		memcpy(&shremote->current_cmd->tmp_buf[
 				CONFIG_SHELL_REMOTE_TMP_BUF_SIZE - sizeof(TRUNCATED_MSG)],
 			TRUNCATED_MSG, sizeof(TRUNCATED_MSG));
 	}
 	shremote->current_cmd->cmd.help = &shremote->current_cmd->tmp_buf[syntax_len + 1];
-	LOG_INF("curr:%p", shremote->current_cmd);
 	k_sem_give(&shremote->sem);
 }
 
