@@ -20,9 +20,7 @@ static int cmd_ping(const struct shell *sh, size_t argc, char **argv)
 	LOG_ERR("error %d", 100);
 	LOG_WRN("warning %lld", 0x1234567890LL);
 	LOG_INF("info %s", "test");
-	NRF_P9->OUTSET=BIT(2);
 	LOG_DBG("debug %d %d", 1000, 100);
-	NRF_P9->OUTCLR=BIT(2);
 	shell_print(sh, "pong %s", CONFIG_BOARD_TARGET);
 	return 0;
 }

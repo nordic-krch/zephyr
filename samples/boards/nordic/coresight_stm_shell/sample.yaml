@@ -19,3 +19,9 @@ tests:
   sample.boards.nrf.coresight_stm_shell:
     required_snippets:
       - nordic-log-stm
+    harness: pytest
+    harness_config:
+      pytest_dut_scope: session
+      pytest_root:
+        - "pytest/test_log_filter.py::test_runtime_log_filter_ping"
+    timeout: 120
