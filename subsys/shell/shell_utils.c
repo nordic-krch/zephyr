@@ -306,6 +306,7 @@ const struct shell_static_entry *z_shell_cmd_get(
 
 	if (parent->subcmd) {
 		if (is_dynamic_cmd(parent->subcmd)) {
+			dloc->args.ipc_cmd = 0;
 			parent->subcmd->dynamic_get(idx, dloc);
 			if (dloc->syntax != NULL) {
 				res = dloc;

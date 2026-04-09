@@ -169,7 +169,7 @@ static void cmd_get(struct shell_remote_cli *sh_remote,
 	help_len = entry->help ? strlen(entry->help) : 0;
 	msg_len = offsetof(struct shell_remote_msg_cmd, data) + syntax_len + help_len + 2;
 	LOG_DBG("Command get parent:%s, syntax:%s len:%d, help_len:%d, syntax_len:%d",
-		msg->parent->syntax, entry->syntax, msg_len, help_len, syntax_len);
+		msg->parent ? msg->parent->syntax : "NULL", entry->syntax, msg_len, help_len, syntax_len);
 	rsp_buf = __builtin_alloca_with_align(msg_len, 64);
 
 	rsp = rsp_buf;
