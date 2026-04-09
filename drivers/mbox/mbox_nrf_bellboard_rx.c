@@ -151,9 +151,6 @@ static DEVICE_API(mbox, bellboard_rx_driver_api) = {
 
 static int bellboard_rx_init(const struct device *dev)
 {
-	uint32_t evt_all_mappings =
-		evt_mappings[0] | evt_mappings[1] | evt_mappings[2] | evt_mappings[3];
-
 	ARG_UNUSED(dev);
 
 	nrf_bellboard_int_disable(bellboard, 0, evt_mappings[0]);
