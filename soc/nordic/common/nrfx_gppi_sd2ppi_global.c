@@ -5,6 +5,7 @@
  */
 #include "nrfx_gppi_sd2ppi_global.h"
 #include <ironside/se/api.h>
+#include <zephyr/sys/printk.h>
 
 static nrfx_atomic_t channels[NRFX_GPPI_NODE_COUNT];
 static nrfx_atomic_t group_channels[NRFX_GPPI_NODE_DPPI_COUNT];
@@ -443,7 +444,13 @@ static int actual_channel_mask(nrfx_gppi_node_id_t node_id, uint32_t *ch_mask, b
 		entries_count++;
 		if ((entries_count == ARRAY_SIZE(entries)) || (in_mask == 0)) {
 			/* Read batch of registers. */
+			printk("Periphconf read: ");
+			for (int i = 0; i < entries_count; i++) {
+				printk("reg: %08x, ", entries[i].regptr);
+			}
+			printk("\n");
 			status = ironside_se_periphconf_read(entries, entries_count);
+			printk("Periphconf read result: %d\n", status.status);
 			if (status.status == 0) {
 				for (uint32_t i = 0; i < entries_count; i++) {
 					/* If SPU register has default value assume that channel
