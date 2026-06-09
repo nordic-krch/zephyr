@@ -23,6 +23,10 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(host, LOG_LEVEL_INF);
 
+#if defined(CONFIG_STATS)
+#include "stats_print.h"
+#endif
+
 struct stress_ctx {
 	uint32_t fail_cnt;
 	uint32_t cnt;
@@ -422,4 +426,22 @@ static void after(void *unused)
 	k_msleep(50);
 }
 
-ZTEST_SUITE(ipc_service_benchmark, NULL, setup, NULL, after, NULL);
+static void teardown(void *unused)
+{
+	uint32_t buffer[1];
+	struct data_packet *pkt = (struct data_packet *)buffer;
+	int ret;
+
+	pkt->type = TYPE_SUITE_END;
+
+	ret = ipc_service_send(&tdata[0].ep, buffer, sizeof(buffer));
+	zassert_equal(ret, sizeof(buffer));
+
+	k_msleep(50);
+
+#if defined(CONFIG_STATS)
+	stats_print_all();
+#endif
+}
+
+ZTEST_SUITE(ipc_service_benchmark, NULL, setup, NULL, after, teardown);

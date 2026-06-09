@@ -14,4 +14,8 @@ target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/common)
 
 target_sources(app PRIVATE src/main.c)
 
+if(CONFIG_STATS)
+  target_sources(app PRIVATE common/stats_print.c)
+endif()
+
 include(ExternalProject)

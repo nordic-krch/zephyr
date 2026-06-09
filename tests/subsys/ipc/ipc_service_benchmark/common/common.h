@@ -11,6 +11,7 @@
 #define TYPE_NO_RSP 1
 #define TYPE_TEST_START 2
 #define TYPE_TEST_END 3
+#define TYPE_SUITE_END 4
 
 struct data_packet {
 	uint32_t type;

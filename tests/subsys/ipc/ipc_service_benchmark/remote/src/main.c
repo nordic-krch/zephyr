@@ -11,6 +11,10 @@
 #include <zephyr/logging/log.h>
 #include "common.h"
 
+#if defined(CONFIG_STATS)
+#include "stats_print.h"
+#endif
+
 LOG_MODULE_REGISTER(remote, LOG_LEVEL_DBG);
 
 struct test_data {
@@ -60,7 +64,6 @@ void test_end(struct test_data *tdata, const uint8_t *data, size_t len)
 		printk("CPU load: %d.%d", load / 10, load % 10);
 	}
 	printk("\n");
-
 }
 
 static void ep_recv(const void *data, size_t len, void *priv)
@@ -86,6 +89,11 @@ static void ep_recv(const void *data, size_t len, void *priv)
 		break;
 	case TYPE_TEST_END:
 		test_end(tdata, pkt->data, len - sizeof(pkt->type));
+		break;
+	case TYPE_SUITE_END:
+#if defined(CONFIG_STATS)
+		stats_print_all();
+#endif
 		break;
 	default:
 		break;
