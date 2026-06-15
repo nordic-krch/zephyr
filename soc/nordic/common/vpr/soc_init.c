@@ -28,4 +28,4 @@ static int vpr_init(void)
 	return 0;
 }
 
-SYS_INIT(vpr_init, PRE_KERNEL_1, 0);
+SYS_INIT(vpr_init, EARLY, 0);
