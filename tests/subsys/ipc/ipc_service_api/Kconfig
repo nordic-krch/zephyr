@@ -1,0 +1,30 @@
+# Copyright (c) 2025 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+source "Kconfig.zephyr"
+
+menu "IPC service API test options"
+
+config IPC_SERVICE_API_TEST_DEREGISTER
+	bool "Test ipc_service_deregister_endpoint()"
+	default y if IPC_SERVICE_BACKEND_ICMSG
+	default y if IPC_SERVICE_BACKEND_ICBMSG_DEINIT
+	default y if IPC_SERVICE_BACKEND_RPMSG
+	help
+	  Run the endpoint deregistration test case.
+
+config IPC_SERVICE_API_TEST_CLOSE_BACKEND
+	bool "Test ipc_service_close_instance()"
+	default y if IPC_SERVICE_BACKEND_RPMSG
+	default y if IPC_SERVICE_BACKEND_ICBMSG_DEINIT
+	help
+	  Run the backend close test case.
+
+config IPC_SERVICE_API_TEST_SEND_FROM_ISR
+	bool "Test ipc_service_send_critical() from interrupt context"
+	default y if IPC_SERVICE_BACKEND_ICBMSG_DEINIT
+	help
+	  Run the interrupt-context send test case using
+	  ipc_service_send_critical().
+
+endmenu
