@@ -329,21 +329,85 @@ static struct onoff_manager *get_manager_from_spec(const struct device *dev,
 	}
 }
 
+/* There are two set of onoff_managers, internal clients and counter counting active clients for each.
+ * First manager (lower quality) has start and stop implemented to start and stop xo and completion callback when HFCLKSTARTED event is received.
+ * Second manager (higher quality) has empty start and stop functions and on callback when XO_TUNED event is received.
+ * User always requests one (primary set) and secondary set is handled only if it is the first request or last release.
+*/
+static bool is_hi_precision(const struct nrf_clock_spec *spec)
+{
+	return spec == NULL || spec->precission == NRF_CLOCK_CONTROL_PRECISION_HIGH;
+}
+
 static int api_request(const struct device *dev, const struct nrf_clock_spec *spec,
 		       struct onoff_client *cli)
 {
-	return onoff_request(get_manager_from_spec(dev, spec), cli);
+	common_clock_data_t *common_dev_data = CONTAINER_OF(dev, common_clock_data_t, dev);
+	xo_clock_data_t *xo_dev_data = CONTAINER_OF(common_dev_data, xo_clock_data_t, data);
+	int rv;
+	uint32_t primary, secondary;
+
+	if (is_hi_precision(spec)) {
+		primary = 0;
+		secondary = 1;
+	} else {
+		primary = 1;
+		secondary = 0;
+	}
+
+	if (atomic_inc(&xo_dev_data->active_mgrs[secondary]) == 0) {
+		/* if it is the first hi precision request that request low precision mgr. */
+		sys_notify_init_spinlock(&xo_dev_data->internal_cli[secondary]);
+		/* That will trigger the start of hclk*/
+		rv = onoff_request(&xo_dev_data->mgr[secondary], &xo_dev_data->internal_cli[secondary]);
+		if (rv < 0) {
+			atomic_dec(&xo_dev_data->active_mgrs[secondary]);
+			return rv;
+		}
+	}
+	return onoff_request(&xo_dev_data->mgr[primary], cli);
 }
 
 static int api_release(const struct device *dev, const struct nrf_clock_spec *spec)
 {
-	return onoff_release(get_manager_from_spec(dev, spec));
+	common_clock_data_t *common_dev_data = CONTAINER_OF(dev, common_clock_data_t, dev);
+	xo_clock_data_t *xo_dev_data = CONTAINER_OF(common_dev_data, xo_clock_data_t, data);
+	uint32_t primary, secondary;
+
+	if (is_hi_precision(spec)) {
+		primary = 0;
+		secondary = 1;
+	} else {
+		primary = 1;
+		secondary = 0;
+	}
+
+	if (atomic_dec(&xo_dev_data->active_mgrs[secondary]) == 1) {
+		onoff_release(&xo_dev_data->mgr[secondary]);
+	}
+	return onoff_release(&xo_dev_data->mgr[primary]);
 }
 
 static int api_cancel_or_release(const struct device *dev, const struct nrf_clock_spec *spec,
 				 struct onoff_client *cli)
 {
-	return onoff_cancel_or_release(get_manager_from_spec(dev, spec), cli);
+	common_clock_data_t *common_dev_data = CONTAINER_OF(dev, common_clock_data_t, dev);
+	xo_clock_data_t *xo_dev_data = CONTAINER_OF(common_dev_data, xo_clock_data_t, data);
+	uint32_t primary, secondary;
+
+	if (is_hi_precision(spec)) {
+		primary = 0;
+		secondary = 1;
+	} else {
+		primary = 1;
+		secondary = 0;
+	}
+
+	if (atomic_dec(&xo_dev_data->active_mgrs[secondary]) == 1) {
+		onoff_cancel_or_release(&xo_dev_data->mgr[secondary], &xo_dev_data->internal_cli[secondary]);
+	}
+
+	return onoff_cancel_or_release(&xo_dev_data->mgr[primary], cli);
 }
 
 static void onoff_start(struct onoff_manager *manager, onoff_notify_fn notify)
