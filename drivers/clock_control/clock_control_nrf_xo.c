@@ -26,7 +26,20 @@ LOG_MODULE_REGISTER(clock_control_xo, CONFIG_CLOCK_CONTROL_LOG_LEVEL);
 #define XO_USER_BT      BIT(0)
 #define XO_USER_GENERIC BIT(1)
 
+/* This is an extension to enum clock_control_status */
+#define CLOCK_CONTROL_STATUS_STARTED (CLOCK_CONTROL_STATUS_UNKNOWN + 1)
+
+typedef struct {
+	common_clock_data_t data;
+#if CONFIG_CLOCK_CONTROL_NRF_ONOFF
+	struct onoff_manager mgr_started;
+	clock_control_cb_t cb_started;
+	uint8_t active_mgrs;
+#endif
+} xo_clock_data_t;
+
 static atomic_t xo_users;
+static atomic_t zli_clock_status;
 
 #ifdef CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION
 
@@ -100,51 +113,69 @@ SYS_INIT(calibration_init, APPLICATION, 0);
 #endif /* CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION_PERIOD */
 #endif /* CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION */
 
-static void clkstarted_event_handle(void)
+void set_started_state(uint32_t *flags)
 {
-	if (COMMON_GET_STATUS(((common_clock_data_t *)CLOCK_DEVICE_XO->data)->flags) ==
-	    CLOCK_CONTROL_STATUS_STARTING) {
-		/* Handler is called only if state is set. BT specific API
-		 * does not set this state and does not require handler to
-		 * be called.
-		 */
+	unsigned int key = irq_lock();
+
+	*flags = CLOCK_CONTROL_STATUS_STARTED | COMMON_GET_CTX(*flags);
+	irq_unlock(key);
+}
+
+void clk_started_handle(const struct device *dev)
+{
+	clock_control_cb_t callback = ((xo_clock_data_t *)dev->data)->cb_started;
+
+	((common_clock_data_t *)dev->data)->cb = NULL;
+	set_started_state(&((common_clock_data_t *)dev->data)->flags);
+
+	if (callback) {
+		callback(dev, NULL, ((common_clock_data_t *)dev->data)->user_data);
+	}
+}
+
+static void clk_ready_event_handle(void)
+{
 #if CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION
 		if (NRF_ERRATA_DYNAMIC_CHECK(54L, 30)) {
 			nrf54l_errata_30_workaround();
 		}
 #endif
-		common_clkstarted_handle(CLOCK_DEVICE_XO);
-	}
+		common_clk_ready_handle(CLOCK_DEVICE_XO);
 }
 
 static void generic_xo_start(void)
 {
 	nrf_clock_hfclk_t type;
-	bool already_started = false;
+	bool clk_started = false;
+	bool clk_ready = false;
 	unsigned int key = irq_lock();
+	
+	if (atomic_or(&xo_users, XO_USER_GENERIC) & XO_USER_BT) {
 
-	xo_users |= XO_USER_GENERIC;
-	if (xo_users & XO_USER_BT) {
-		(void)nrfx_clock_xo_running_check(&type);
-		if (type == NRF_CLOCK_HFCLK_HIGH_ACCURACY) {
-			already_started = true;
-			/* Set on state in case clock interrupt comes and we
-			 * want to avoid handling that.
-			 */
-			common_set_on_state(&((common_clock_data_t *)CLOCK_DEVICE_XO->data)->flags);
+		((common_clock_data_t *)CLOCK_DEVICE_XO->data)->flags =
+			zli_clock_status | COMMON_GET_CTX(*flags);
+
+		switch(((common_clock_data_t *)CLOCK_DEVICE_XO->data)->flags & COMMON_STATUS_MASK) {
+			case CLOCK_CONTROL_STATUS_STARTED:
+				clk_started = true;
+				break;
+			case CLOCK_CONTROL_STATUS_ON:
+				clk_ready = true;
+				break;
 		}
 	}
 
 	irq_unlock(key);
 
-	if (already_started) {
+	if (clk_started) {
 		/* Clock already started by z_nrf_clock_bt_ctlr_hf_request */
-#if CONFIG_CLOCK_CONTROL_NRF_HFINT_CALIBRATION
-		if (NRF_ERRATA_DYNAMIC_CHECK(54L, 30)) {
-			nrf54l_errata_30_workaround();
-		}
-#endif
-		common_clkstarted_handle(CLOCK_DEVICE_XO);
+		clk_started_event_handle();
+		return;
+	}
+
+	if (clk_ready) {
+		/* Clock already started by z_nrf_clock_bt_ctlr_hf_request */
+		clk_ready_event_handle();
 		return;
 	}
 
@@ -170,12 +201,49 @@ static void generic_xo_stop(void)
 	irq_unlock(key);
 }
 
-static void clock_event_handler(nrfx_clock_xo_event_type_t event)
+/* XO STARTED state cannot be read from register like XO TUNED can,
+ * so to keep track of clock state in ZLI separate status system has to be added.
+ */
+static void clock_event_zli_handler(nrfx_clock_xo_event_type_t event)
 {
+	unsigned int key = irq_lock();
 	switch (event) {
 #if NRF_CLOCK_HAS_XO_TUNE
 	case NRFX_CLOCK_XO_EVT_XO_TUNED:
-		clkstarted_event_handle();
+		atomic_set(&zli_clock_status, CLOCK_CONTROL_STATUS_ON)
+		break;
+	case NRFX_CLOCK_XO_EVT_HFCLK_STARTED:
+		atomic_set(&zli_clock_status, CLOCK_CONTROL_STATUS_STARTED)
+		break;
+#else
+	/* HFCLK started should be used only if tune operation is done implicitly. */
+	case NRFX_CLOCK_XO_EVT_HFCLK_STARTED:
+		atomic_set(&zli_clock_status, CLOCK_CONTROL_STATUS_ON)
+		break;
+#endif
+	}
+
+	if(!(xo_users & XO_USER_BT)) {
+		atomic_set(&zli_clock_status, CLOCK_CONTROL_STATUS_OFF);
+	}
+
+	irq_unlock(key);
+}
+
+static void clock_event_handler(nrfx_clock_xo_event_type_t event)
+{
+	if(xo_users & XO_USER_BT) {
+		clock_event_zli_handler(event);
+	}
+
+	if(!(xo_users & XO_USER_GENERIC)) {
+		return;
+	}
+
+	switch (event) {
+#if NRF_CLOCK_HAS_XO_TUNE
+	case NRFX_CLOCK_XO_EVT_XO_TUNED:
+		clk_ready_event_handle();
 		break;
 	case NRFX_CLOCK_XO_EVT_XO_TUNE_ERROR:
 	case NRFX_CLOCK_XO_EVT_XO_TUNE_FAILED:
@@ -185,18 +253,12 @@ static void clock_event_handler(nrfx_clock_xo_event_type_t event)
 		/* HFCLK is stable after XOTUNED event.
 		 * HFCLK_STARTED means only that clock has been started.
 		 */
+		clk_started_handle();
 		break;
 #else
 	/* HFCLK started should be used only if tune operation is done implicitly. */
 	case NRFX_CLOCK_XO_EVT_HFCLK_STARTED: {
-		/* Check needed due to anomaly 201:
-		 * HFCLKSTARTED may be generated twice.
-		 */
-		if (COMMON_GET_STATUS(((common_clock_data_t *)CLOCK_DEVICE_XO->data)->flags) ==
-		    CLOCK_CONTROL_STATUS_STARTING) {
-			clkstarted_event_handle();
-		}
-
+		clk_ready_event_handle();
 		break;
 	}
 #endif
@@ -245,20 +307,196 @@ uint32_t z_nrf_clock_bt_ctlr_hf_get_startup_time_us(void)
 }
 #endif
 
+#if CONFIG_CLOCK_CONTROL_NRF_ONOFF
+
+static void onoff_started_callback(const struct device *dev, clock_control_subsys_t sys,
+				   void *user_data)
+{
+	ARG_UNUSED(sys);
+
+	onoff_notify_fn notify = user_data;
+
+	notify(&((xo_clock_data_t *)dev->data)->mgr_started, 0);
+}
+
+static struct onoff_manager *get_manager_from_spec(const struct device *dev,
+						      const struct nrf_clock_spec *spec)
+{
+	if (spec == NULL || spec->precission == NRF_CLOCK_CONTROL_PRECISION_HIGH) {
+		return &((common_clock_data_t *)dev->data)->mgr;
+	} else {
+		return &((xo_clock_data_t *)dev->data)->mgr_started;
+	}
+}
+
+static int api_request(const struct device *dev, const struct nrf_clock_spec *spec,
+		       struct onoff_client *cli)
+{
+	return onoff_request(get_manager_from_spec(dev, spec), cli);
+}
+
+static int api_release(const struct device *dev, const struct nrf_clock_spec *spec)
+{
+	return onoff_release(get_manager_from_spec(dev, spec));
+}
+
+static int api_cancel_or_release(const struct device *dev, const struct nrf_clock_spec *spec,
+				 struct onoff_client *cli)
+{
+	return onoff_cancel_or_release(get_manager_from_spec(dev, spec), cli);
+}
+
+static void onoff_start(struct onoff_manager *manager, onoff_notify_fn notify)
+{
+	int err;
+	bool start = false;
+	bool call_cb = false;
+	clock_control_cb_t* cb_ptr;
+	clock_control_cb_t cb;
+	common_clock_data_t *common_dev_data = CONTAINER_OF(manager, common_clock_data_t, mgr);
+	xo_clock_data_t *xo_dev_data = CONTAINER_OF(common_dev_data, xo_clock_data_t, data);
+	const struct device *dev = common_dev_data->dev;
+	bool started_mgr = (manager == &xo_dev_data->mgr_started);
+
+	if(started_mgr) {
+		cb = onoff_started_callback;
+		cb_ptr = &xo_dev_data->cb_started;
+	} else {
+		cb = common_onoff_ready_callback;
+		cb_ptr = &common_dev_data->cb;
+	}
+
+	unsigned int key = irq_lock();
+	uint32_t current_ctx = COMMON_GET_CTX(*flags);
+
+	xo_dev_data->active_mgrs++;
+
+	if ((*flags & (COMMON_STATUS_MASK)) == CLOCK_CONTROL_STATUS_OFF) {
+		*flags = CLOCK_CONTROL_STATUS_STARTING | ctx;
+		*cb_ptr = cb;
+		common_dev_data->user_data = notify;
+		start = true;
+	} else if (current_ctx != ctx) {
+		err = -EPERM;
+	} else if((*flags & (COMMON_STATUS_MASK)) == CLOCK_CONTROL_STATUS_STARTING) {
+		*cb_ptr = cb;
+		common_dev_data->user_data = notify;
+	} else if((*flags & (COMMON_STATUS_MASK)) == CLOCK_CONTROL_STATUS_STARTED) {
+		common_dev_data->user_data = notify;
+
+		if(started_mgr) {
+			call_cb = true;
+		} else {
+			*cb_ptr = cb;
+		}
+	} else { /* CLOCK_CONTROL_STATUS_ON */
+		common_dev_data->user_data = notify;
+		call_cb = true;
+	}
+
+	irq_unlock(key);
+
+	if(err < 0) {
+		notify(manager, err);
+		return;
+	}
+
+	if(start) {
+		dev->config->start();
+	}
+
+	if(call_cb) {
+		cb(dev, NULL, common_dev_data->user_data);
+	}
+}
+
+static void onoff_stop(struct onoff_manager *manager, onoff_notify_fn notify)
+{
+	int res;
+	bool stop = false;
+	clock_control_cb_t* cb_ptr;
+	common_clock_data_t *common_dev_data = CONTAINER_OF(manager, common_clock_data_t, mgr);
+	xo_clock_data_t *xo_dev_data = CONTAINER_OF(common_dev_data, xo_clock_data_t, data);
+	bool started_mgr = (manager == &xo_dev_data->mgr_started);
+
+	if(started_mgr) {
+		cb_ptr = &xo_dev_data->cb_started;
+	} else {
+		cb_ptr = &common_dev_data->cb;
+	}
+
+	unsigned int key = irq_lock();
+
+	xo_dev_data->active_mgrs--;
+	*cb_ptr = NULLl;
+
+	if(xo_dev_data->active_mgrs == 0) {
+		stop = true;
+	}
+
+	irq_unlock(key);
+
+	if(stop) {
+		res = common_stop(common_dev_data->dev, COMMON_CTX_ONOFF);
+	}
+	notify(manager, res);
+}
+
+#endif /* CONFIG_CLOCK_CONTROL_NRF_ONOFF */
+
 static int clk_init(const struct device *dev)
 {
+#if CONFIG_CLOCK_CONTROL_NRF_ONOFF
+	int err;
+	static const struct onoff_transitions transitions = {.start = onoff_start,
+							     .stop = onoff_stop};
+#endif
+
 	if (nrfx_clock_xo_init(clock_event_handler) != 0) {
 		return -EIO;
 	}
 
-	return common_clk_init(dev);
+	((common_clock_data_t *)dev->data)->dev = dev;
+
+	common_connect_irq();
+#if CONFIG_CLOCK_CONTROL_NRF_ONOFF
+	err = onoff_manager_init(&((common_clock_data_t *)dev->data)->mgr,
+				 &transitions);
+	if (err < 0) {
+		return err;
+	}
+
+	err = onoff_manager_init(&((xo_clock_data_t *)dev->data)->mgr_started,
+				 &transitions);
+	if (err < 0) {
+		return err;
+	}
+#endif
+
+	((common_clock_data_t *)dev->data)->flags = CLOCK_CONTROL_STATUS_OFF;
+
+	return 0;
 }
 
 CLOCK_CONTROL_NRF_IRQ_HANDLERS_ITERABLE(clock_control_nrf_xo, &nrfx_clock_xo_irq_handler);
 
 extern struct nrf_clock_control_driver_api common_clock_control_api;
 
-static common_clock_data_t data;
+DEVICE_API(nrf_clock_control_xo, xo_clock_control_api) = {
+	.std_api = {
+		.on = common_api_blocking_start,
+		.off = common_api_stop,
+		.async_on = common_api_start,
+		.get_status = common_api_get_status,
+	},
+#if CONFIG_CLOCK_CONTROL_NRF_ONOFF
+	.request = api_request,
+	.release = api_release,
+	.cancel_or_release = api_cancel_or_release,
+#endif
+};
+
+static xo_clock_data_t data;
 
 static const common_clock_config_t config = {
 	.start = generic_xo_start,

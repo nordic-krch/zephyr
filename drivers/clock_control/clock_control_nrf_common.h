@@ -141,7 +141,10 @@ int common_async_start(const struct device *dev, clock_control_cb_t cb, void *us
 
 int common_stop(const struct device *dev, uint32_t ctx);
 
-void common_clkstarted_handle(const struct device *dev);
+void common_onoff_ready_callback(const struct device *dev, clock_control_subsys_t sys,
+	void *user_data);
+
+void common_clk_ready_handle(const struct device *dev);
 
 void common_clear_pending_irq(void);
 
